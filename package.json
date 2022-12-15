@@ -1,0 +1,22 @@
+{
+  "name": "app",
+  "version": "0.8.0",
+  "description": "Checks inaturalist for images in regards to wikidata taxon items without any",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/David-J-R/wikidata-inat-checker.git"
+  },
+  "author": "Livia Rasp",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/David-J-R/wikidata-inat-checker/issues"
+  },
+  "homepage": "https://github.com/David-J-R/wikidata-inat-checker#readme",
+  "dependencies": {
+    "wikibase-sdk": "^8.1.0"
+  }
+}
