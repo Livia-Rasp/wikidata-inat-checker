@@ -102,6 +102,7 @@ dist
 
 
 inatIDsToDo.json
+inattWDPhotoCache.json
 
 # TernJS port file
 .tern-port

@@ -17,7 +17,7 @@ WHERE
      ?item p:P18 ?statement1.
        }
     )
-} LIMIT 500`;
+} LIMIT 5000`;
 
     const url = wbk.sparqlQuery(sparql);
 

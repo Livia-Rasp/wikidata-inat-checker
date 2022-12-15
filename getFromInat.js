@@ -1,7 +1,8 @@
 const fs = require('fs');
+const jsondb = require('node-json-db');
 
-let doneSet = new Set();
-let available = new Set();
+let db = new jsondb.JsonDB(new jsondb.Config("inattWDPhotoCache", true, false, ';'));
+
 
 fs.readFile('./inatIDsToDo.json', 'utf8', async (err, jsonString) => {
     if (err) {
@@ -12,11 +13,17 @@ fs.readFile('./inatIDsToDo.json', 'utf8', async (err, jsonString) => {
     
     
     for([key, val] of map){
-        await getObservationsForTaxa(key, val, available);
-        await delay(1000);
+
+        try {
+            let data = await db.getData(";done;" + key);
+        }catch(error){
+            await getObservationsForTaxa(key, val, db);
+            await delay(1000);
+        }
+
+        
     }
 
-    console.log(available);
 
 })
 
@@ -27,7 +34,7 @@ function delay(milliseconds){
     });
 }
 
-async function  getObservationsForTaxa(key, val, available, license = 'CC0') {
+async function  getObservationsForTaxa(key, val, db, license = 'CC0') {
     let inatQuery = {
         taxon_id: key,
         photo_license: license,
@@ -39,8 +46,10 @@ async function  getObservationsForTaxa(key, val, available, license = 'CC0') {
     let respo = await fetch(inatURL, {method: 'GET'})
     let respoJson = await respo.json();
     if(respoJson[0]){
-        available.add(val);
+        //available.add(val);
+        db.push(";available;" + val, true);
     }
     
+    db.push(";done;" + key, true);
     
 }
