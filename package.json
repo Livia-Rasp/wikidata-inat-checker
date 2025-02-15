@@ -8,14 +8,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/David-J-R/wikidata-inat-checker.git"
+    "url": "git+https://github.com/Livia-Rasp/wikidata-inat-checker.git"
   },
   "author": "Livia Rasp",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/David-J-R/wikidata-inat-checker/issues"
+    "url": "https://github.com/Livia-Rasp/wikidata-inat-checker/issues"
   },
-  "homepage": "https://github.com/David-J-R/wikidata-inat-checker#readme",
+  "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
     "node-json-db": "^2.1.3",
     "wikibase-sdk": "^8.1.0"
