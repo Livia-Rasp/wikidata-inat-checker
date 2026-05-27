@@ -1,5 +1,6 @@
 import WBK from 'wikibase-sdk';
 import fs from 'fs';
+import { processInatIds } from './getFromInat.js';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -32,7 +33,7 @@ WHERE
             inatToWD.set(element.inatID.value, element.item.value);
         }
         return (inatToWD);
-    }).then(inatToWD => {
+    }).then(async inatToWD => {
         const obj = Object.fromEntries(inatToWD);
 
         fs.writeFile(outFile, JSON.stringify(obj, null, 2), 'utf8', function (err) {
@@ -44,6 +45,9 @@ WHERE
             console.log("JSON file has been saved.");
         });
 
+        console.log("Checking " + inatToWD.size + " taxa against iNat for CC0 photos...");
+        await processInatIds(inatToWD);
+        console.log("iNat check complete.");
     });
 }
 

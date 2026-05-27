@@ -1,55 +1,36 @@
-import fs from 'fs';
 import { JsonDB, Config } from 'node-json-db';
 
-let db = new JsonDB(new Config("inattWDPhotoCache", true, false, ';'));
+const db = new JsonDB(new Config("inattWDPhotoCache", true, false, ';'));
 
-
-fs.readFile('./inatIDsToDo.json', 'utf8', async (err, jsonString) => {
-    if (err) {
-        console.log("File read failed:", err)
-        return
-    }
-    const map = new Map(Object.entries(JSON.parse(jsonString)))
-    
-    
-    for(const [key, val] of map){
-
-        try {
-            let data = await db.getData(";done;" + key);
-        }catch(error){
-            await getObservationsForTaxa(key, val, db);
-            await delay(1000);
-        }
-
-        
-    }
-
-
-})
-
-
-function delay(milliseconds){
-    return new Promise(resolve => {
-        setTimeout(resolve, milliseconds);
-    });
+function delay(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-async function  getObservationsForTaxa(key, val, db, license = 'CC0') {
-    let inatQuery = {
+async function getObservationsForTaxa(key, val, license = 'CC0') {
+    const inatQuery = {
         taxon_id: key,
         photo_license: license,
         quality_grade: 'research'
     };
 
-    let inatURL = 'https://www.inaturalist.org/observations.json?' + new URLSearchParams(inatQuery);
+    const inatURL = 'https://www.inaturalist.org/observations.json?' + new URLSearchParams(inatQuery);
 
-    let respo = await fetch(inatURL, {method: 'GET'})
-    let respoJson = await respo.json();
-    if(respoJson[0]){
-        //available.add(val);
-        db.push(";available;" + val, true);
+    const respo = await fetch(inatURL, { method: 'GET' });
+    const respoJson = await respo.json();
+    if (respoJson[0]) {
+        await db.push(";available;" + val, true);
     }
-    
-    db.push(";done;" + key, true);
-    
+
+    await db.push(";done;" + key, true);
+}
+
+export async function processInatIds(map) {
+    for (const [key, val] of map) {
+        try {
+            await db.getData(";done;" + key);
+        } catch (error) {
+            await getObservationsForTaxa(key, val);
+            await delay(1000);
+        }
+    }
 }
