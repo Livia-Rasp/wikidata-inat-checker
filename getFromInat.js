@@ -6,7 +6,7 @@ function delay(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-async function getObservationsForTaxa(key, val, license = 'CC0') {
+async function getObservationsForTaxa(key, val, license = 'CC0,CC-BY,CC-BY-SA') {
     const inatQuery = {
         taxon_id: key,
         photo_license: license,
