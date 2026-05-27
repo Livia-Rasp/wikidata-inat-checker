@@ -7,20 +7,24 @@ const wbk = WBK({
     sparqlEndpoint: 'https://query.wikidata.org/sparql'
 });
 
-getInatIdToWD("inatIDsToDo.json");
+const DEFAULT_LIMIT = 5000;
+const limitArg = Number.parseInt(process.argv[2], 10);
+const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
 
-function getInatIdToWD(outFile) {
+getInatIdToWD("inatIDsToDo.json", limit);
+
+function getInatIdToWD(outFile, limit) {
     const sparql = `SELECT ?item ?inatID
-WHERE 
+WHERE
 {
-  ?item wdt:P31 wd:Q16521 . 
+  ?item wdt:P31 wd:Q16521 .
   ?item wdt:P3151 ?inatID .
   FILTER (
      !EXISTS {
      ?item p:P18 ?statement1.
        }
     )
-} LIMIT 5000`;
+} LIMIT ${limit}`;
 
     const url = wbk.sparqlQuery(sparql);
 
