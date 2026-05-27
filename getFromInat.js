@@ -1,6 +1,6 @@
 import { JsonDB, Config } from 'node-json-db';
 
-const db = new JsonDB(new Config("inattWDPhotoCache", true, false, ';'));
+const db = new JsonDB(new Config("inattWDPhotoCache", true, true, ';'));
 
 function delay(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
