@@ -1,7 +1,7 @@
-const fs = require('fs');
-const jsondb = require('node-json-db');
+import fs from 'fs';
+import { JsonDB, Config } from 'node-json-db';
 
-let db = new jsondb.JsonDB(new jsondb.Config("inattWDPhotoCache", true, false, ';'));
+let db = new JsonDB(new Config("inattWDPhotoCache", true, false, ';'));
 
 
 fs.readFile('./inatIDsToDo.json', 'utf8', async (err, jsonString) => {
@@ -12,7 +12,7 @@ fs.readFile('./inatIDsToDo.json', 'utf8', async (err, jsonString) => {
     const map = new Map(Object.entries(JSON.parse(jsonString)))
     
     
-    for([key, val] of map){
+    for(const [key, val] of map){
 
         try {
             let data = await db.getData(";done;" + key);

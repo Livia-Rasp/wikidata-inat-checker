@@ -1,12 +1,14 @@
-const wbk = require('wikibase-sdk')({
+import WBK from 'wikibase-sdk';
+import fs from 'fs';
+
+const wbk = WBK({
     instance: 'https://www.wikidata.org',
     sparqlEndpoint: 'https://query.wikidata.org/sparql'
-  })
-const fs = require('fs');
+});
 
-getInatIdToWD(outFile = "inatIDsToDo.json");
+getInatIdToWD("inatIDsToDo.json");
 
-function getInatIdToWD() {
+function getInatIdToWD(outFile) {
     const sparql = `SELECT ?item ?inatID
 WHERE 
 {
@@ -21,13 +23,11 @@ WHERE
 
     const url = wbk.sparqlQuery(sparql);
 
-    const headers = { 'Api-User-Agent': 'Example/1.0' };
+    const headers = { 'User-Agent': 'wikidata-inat-checker/0.8.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
-
-
-    fetch(url).then(response => response.json()).then(jsonRes => {
+    fetch(url, { headers }).then(response => response.json()).then(jsonRes => {
         let inatToWD = new Map();
-        for (i in jsonRes.results.bindings) {
+        for (const i in jsonRes.results.bindings) {
             const element = jsonRes.results.bindings[i];
             inatToWD.set(element.inatID.value, element.item.value);
         }
@@ -35,7 +35,7 @@ WHERE
     }).then(inatToWD => {
         const obj = Object.fromEntries(inatToWD);
 
-        fs.writeFile(outFile, JSON.stringify(obj), 'utf8', function (err) {
+        fs.writeFile(outFile, JSON.stringify(obj, null, 2), 'utf8', function (err) {
             if (err) {
                 console.log("An error occured while writing JSON Object to File.");
                 return console.log(err);
