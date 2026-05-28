@@ -52,7 +52,9 @@ async function processBatch(batch, license) {
     }
 
     for (const taxonId of matched) {
-        await db.push(';available;' + idToWd.get(taxonId), true);
+        const wdUri = idToWd.get(taxonId);
+        await db.push(';available;' + wdUri, true);
+        await db.push(';inatTaxonId;' + wdUri, taxonId);
     }
     for (const taxonId of taxonIds) {
         await db.push(';done;' + taxonId, true);

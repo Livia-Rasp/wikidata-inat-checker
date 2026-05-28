@@ -22,6 +22,9 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
         return;
     }
 
+    let inatTaxonIds = {};
+    try { inatTaxonIds = await db.getData(';inatTaxonId'); } catch {}
+
     const entries = Object.entries(drafts);
     if (entries.length === 0) {
         console.log('No drafts to render.');
@@ -38,8 +41,16 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
         const commonsCell = commonsUrl
             ? `<a href="${escapeHtml(commonsUrl)}" target="_blank">${escapeHtml(taxonName)}</a>`
             : '&mdash;';
+        const inatTaxonId = inatTaxonIds[uri];
+        const inatUrl = inatTaxonId
+            ? `https://www.inaturalist.org/observations?taxon_id=${inatTaxonId}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`
+            : null;
+        const inatCell = inatUrl
+            ? `<a href="${escapeHtml(inatUrl)}" target="_blank">${inatTaxonId}</a>`
+            : '&mdash;';
         return `    <tr>
       <td class="wd-col"><a href="${escapeHtml(uri)}" target="_blank">${qid}</a></td>
+      <td class="inat-col">${inatCell}</td>
       <td class="commons-col">${commonsCell}</td>
       <td class="draft-col">
         <pre class="draft" onclick="copy(this)">${escapeHtml(wikitext)}</pre>
@@ -64,6 +75,7 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
          border-bottom: 1px solid #e8e8e8; }
     .wd-col { width: 9em; white-space: nowrap; }
     .wd-col a { font-family: monospace; font-size: 0.9em; }
+    .inat-col { width: 7em; font-size: 0.85em; font-family: monospace; }
     .commons-col { width: 16em; font-size: 0.85em; }
     .draft-col { position: relative; }
     .draft {
@@ -88,6 +100,7 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
     <thead>
       <tr>
         <th>Wikidata item</th>
+        <th>iNat taxon</th>
         <th>Commons category</th>
         <th>Draft Wikitext (click to copy)</th>
       </tr>
