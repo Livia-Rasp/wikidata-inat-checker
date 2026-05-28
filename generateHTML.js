@@ -1,7 +1,5 @@
 import fs from 'fs';
-import { JsonDB, Config } from 'node-json-db';
-
-const db = new JsonDB(new Config("inattWDPhotoCache", false, true, ';'));
+import { db, dbPath } from './db.js';
 
 function escapeHtml(str) {
     return str
@@ -11,44 +9,27 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-export async function generateDraftsHTML(outputFile = 'drafts.html') {
-    await db.reload();
+function buildRow(uri, wikitext, inatTaxonIds) {
+    const qid = uri.split('/').pop();
 
-    let drafts;
-    try {
-        drafts = await db.getData(';drafts');
-    } catch {
-        console.log('No drafts found, skipping HTML generation.');
-        return;
-    }
+    const taxonMatch = wikitext.match(/Species\|([^|}\n]+)/);
+    const taxonName = taxonMatch ? taxonMatch[1].trim() : null;
+    const commonsUrl = taxonName
+        ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}&action=edit`
+        : null;
+    const commonsCell = commonsUrl
+        ? `<a href="${escapeHtml(commonsUrl)}" target="_blank">${escapeHtml(taxonName)}</a>`
+        : '&mdash;';
 
-    let inatTaxonIds = {};
-    try { inatTaxonIds = await db.getData(';inatTaxonId'); } catch {}
+    const inatTaxonId = inatTaxonIds[uri];
+    const inatUrl = inatTaxonId
+        ? `https://www.inaturalist.org/observations?taxon_id=${inatTaxonId}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`
+        : null;
+    const inatCell = inatUrl
+        ? `<a href="${escapeHtml(inatUrl)}" target="_blank">${inatTaxonId}</a>`
+        : '&mdash;';
 
-    const entries = Object.entries(drafts);
-    if (entries.length === 0) {
-        console.log('No drafts to render.');
-        return;
-    }
-
-    const rows = entries.map(([uri, wikitext]) => {
-        const qid = uri.split('/').pop();
-        const taxonMatch = wikitext.match(/Species\|([^|}\n]+)/);
-        const taxonName = taxonMatch ? taxonMatch[1].trim() : null;
-        const commonsUrl = taxonName
-            ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}&action=edit`
-            : null;
-        const commonsCell = commonsUrl
-            ? `<a href="${escapeHtml(commonsUrl)}" target="_blank">${escapeHtml(taxonName)}</a>`
-            : '&mdash;';
-        const inatTaxonId = inatTaxonIds[uri];
-        const inatUrl = inatTaxonId
-            ? `https://www.inaturalist.org/observations?taxon_id=${inatTaxonId}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`
-            : null;
-        const inatCell = inatUrl
-            ? `<a href="${escapeHtml(inatUrl)}" target="_blank">${inatTaxonId}</a>`
-            : '&mdash;';
-        return `    <tr id="row-${qid}">
+    return `    <tr id="row-${qid}">
       <td class="check-col"><input type="checkbox" id="cb-${qid}" onchange="setDone('${qid}', this.checked)"></td>
       <td class="wd-col"><a href="${escapeHtml(uri)}" target="_blank">${qid}</a></td>
       <td class="inat-col">${inatCell}</td>
@@ -58,7 +39,29 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
         <span class="hint">Copied!</span>
       </td>
     </tr>`;
-    }).join('\n');
+}
+
+export async function generateDraftsHTML(outputFile = 'drafts.html') {
+    await db.reload();
+
+    let drafts;
+    try {
+        drafts = await db.getData(dbPath.allDrafts);
+    } catch {
+        console.log('No drafts found, skipping HTML generation.');
+        return;
+    }
+
+    let inatTaxonIds = {};
+    try { inatTaxonIds = await db.getData(dbPath.allInatTaxonIds); } catch {}
+
+    const entries = Object.entries(drafts);
+    if (entries.length === 0) {
+        console.log('No drafts to render.');
+        return;
+    }
+
+    const rows = entries.map(([uri, wikitext]) => buildRow(uri, wikitext, inatTaxonIds)).join('\n');
 
     const html = `<!DOCTYPE html>
 <html lang="en">

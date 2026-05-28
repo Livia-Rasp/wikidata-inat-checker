@@ -1,12 +1,14 @@
 import { simplify } from 'wikibase-sdk';
-import { JsonDB, Config } from 'node-json-db';
-
-const db = new JsonDB(new Config("inattWDPhotoCache", false, true, ';'));
+import { db, dbPath } from './db.js';
 
 const BATCH_SIZE = 50;
 const RANK_GENUS = 'Q34740';
 const RANK_FAMILY = 'Q35409';
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function qidFromUri(uri) {
     return uri.split('/').pop();
@@ -45,11 +47,11 @@ async function buildAncestorCache(itemQids) {
     let frontier = new Set(itemQids);
 
     for (let depth = 0; depth < 5 && frontier.size > 0; depth++) {
-        if (depth > 0) await new Promise(r => setTimeout(r, 1000));
+        if (depth > 0) await delay(1000);
 
         const toFetch = [...frontier].filter(q => !cache[q]);
         for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-            if (i > 0) await new Promise(r => setTimeout(r, 1000));
+            if (i > 0) await delay(1000);
             const batch = toFetch.slice(i, i + BATCH_SIZE);
             const data = await fetchEntities(batch);
             for (const qid of batch) {
@@ -121,7 +123,7 @@ export async function generateDraftWikitext() {
 
     let available;
     try {
-        available = await db.getData(';available');
+        available = await db.getData(dbPath.allAvailable);
     } catch {
         console.log('No available items found, skipping draft generation.');
         return;
@@ -130,7 +132,7 @@ export async function generateDraftWikitext() {
     const wdUris = Object.keys(available);
     const todo = [];
     for (const uri of wdUris) {
-        if (!(await db.exists(';drafts;' + uri))) todo.push(uri);
+        if (!(await db.exists(dbPath.draft(uri)))) todo.push(uri);
     }
 
     if (todo.length === 0) {
@@ -149,7 +151,7 @@ export async function generateDraftWikitext() {
         if (!itemData) continue;
         const { genus, family } = resolveGenusAndFamily(qid, cache);
         const wikitext = buildWikitext(itemData, genus, family);
-        if (wikitext) await db.push(';drafts;' + uriByQid[qid], wikitext);
+        if (wikitext) await db.push(dbPath.draft(uriByQid[qid]), wikitext);
     }
 
     await db.save();

@@ -1,6 +1,4 @@
-import { JsonDB, Config } from 'node-json-db';
-
-const db = new JsonDB(new Config("inattWDPhotoCache", false, true, ';'));
+import { db, dbPath } from './db.js';
 
 const BATCH_SIZE = 50;
 const REQUEST_INTERVAL_MS = 1000;
@@ -53,11 +51,11 @@ async function processBatch(batch, license) {
 
     for (const taxonId of matched) {
         const wdUri = idToWd.get(taxonId);
-        await db.push(';available;' + wdUri, true);
-        await db.push(';inatTaxonId;' + wdUri, taxonId);
+        await db.push(dbPath.available(wdUri), true);
+        await db.push(dbPath.inatTaxonId(wdUri), taxonId);
     }
     for (const taxonId of taxonIds) {
-        await db.push(';done;' + taxonId, true);
+        await db.push(dbPath.done(taxonId), true);
     }
     return { matched: matched.size, queried: taxonIds.length };
 }
@@ -65,7 +63,7 @@ async function processBatch(batch, license) {
 export async function processInatIds(map, license = DEFAULT_LICENSE) {
     const todo = [];
     for (const [key, val] of map) {
-        if (!(await db.exists(';done;' + key))) todo.push([key, val]);
+        if (!(await db.exists(dbPath.done(key)))) todo.push([key, val]);
     }
     console.log(`${todo.length} taxa to query (skipping ${map.size - todo.length} already done)`);
 
