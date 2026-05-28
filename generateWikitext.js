@@ -100,7 +100,7 @@ function buildWikitext(itemData, genus, familyName) {
     }
     taxonavLines.push(`Genus|${resolvedGenus}|`);
     taxonavLines.push(`Species|${taxonName}|`);
-    taxonavLines.push(`authority=<!-- authority -->`);
+    taxonavLines.push(`authority=`);
 
     const lines = [
         '{{Wikidata Infobox}}',
