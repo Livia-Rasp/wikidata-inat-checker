@@ -33,7 +33,7 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
         const taxonMatch = wikitext.match(/Species\|([^|}\n]+)/);
         const taxonName = taxonMatch ? taxonMatch[1].trim() : null;
         const commonsUrl = taxonName
-            ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}`
+            ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}&action=edit`
             : null;
         const commonsCell = commonsUrl
             ? `<a href="${escapeHtml(commonsUrl)}" target="_blank">${escapeHtml(taxonName)}</a>`
