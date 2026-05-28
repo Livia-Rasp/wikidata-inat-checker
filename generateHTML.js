@@ -30,8 +30,17 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
 
     const rows = entries.map(([uri, wikitext]) => {
         const qid = uri.split('/').pop();
+        const taxonMatch = wikitext.match(/Species\|([^|}\n]+)/);
+        const taxonName = taxonMatch ? taxonMatch[1].trim() : null;
+        const commonsUrl = taxonName
+            ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}`
+            : null;
+        const commonsCell = commonsUrl
+            ? `<a href="${escapeHtml(commonsUrl)}" target="_blank">${escapeHtml(taxonName)}</a>`
+            : '&mdash;';
         return `    <tr>
       <td class="wd-col"><a href="${escapeHtml(uri)}" target="_blank">${qid}</a></td>
+      <td class="commons-col">${commonsCell}</td>
       <td class="draft-col">
         <pre class="draft" onclick="copy(this)">${escapeHtml(wikitext)}</pre>
         <span class="hint">Copied!</span>
@@ -55,6 +64,7 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
          border-bottom: 1px solid #e8e8e8; }
     .wd-col { width: 9em; white-space: nowrap; }
     .wd-col a { font-family: monospace; font-size: 0.9em; }
+    .commons-col { width: 16em; font-size: 0.85em; }
     .draft-col { position: relative; }
     .draft {
       font-family: monospace; font-size: 0.82em; white-space: pre-wrap;
@@ -78,6 +88,7 @@ export async function generateDraftsHTML(outputFile = 'drafts.html') {
     <thead>
       <tr>
         <th>Wikidata item</th>
+        <th>Commons category</th>
         <th>Draft Wikitext (click to copy)</th>
       </tr>
     </thead>
