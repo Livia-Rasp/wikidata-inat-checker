@@ -6,7 +6,7 @@ const db = new JsonDB(new Config("inattWDPhotoCache", false, true, ';'));
 const BATCH_SIZE = 50;
 const RANK_GENUS = 'Q34740';
 const RANK_FAMILY = 'Q35409';
-const HEADERS = { 'User-Agent': 'wikidata-inat-checker/0.8.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
+const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
 function qidFromUri(uri) {
     return uri.split('/').pop();

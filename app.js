@@ -30,7 +30,7 @@ WHERE
 
     const url = wbk.sparqlQuery(sparql);
 
-    const headers = { 'User-Agent': 'wikidata-inat-checker/0.8.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
+    const headers = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
     fetch(url, { headers }).then(response => response.json()).then(jsonRes => {
         let inatToWD = new Map();
