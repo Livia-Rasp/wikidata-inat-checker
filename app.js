@@ -1,6 +1,7 @@
 import WBK from 'wikibase-sdk';
 import fs from 'fs';
 import { processInatIds } from './getFromInat.js';
+import { generateDraftWikitext } from './generateWikitext.js';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -52,6 +53,8 @@ WHERE
         console.log("Checking " + inatToWD.size + " taxa against iNat for CC0 photos...");
         await processInatIds(inatToWD);
         console.log("iNat check complete.");
+        await generateDraftWikitext();
+        console.log("Draft Wikitext generation complete.");
     });
 }
 
