@@ -2,6 +2,7 @@ import WBK from 'wikibase-sdk';
 import fs from 'fs';
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
+import { generateDraftsHTML } from './generateHTML.js';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -55,6 +56,8 @@ WHERE
         console.log("iNat check complete.");
         await generateDraftWikitext();
         console.log("Draft Wikitext generation complete.");
+        await generateDraftsHTML();
+        console.log("HTML export complete.");
     });
 }
 
