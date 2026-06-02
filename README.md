@@ -6,7 +6,7 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 
 1. Queries Wikidata via SPARQL for taxon items that have an iNaturalist taxon ID (P3151) but no image (P18). Writes the result to `inatIDsToDo.json`.
 2. For each of those taxa, asks iNat whether there is at least one research-grade observation whose photo is licensed CC0, CC BY, or CC BY-SA. Taxa with a hit are recorded under `available` in `inattWDPhotoCache.json`; every checked taxon is recorded under `done` so re-runs skip work that's already been done.
-3. For each available taxon, queries Wikidata for taxon name, NCBI/EOL identifiers, Wikispecies page, and taxonomy (genus, family) and generates a draft Commons category Wikitext, stored under `drafts` in `inattWDPhotoCache.json`.
+3. For each available taxon, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, and taxonomy (genus, family) and generates a draft Commons category Wikitext, stored under `drafts` in `inattWDPhotoCache.json`.
 4. Exports all drafts to `drafts.html` — a table with five columns: a done checkbox, a Wikidata item link, a filtered iNaturalist observations link, a Commons category edit link, and the draft Wikitext. Clicking the draft text copies it to the clipboard.
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 50 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
@@ -46,7 +46,7 @@ A single run produces three output files:
 | Wikidata item | Link to the Wikidata entity (e.g. `Q15438811`). |
 | iNat taxon | Link to the filtered iNaturalist observations page for that taxon (research-grade, CC0/CC-BY/CC-BY-SA), so you can preview candidate photos without a separate lookup. |
 | Commons category | Opens the Commons category page in edit mode — ready to paste if it doesn't exist yet, or to edit if it does. |
-| Draft Wikitext | Click to copy to clipboard. Includes `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, `{{VN}}`, NCBI/EOL identifiers, and the parent category link. Fill in `authority=` manually if needed. |
+| Draft Wikitext | Click to copy to clipboard. Includes `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, `{{VN}}`, NCBI/EOL/MycoBank/Index Fungorum identifiers (whichever are present on the Wikidata item), and the parent category link. Fill in `authority=` manually if needed. |
 
 ## Typical workflow
 

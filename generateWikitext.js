@@ -36,6 +36,8 @@ function parseEntity(entity) {
         rank: claims.P105?.[0],
         ncbi: claims.P685?.[0],
         eol: claims.P830?.[0],
+        mycobank: claims.P962?.[0],
+        fungorum: claims.P1391?.[0],
         hasWikispecies: !!entity.sitelinks?.specieswiki
     };
 }
@@ -88,7 +90,7 @@ function resolveGenusAndFamily(qid, cache) {
 }
 
 function buildWikitext(itemData, genus, familyName) {
-    const { taxonName, ncbi, eol, hasWikispecies } = itemData;
+    const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies } = itemData;
     if (!taxonName) return null;
 
     const parts = taxonName.split(' ');
@@ -112,6 +114,9 @@ function buildWikitext(itemData, genus, familyName) {
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
     if (eol) lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
+    const fungorumTemplate = rank === RANK_GENUS ? 'Fungorum genus' : 'Fungorum species';
+    if (mycobank) lines.push(`* {{MycoBank|${mycobank}|''${taxonName}''}}`);
+    if (fungorum) lines.push(`* {{${fungorumTemplate}|${fungorum}|''${taxonName}''}}`);
     lines.push('');
     lines.push(`[[Category:${resolvedGenus}|${epithet}]]`);
 
