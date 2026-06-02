@@ -101,8 +101,6 @@ dist
 .dynamodb/
 
 
-inatIDsToDo.json
-inattWDPhotoCache.json
 drafts.html
 
 # TernJS port file

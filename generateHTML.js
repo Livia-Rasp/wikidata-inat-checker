@@ -1,5 +1,4 @@
 import fs from 'fs';
-import { db, dbPath } from './db.js';
 
 function escapeHtml(str) {
     return str
@@ -41,20 +40,7 @@ function buildRow(uri, wikitext, inatTaxonIds) {
     </tr>`;
 }
 
-export async function generateDraftsHTML(outputFile = 'drafts.html') {
-    await db.reload();
-
-    let drafts;
-    try {
-        drafts = await db.getData(dbPath.allDrafts);
-    } catch {
-        console.log('No drafts found, skipping HTML generation.');
-        return;
-    }
-
-    let inatTaxonIds = {};
-    try { inatTaxonIds = await db.getData(dbPath.allInatTaxonIds); } catch {}
-
+export async function generateDraftsHTML(drafts, inatTaxonIds, outputFile = 'drafts.html') {
     const entries = Object.entries(drafts);
     if (entries.length === 0) {
         console.log('No drafts to render.');

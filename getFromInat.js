@@ -1,8 +1,5 @@
-import { db, dbPath } from './db.js';
-
 const BATCH_SIZE = 50;
 const REQUEST_INTERVAL_MS = 1000;
-const SAVE_EVERY_BATCH = 5;
 const PER_PAGE = 500;
 const API_URL = 'https://api.inaturalist.org/v1/observations/species_counts';
 const DEFAULT_LICENSE = 'cc0,cc-by,cc-by-sa';
@@ -49,46 +46,37 @@ async function processBatch(batch, license) {
         page++;
     }
 
-    for (const taxonId of matched) {
-        const wdUri = idToWd.get(taxonId);
-        await db.push(dbPath.available(wdUri), true);
-        await db.push(dbPath.inatTaxonId(wdUri), taxonId);
-    }
-    for (const taxonId of taxonIds) {
-        await db.push(dbPath.done(taxonId), true);
-    }
-    return { matched: matched.size, queried: taxonIds.length };
+    return [...matched].map(taxonId => ({ wdUri: idToWd.get(taxonId), taxonId }));
 }
 
 export async function processInatIds(map, license = DEFAULT_LICENSE) {
-    const todo = [];
-    for (const [key, val] of map) {
-        if (!(await db.exists(dbPath.done(key)))) todo.push([key, val]);
-    }
-    console.log(`${todo.length} taxa to query (skipping ${map.size - todo.length} already done)`);
+    const todo = [...map];
+    console.log(`Querying ${todo.length} taxa against iNat...`);
 
     const batches = [];
     for (let i = 0; i < todo.length; i += BATCH_SIZE) {
         batches.push(todo.slice(i, i + BATCH_SIZE));
     }
 
-    const flushOnExit = async () => {
-        await db.save();
-        process.exit(0);
-    };
-    process.once('SIGINT', flushOnExit);
-
+    const available = {};
+    const inatTaxonIds = {};
     let totalMatched = 0;
+
     for (let i = 0; i < batches.length; i++) {
         try {
-            const { matched } = await processBatch(batches[i], license);
-            totalMatched += matched;
+            const results = await processBatch(batches[i], license);
+            for (const { wdUri, taxonId } of results) {
+                available[wdUri] = true;
+                inatTaxonIds[wdUri] = taxonId;
+            }
+            totalMatched += results.length;
         } catch (error) {
             console.error('batch', i + 1, 'error:', error.message);
         }
-        if ((i + 1) % SAVE_EVERY_BATCH === 0 || i === batches.length - 1) {
-            await db.save();
+        if ((i + 1) % 5 === 0 || i === batches.length - 1) {
             console.log(`progress: batch ${i + 1}/${batches.length}, available so far: ${totalMatched}`);
         }
     }
+
+    return { available, inatTaxonIds };
 }

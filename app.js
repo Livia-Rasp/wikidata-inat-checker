@@ -1,5 +1,4 @@
 import WBK from 'wikibase-sdk';
-import fs from 'fs';
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
@@ -13,7 +12,7 @@ const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
 
-async function getInatIdToWD(outFile, limit) {
+async function run(limit) {
     const sparql = `SELECT ?item ?inatID
 WHERE
 {
@@ -34,22 +33,20 @@ WHERE
     for (const binding of jsonRes.results.bindings) {
         inatToWD.set(binding.inatID.value, binding.item.value);
     }
-
-    await fs.promises.writeFile(outFile, JSON.stringify(Object.fromEntries(inatToWD), null, 2), 'utf8');
-    console.log("JSON file has been saved.");
+    console.log(`Found ${inatToWD.size} taxa without images.`);
 
     console.log(`Checking ${inatToWD.size} taxa against iNat for CC0 photos...`);
-    await processInatIds(inatToWD);
+    const { available, inatTaxonIds } = await processInatIds(inatToWD);
     console.log("iNat check complete.");
 
-    await generateDraftWikitext();
+    const drafts = await generateDraftWikitext(available);
     console.log("Draft Wikitext generation complete.");
 
-    await generateDraftsHTML();
+    await generateDraftsHTML(drafts, inatTaxonIds);
     console.log("HTML export complete.");
 }
 
-getInatIdToWD("inatIDsToDo.json", limit).catch(err => {
+run(limit).catch(err => {
     console.error('Fatal error:', err);
     process.exit(1);
 });

@@ -4,9 +4,9 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 
 ## How it works
 
-1. Queries Wikidata via SPARQL for taxon items that have an iNaturalist taxon ID (P3151) but no image (P18). Writes the result to `inatIDsToDo.json`.
-2. For each of those taxa, asks iNat whether there is at least one research-grade observation whose photo is licensed CC0, CC BY, or CC BY-SA. Taxa with a hit are recorded under `available` in `inattWDPhotoCache.json`; every checked taxon is recorded under `done` so re-runs skip work that's already been done.
-3. For each available taxon, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, and taxonomy (genus, family) and generates a draft Commons category Wikitext, stored under `drafts` in `inattWDPhotoCache.json`.
+1. Queries Wikidata via SPARQL for taxon items that have an iNaturalist taxon ID (P3151) but no image (P18).
+2. For each of those taxa, asks iNat whether there is at least one research-grade observation whose photo is licensed CC0, CC BY, or CC BY-SA. All data is kept in memory.
+3. For each taxon with a hit, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, and taxonomy (genus, family) and generates a draft Commons category Wikitext.
 4. Exports all drafts to `drafts.html` — a table with five columns: a done checkbox, a Wikidata item link, a filtered iNaturalist observations link, a Commons category edit link, and the draft Wikitext. Clicking the draft text copies it to the clipboard.
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 50 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
@@ -30,12 +30,10 @@ npm start -- 500     # custom limit
 
 The positional argument is passed to the SPARQL `LIMIT` clause, controlling how many image-less taxa are fetched from Wikidata. Note the `--` separator — it's required so npm forwards the value to the script rather than interpreting it itself.
 
-A single run produces three output files:
+A single run produces one output file:
 
 | File | Description |
 |---|---|
-| `inatIDsToDo.json` | Wikidata → iNat ID map from the SPARQL query. |
-| `inattWDPhotoCache.json` | Persistent cache of processed taxa (`done`), taxa with a matching iNat photo (`available`), and generated Wikitext drafts (`drafts`). Deleting it triggers a full rescan; partial runs resume from where they left off. |
 | `drafts.html` | Human-readable overview of all drafts. See below for column details. |
 
 ### drafts.html columns

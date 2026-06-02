@@ -1,5 +1,4 @@
 import { simplify } from 'wikibase-sdk';
-import { db, dbPath } from './db.js';
 
 const BATCH_SIZE = 50;
 const RANK_GENUS = 'Q34740';
@@ -123,42 +122,27 @@ function buildWikitext(itemData, genus, familyName) {
     return lines.join('\n');
 }
 
-export async function generateDraftWikitext() {
-    await db.reload();
-
-    let available;
-    try {
-        available = await db.getData(dbPath.allAvailable);
-    } catch {
-        console.log('No available items found, skipping draft generation.');
-        return;
-    }
-
+export async function generateDraftWikitext(available) {
     const wdUris = Object.keys(available);
-    const todo = [];
-    for (const uri of wdUris) {
-        if (!(await db.exists(dbPath.draft(uri)))) todo.push(uri);
+    if (wdUris.length === 0) {
+        console.log('No available items, skipping draft generation.');
+        return {};
     }
+    console.log(`Generating Wikitext drafts for ${wdUris.length} items...`);
 
-    if (todo.length === 0) {
-        console.log('All Wikitext drafts already up to date.');
-        return;
-    }
-    console.log(`Generating Wikitext drafts for ${todo.length} items...`);
-
-    const qids = todo.map(qidFromUri);
-    const uriByQid = Object.fromEntries(todo.map(uri => [qidFromUri(uri), uri]));
+    const qids = wdUris.map(qidFromUri);
+    const uriByQid = Object.fromEntries(wdUris.map(uri => [qidFromUri(uri), uri]));
 
     const cache = await buildAncestorCache(qids);
 
+    const drafts = {};
     for (const qid of qids) {
         const itemData = cache[qid];
         if (!itemData) continue;
         const { genus, family } = resolveGenusAndFamily(qid, cache);
         const wikitext = buildWikitext(itemData, genus, family);
-        if (wikitext) await db.push(dbPath.draft(uriByQid[qid]), wikitext);
+        if (wikitext) drafts[uriByQid[qid]] = wikitext;
     }
 
-    await db.save();
-    console.log(`Generated ${todo.length} Wikitext drafts.`);
+    return drafts;
 }

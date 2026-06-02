@@ -29,7 +29,6 @@
   },
   "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
-    "node-json-db": "^2.6.0",
     "wikibase-sdk": "^11.6.1"
   }
 }
