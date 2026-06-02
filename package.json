@@ -29,6 +29,7 @@
   },
   "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
+    "p-limit": "^7.3.0",
     "wikibase-sdk": "^11.6.1"
   }
 }

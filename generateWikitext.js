@@ -1,12 +1,15 @@
 import { simplify } from 'wikibase-sdk';
+import pLimit from 'p-limit';
 
-const BATCH_SIZE = 50;
-const RANK_GENUS = 'Q34740';
+const ENTITY_BATCH  = 50;
+const RANK_GENUS  = 'Q34740';
 const RANK_FAMILY = 'Q35409';
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function chunk(arr, n) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
 }
 
 function qidFromUri(uri) {
@@ -32,32 +35,31 @@ function parseEntity(entity) {
     return {
         taxonName: claims.P225?.[0],
         parentQid: claims.P171?.[0],
-        rank: claims.P105?.[0],
-        ncbi: claims.P685?.[0],
-        eol: claims.P830?.[0],
-        mycobank: claims.P962?.[0],
-        fungorum: claims.P1391?.[0],
+        rank:      claims.P105?.[0],
+        ncbi:      claims.P685?.[0],
+        eol:       claims.P830?.[0],
+        mycobank:  claims.P962?.[0],
+        fungorum:  claims.P1391?.[0],
         hasWikispecies: !!entity.sitelinks?.specieswiki
     };
 }
 
-// Fetches entities in rounds, following P171 (parent taxon) links up the
-// taxonomy tree until genus and family are found or depth limit is reached.
+// Walks P171 links upward in parallel rounds until genus and family are cached
+// for all items. Uses pLimit to avoid overwhelming the Wikidata API.
 async function buildAncestorCache(itemQids) {
+    const limit = pLimit(4);
     const cache = {};
     let frontier = new Set(itemQids);
 
     for (let depth = 0; depth < 5 && frontier.size > 0; depth++) {
-        if (depth > 0) await delay(1000);
-
         const toFetch = [...frontier].filter(q => !cache[q]);
-        for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-            if (i > 0) await delay(1000);
-            const batch = toFetch.slice(i, i + BATCH_SIZE);
-            const data = await fetchEntities(batch);
-            for (const qid of batch) {
-                const entity = data.entities?.[qid];
-                if (entity && !entity.missing) cache[qid] = parseEntity(entity);
+        if (toFetch.length === 0) break;
+
+        const batches = chunk(toFetch, ENTITY_BATCH);
+        const results = await Promise.all(batches.map(b => limit(() => fetchEntities(b))));
+        for (const data of results) {
+            for (const [qid, entity] of Object.entries(data.entities || {})) {
+                if (!entity.missing) cache[qid] = parseEntity(entity);
             }
         }
 
@@ -79,7 +81,7 @@ function resolveGenusAndFamily(qid, cache) {
 
     for (let i = 0; i < 10 && current && cache[current]; i++) {
         const data = cache[current];
-        if (data.rank === RANK_GENUS && !genus) genus = data.taxonName;
+        if (data.rank === RANK_GENUS  && !genus)  genus  = data.taxonName;
         if (data.rank === RANK_FAMILY && !family) family = data.taxonName;
         if (genus && family) break;
         current = data.parentQid;
@@ -112,7 +114,7 @@ function buildWikitext(itemData, genus, familyName) {
     ];
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
-    if (eol) lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
+    if (eol)  lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
     const fungorumTemplate = rank === RANK_GENUS ? 'Fungorum genus' : 'Fungorum species';
     if (mycobank) lines.push(`* {{MycoBank|${mycobank}|''${taxonName}''}}`);
     if (fungorum) lines.push(`* {{${fungorumTemplate}|${fungorum}|''${taxonName}''}}`);

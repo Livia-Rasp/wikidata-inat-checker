@@ -1,4 +1,4 @@
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 200;
 const REQUEST_INTERVAL_MS = 1000;
 const PER_PAGE = 500;
 const API_URL = 'https://api.inaturalist.org/v1/observations/species_counts';
