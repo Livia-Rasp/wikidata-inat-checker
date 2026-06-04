@@ -24,8 +24,8 @@ npm install
 ## Usage
 
 ```sh
-npm start            # default: 5000 taxa
-npm start -- 500     # custom limit
+npm run images            # default: 5000 taxa
+npm run images -- 500     # custom limit
 ```
 
 The positional argument is passed to the SPARQL `LIMIT` clause, controlling how many image-less taxa are fetched from Wikidata. Note the `--` separator — it's required so npm forwards the value to the script rather than interpreting it itself.
@@ -48,11 +48,51 @@ A single run produces one output file:
 
 ## Typical workflow
 
-1. Run `npm start` to scan Wikidata and iNat.
+1. Run `npm run images` to scan Wikidata and iNat.
 2. Open `drafts.html` in a browser.
 3. For each row: click the iNat link to preview candidate photos, then click the Commons link to open the category editor. Paste the draft (click to copy), fill in `authority=` if known, and save.
 4. Upload a suitable iNat photo to Commons (CC0/CC BY/CC BY-SA, research grade) and add it as P18 on the Wikidata item.
 5. Check the row's checkbox to mark it done. Use **Hide done** to keep the list tidy.
+
+---
+
+## Vernacular names checker
+
+A separate tool that finds iNaturalist vernacular names (common names in any language) that are missing from Wikidata taxon items (P1843).
+
+### How it works
+
+1. Queries Wikidata for taxon items that have an iNaturalist taxon ID (P3151).
+2. Fetches their existing P1843 claims from Wikidata.
+3. Fetches all vernacular names from iNaturalist (`all_names=true`), filtering out invalid entries, scientific-name-locale entries, and names that duplicate the taxon's scientific name.
+4. Compares the two sets (case-insensitive). Names present in iNat but absent from Wikidata are reported.
+5. Exports `names.html` — a table with QuickStatements snippets for batch-importing missing names.
+
+### Usage
+
+```sh
+npm run names            # default: 5000 taxa
+npm run names -- 500     # custom limit
+```
+
+### names.html columns
+
+| Column | Description |
+|---|---|
+| ✓ | Checkbox to mark a row as done (localStorage-persisted). |
+| Wikidata item | Link to the Wikidata entity. |
+| Taxon name | Scientific name (P225). |
+| iNat taxon | Link to the iNaturalist taxon page. |
+| Missing names | Language code + name for each name iNat has but Wikidata doesn't. |
+| QuickStatements | Click to copy a tab-separated block ready to paste into [QuickStatements](https://quickstatements.toolforge.org/). Each statement includes a source reference: stated in iNaturalist (P248), the taxon URL (P854), and today's date as retrieved (P813). |
+
+### Typical workflow
+
+1. Run `npm run names -- 500` to generate `names.html`.
+2. Open `names.html` in a browser.
+3. For each row, review the missing names, then click the QuickStatements cell to copy.
+4. Paste into [QuickStatements](https://quickstatements.toolforge.org/) and run. All missing names for that item are added as P1843 claims in one batch.
+5. Check the row's checkbox to mark it done.
 
 ## License
 

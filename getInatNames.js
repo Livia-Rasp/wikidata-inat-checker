@@ -1,0 +1,56 @@
+import { chunk } from './generateWikitext.js';
+
+const BATCH_SIZE = 30;
+const REQUEST_INTERVAL_MS = 1000;
+const API_URL = 'https://api.inaturalist.org/v1/taxa';
+
+const LOCALE_MAP = {
+    'zh-CN': 'zh-Hans',
+    'zh-TW': 'zh-Hant',
+};
+
+let nextSlot = 0;
+async function rateLimit() {
+    const now = Date.now();
+    const slot = Math.max(now, nextSlot);
+    nextSlot = slot + REQUEST_INTERVAL_MS;
+    const wait = slot - now;
+    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+}
+
+async function fetchBatch(inatIds) {
+    await rateLimit();
+    const q = new URLSearchParams({
+        id: inatIds.join(','),
+        all_names: 'true',
+        per_page: String(inatIds.length)
+    });
+    const r = await fetch(`${API_URL}?${q}`);
+    if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
+    return r.json();
+}
+
+export async function fetchInatNames(inatIds) {
+    const result = new Map();
+    const batches = chunk(inatIds, BATCH_SIZE);
+
+    for (let i = 0; i < batches.length; i++) {
+        try {
+            const data = await fetchBatch(batches[i]);
+            for (const taxon of data.results || []) {
+                const id = String(taxon.id);
+                const names = (taxon.names || [])
+                    .filter(n => n.is_valid && n.locale !== 'sci' && n.locale !== 'und')
+                    .map(n => ({ locale: LOCALE_MAP[n.locale] || n.locale, name: n.name }));
+                result.set(id, names);
+            }
+        } catch (err) {
+            console.error(`iNat names batch ${i + 1} error:`, err.message);
+        }
+        if ((i + 1) % 5 === 0 || i === batches.length - 1) {
+            console.log(`iNat names: batch ${i + 1}/${batches.length}`);
+        }
+    }
+
+    return result;
+}

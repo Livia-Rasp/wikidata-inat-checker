@@ -6,7 +6,7 @@ const RANK_GENUS  = 'Q34740';
 const RANK_FAMILY = 'Q35409';
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
-function chunk(arr, n) {
+export function chunk(arr, n) {
     const out = [];
     for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
     return out;
@@ -16,7 +16,7 @@ function qidFromUri(uri) {
     return uri.split('/').pop();
 }
 
-async function fetchEntities(qids) {
+export async function fetchEntities(qids) {
     const url = 'https://www.wikidata.org/w/api.php?' + new URLSearchParams({
         action: 'wbgetentities',
         ids: qids.join('|'),
