@@ -103,6 +103,8 @@ dist
 
 drafts.html
 names.html
+links.html
+inat-links-conflicts.json
 
 # TernJS port file
 .tern-port

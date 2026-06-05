@@ -9,7 +9,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "images": "node checkImages.js",
-    "names": "node checkNames.js"
+    "names": "node checkNames.js",
+    "links": "node checkLinks.js"
   },
   "keywords": [
     "wikidata",

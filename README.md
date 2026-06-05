@@ -90,9 +90,55 @@ npm run names -- 500     # custom limit
 
 1. Run `npm run names -- 500` to generate `names.html`.
 2. Open `names.html` in a browser.
-3. For each row, review the missing names, then click the QuickStatements cell to copy.
-4. Paste into [QuickStatements](https://quickstatements.toolforge.org/) and run. All missing names for that item are added as P1843 claims in one batch.
-5. Check the row's checkbox to mark it done.
+3. Review rows and check off items you want to import. An aggregate QuickStatements field appears above the table and accumulates all checked rows — click it to copy everything in one go.
+4. Paste into [QuickStatements](https://quickstatements.toolforge.org/) and run.
+5. Use **Hide done** to keep the list tidy.
+
+---
+
+## iNaturalist links checker
+
+A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, searches iNaturalist by scientific name to find the matching taxon, and produces QuickStatements to add the missing link.
+
+### How it works
+
+1. Queries Wikidata for taxon items that have a scientific name (P225) but no P3151.
+2. Searches iNaturalist by scientific name for each taxon (exact match only; ambiguous or zero results are skipped).
+3. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
+4. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
+5. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
+6. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
+
+The default limit is 200 taxa (each taxon = one iNat search request; 200 taxa takes roughly a minute).
+
+### Usage
+
+```sh
+npm run links            # default: 200 taxa
+npm run links -- 500     # custom limit
+```
+
+### links.html columns
+
+| Column | Description |
+|---|---|
+| ✓ | Checkbox to mark a row as done (localStorage-persisted). |
+| Wikidata item | Link to the Wikidata entity. |
+| Taxon name | Scientific name (P225). |
+| iNat taxon | Link to the iNaturalist taxon page. |
+| QuickStatements | Click to copy. Adds P3151 with the iNat taxon ID. |
+
+An aggregate field above the table accumulates QuickStatements from all checked rows for batch copying.
+
+The conflict table below (shown only when conflicts exist) lists iNat IDs found by name-search that are already linked to a different Wikidata item. These need manual investigation before importing.
+
+### Typical workflow
+
+1. Run `npm run links -- 200` to generate `links.html`.
+2. Open `links.html` in a browser.
+3. Review the matches — spot-check a few taxon names against the iNat page to confirm correctness.
+4. Check rows you want to import. Copy the aggregate field and paste into [QuickStatements](https://quickstatements.toolforge.org/).
+5. If a conflict table is present, review `inat-links-conflicts.json` and investigate each case before acting.
 
 ## License
 

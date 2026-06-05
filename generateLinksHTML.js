@@ -1,37 +1,25 @@
 import fs from 'fs';
 
-const WD_DATE = `+${new Date().toISOString().slice(0, 10)}T00:00:00Z/11`;
-
 function escapeHtml(str) {
-    return str
+    return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
 
-function buildQuickStatements(qid, inatId, missing) {
-    const ref = `\tS248\tQ16958215\tS854\t"https://www.inaturalist.org/taxa/${inatId}"\tS813\t${WD_DATE}`;
-    return missing
-        .map(({ locale, name }) => `${qid}\tP1843\t${locale}:"${name}"${ref}`)
-        .join('\n');
+function buildQS(qid, inatId) {
+    return `${qid}\tP3151\t"${inatId}"`;
 }
 
-function buildRow({ wdUri, qid, inatId, taxonName, missing }) {
+function buildMatchRow({ wdUri, qid, taxonName, inatId }) {
     const inatUrl = `https://www.inaturalist.org/taxa/${inatId}`;
-
-    const namesHtml = missing
-        .map(({ locale, name }) => `<span class="name-entry"><span class="locale">${escapeHtml(locale)}</span> ${escapeHtml(name)}</span>`)
-        .join('\n');
-
-    const qs = buildQuickStatements(qid, inatId, missing);
-
+    const qs = buildQS(qid, inatId);
     return `    <tr id="row-${qid}">
       <td class="check-col"><input type="checkbox" id="cb-${qid}" onchange="setDone('${qid}', this.checked)"></td>
-      <td class="wd-col"><a href="${escapeHtml(wdUri)}" target="_blank">${qid}</a></td>
-      <td class="taxon-col">${escapeHtml(taxonName || '—')}</td>
-      <td class="inat-col"><a href="${escapeHtml(inatUrl)}" target="_blank">${inatId}</a></td>
-      <td class="names-col">${namesHtml}</td>
+      <td class="wd-col"><a href="${escapeHtml(wdUri)}" target="_blank">${escapeHtml(qid)}</a></td>
+      <td class="taxon-col">${escapeHtml(taxonName)}</td>
+      <td class="inat-col"><a href="${escapeHtml(inatUrl)}" target="_blank">${escapeHtml(inatId)}</a></td>
       <td class="qs-col">
         <pre class="qs" onclick="copy(this)">${escapeHtml(qs)}</pre>
         <span class="hint">Copied!</span>
@@ -39,26 +27,50 @@ function buildRow({ wdUri, qid, inatId, taxonName, missing }) {
     </tr>`;
 }
 
-export async function generateNamesHTML(items, outputFile = 'names.html') {
-    if (items.length === 0) {
-        console.log('No missing names found.');
-        return;
-    }
+function buildConflictRow({ taxonName, wdUri, qid, inatId, conflictWdUri, conflictQid }) {
+    const inatUrl = `https://www.inaturalist.org/taxa/${inatId}`;
+    return `    <tr>
+      <td class="inat-col"><a href="${escapeHtml(inatUrl)}" target="_blank">${escapeHtml(inatId)}</a></td>
+      <td class="taxon-col">${escapeHtml(taxonName)}</td>
+      <td class="wd-col"><a href="${escapeHtml(wdUri)}" target="_blank">${escapeHtml(qid)}</a></td>
+      <td class="wd-col"><a href="${escapeHtml(conflictWdUri)}" target="_blank">${escapeHtml(conflictQid)}</a></td>
+    </tr>`;
+}
 
-    const rows = items.map(buildRow).join('\n');
+export async function generateLinksHTML(matches, conflicts, outputFile = 'links.html') {
+    const matchRows = matches.map(buildMatchRow).join('\n');
+
+    const conflictSection = conflicts.length === 0 ? '' : `
+  <h2>Conflicts &mdash; ${conflicts.length} items</h2>
+  <p>These iNaturalist IDs were found by name-search but are already linked to a different Wikidata item.
+     Manual investigation needed before adding.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>iNat taxon</th>
+        <th>Taxon name (matched)</th>
+        <th>WD item matching by name</th>
+        <th>WD item currently holding iNat ID</th>
+      </tr>
+    </thead>
+    <tbody>
+${conflicts.map(buildConflictRow).join('\n')}
+    </tbody>
+  </table>`;
 
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Missing Vernacular Names</title>
+  <title>Missing iNaturalist Links</title>
   <style>
     body { font-family: sans-serif; padding: 1.5em; color: #222; }
-    h1 { font-size: 1.2em; margin-bottom: 0.3em; }
+    h1, h2 { font-size: 1.2em; margin-bottom: 0.3em; }
+    h2 { margin-top: 2em; }
     p  { margin: 0 0 1em; color: #555; font-size: 0.9em; }
     #controls { margin-bottom: 0.75em; }
     #hide-done { font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer; }
-    table { border-collapse: collapse; width: 100%; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1.5em; }
     th { text-align: left; padding: 0.5em 0.75em; background: #f0f0f0;
          border-bottom: 2px solid #ccc; font-size: 0.85em; }
     td { vertical-align: top; padding: 0.4em 0.75em;
@@ -69,12 +81,8 @@ export async function generateNamesHTML(items, outputFile = 'names.html') {
     tr.hide-done { display: none; }
     .wd-col { width: 9em; white-space: nowrap; }
     .wd-col a { font-family: monospace; font-size: 0.9em; }
-    .taxon-col { width: 14em; font-style: italic; font-size: 0.9em; }
+    .taxon-col { font-style: italic; font-size: 0.9em; }
     .inat-col { width: 7em; font-size: 0.85em; font-family: monospace; }
-    .names-col { width: 18em; font-size: 0.85em; }
-    .name-entry { display: block; line-height: 1.6; }
-    .locale { display: inline-block; width: 4.5em; font-family: monospace;
-              color: #666; font-size: 0.9em; }
     #aggregate-container { position: relative; margin-bottom: 1em; }
     .qs-col { position: relative; }
     .qs {
@@ -93,7 +101,7 @@ export async function generateNamesHTML(items, outputFile = 'names.html') {
   </style>
 </head>
 <body>
-  <h1>Missing Vernacular Names &mdash; ${items.length} items</h1>
+  <h1>Missing iNaturalist Links &mdash; ${matches.length} items</h1>
   <div id="controls">
     <button id="hide-done" onclick="toggleHideDone()">Hide done</button>
   </div>
@@ -110,14 +118,14 @@ export async function generateNamesHTML(items, outputFile = 'names.html') {
         <th>Wikidata item</th>
         <th>Taxon name</th>
         <th>iNat taxon</th>
-        <th>Missing names</th>
         <th>QuickStatements (click to copy)</th>
       </tr>
     </thead>
     <tbody>
-${rows}
+${matchRows}
     </tbody>
   </table>
+${conflictSection}
   <script>
     function copy(el) {
       const text = el.textContent;
@@ -172,7 +180,7 @@ ${rows}
     }
 
     function setDone(qid, done) {
-      localStorage.setItem('done-names-' + qid, done ? '1' : '');
+      localStorage.setItem('done-links-' + qid, done ? '1' : '');
       const row = document.getElementById('row-' + qid);
       row.classList.toggle('done', done);
       if (done && hidingDone) row.classList.add('hide-done');
@@ -180,11 +188,11 @@ ${rows}
       updateAggregate();
     }
 
-    let hidingDone = localStorage.getItem('hide-done-names') === '1';
+    let hidingDone = localStorage.getItem('hide-done-links') === '1';
 
     function toggleHideDone() {
       hidingDone = !hidingDone;
-      localStorage.setItem('hide-done-names', hidingDone ? '1' : '');
+      localStorage.setItem('hide-done-links', hidingDone ? '1' : '');
       document.getElementById('hide-done').textContent = hidingDone ? 'Show done' : 'Hide done';
       document.querySelectorAll('tr.done').forEach(row => {
         row.classList.toggle('hide-done', hidingDone);
@@ -194,7 +202,7 @@ ${rows}
     document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('input[type=checkbox]').forEach(cb => {
         const qid = cb.id.replace('cb-', '');
-        if (localStorage.getItem('done-names-' + qid)) {
+        if (localStorage.getItem('done-links-' + qid)) {
           cb.checked = true;
           const row = document.getElementById('row-' + qid);
           row.classList.add('done');
@@ -211,5 +219,5 @@ ${rows}
 </html>`;
 
     fs.writeFileSync(outputFile, html, 'utf8');
-    console.log(`HTML written to ${outputFile} (${items.length} items)`);
+    console.log(`HTML written to ${outputFile} (${matches.length} matches, ${conflicts.length} conflicts)`);
 }
