@@ -5,8 +5,8 @@ const REQUEST_INTERVAL_MS = 1000;
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
 
 const LOCALE_MAP = {
-    'zh-CN': 'zh-Hans',
-    'zh-TW': 'zh-Hant',
+    'zh-CN': 'zh-hans',
+    'zh-TW': 'zh-hant',
 };
 
 let nextSlot = 0;
