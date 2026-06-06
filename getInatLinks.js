@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 
-const REQUEST_INTERVAL_MS = 250;   // 4 req/s sustained
+const REQUEST_INTERVAL_MS = 500;   // 2 req/s sustained
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
@@ -13,10 +13,16 @@ async function rateLimit() {
     if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
 }
 
-async function searchByName(name) {
+async function searchByName(name, retries = 3) {
     await rateLimit();
     const q = new URLSearchParams({ q: name, is_active: 'true', per_page: '10' });
     const r = await fetch(`${API_URL}?${q}`, { headers: HEADERS });
+    if (r.status === 429 && retries > 0) {
+        const retryAfter = Number(r.headers.get('Retry-After') || 10);
+        console.warn(`iNat rate-limited, backing off ${retryAfter}s...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        return searchByName(name, retries - 1);
+    }
     if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
     return r.json();
 }
@@ -26,7 +32,7 @@ async function searchByName(name) {
 export async function findInatIds(taxonNames) {
     const result = new Map();
     let done = 0;
-    const limit = pLimit(4);
+    const limit = pLimit(2);
 
     await Promise.all(taxonNames.map(name => limit(async () => {
         try {
