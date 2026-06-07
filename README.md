@@ -113,7 +113,7 @@ A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3
 5. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
 6. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-The default limit is 200 taxa (each taxon = one iNat search request; 200 taxa takes roughly a minute). Results are cached locally in `cache-links.json` so re-runs skip taxa already searched. Delete the file to force a full re-scan.
+The default limit is 200 taxa (each taxon = one iNat search request at 1 req/s; 200 taxa takes roughly 3–4 minutes). Results are cached locally in `cache-links.json` so re-runs skip taxa already searched. Delete the file to force a full re-scan.
 
 ### Usage
 

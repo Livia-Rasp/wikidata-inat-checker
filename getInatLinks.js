@@ -1,6 +1,6 @@
 import pLimit from 'p-limit';
 
-const REQUEST_INTERVAL_MS = 500;   // 2 req/s sustained
+const REQUEST_INTERVAL_MS = 1000;  // 1 req/s sustained
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
@@ -32,7 +32,7 @@ async function searchByName(name, retries = 3) {
 export async function findInatIds(taxonNames) {
     const result = new Map();
     let done = 0;
-    const limit = pLimit(2);
+    const limit = pLimit(1);
 
     await Promise.all(taxonNames.map(name => limit(async () => {
         try {

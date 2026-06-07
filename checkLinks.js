@@ -19,8 +19,14 @@ const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com
 
 function qidFromUri(uri) { return uri.split('/').pop(); }
 
-async function sparql(query) {
+async function sparql(query, retries = 3) {
     const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });
+    if ((res.status === 502 || res.status === 503) && retries > 0) {
+        const delay = (4 - retries) * 3000;
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparql(query, retries - 1);
+    }
     if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
     return (await res.json()).results.bindings;
 }
@@ -58,10 +64,12 @@ WHERE {
         .filter(Boolean)
         .map(v => v.inatId);
 
+    // Save cache now — iNat API work is done; SPARQL below may fail transiently
+    for (const c of uncached) cache[c.qid] = today;
+    saveCache(CACHE_FILE, cache);
+
     if (foundInatIds.length === 0) {
         console.log('No iNat matches found. Nothing to do.');
-        for (const c of uncached) cache[c.qid] = today;
-        saveCache(CACHE_FILE, cache);
         await generateLinksHTML([], []);
         return;
     }
@@ -152,9 +160,6 @@ WHERE {
         fs.writeFileSync(conflictFile, JSON.stringify(conflictRecords, null, 2), 'utf8');
         console.log(`Conflict bookkeeping written to ${conflictFile}.`);
     }
-
-    for (const c of uncached) cache[c.qid] = today;
-    saveCache(CACHE_FILE, cache);
 
     // 6. Generate HTML
     await generateLinksHTML(matches, conflicts);
