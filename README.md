@@ -11,6 +11,8 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 50 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
 
+Results are cached locally in `cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan.
+
 ## Installation
 
 Requires Node.js 18+ (for the global `fetch`).
@@ -68,6 +70,8 @@ A separate tool that finds iNaturalist vernacular names (common names in any lan
 4. Compares the two sets (case-insensitive). Names present in iNat but absent from Wikidata are reported.
 5. Exports `names.html` — a table with QuickStatements snippets for batch-importing missing names.
 
+Results are cached locally in `cache-names.json` so re-runs skip taxa already checked. Delete the file to force a full re-scan.
+
 ### Usage
 
 ```sh
@@ -109,7 +113,7 @@ A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3
 5. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
 6. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-The default limit is 200 taxa (each taxon = one iNat search request; 200 taxa takes roughly a minute).
+The default limit is 200 taxa (each taxon = one iNat search request; 200 taxa takes roughly a minute). Results are cached locally in `cache-links.json` so re-runs skip taxa already searched. Delete the file to force a full re-scan.
 
 ### Usage
 

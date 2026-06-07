@@ -2,6 +2,9 @@ import fs from 'fs';
 import WBK from 'wikibase-sdk';
 import { findInatIds } from './getInatLinks.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
+import { loadCache, saveCache } from './cache.js';
+
+const CACHE_FILE = 'cache-links.json';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -39,8 +42,14 @@ WHERE {
     }));
     console.log(`Found ${candidates.length} taxa without iNat links.`);
 
+    const cache = loadCache(CACHE_FILE);
+    const today = new Date().toISOString().slice(0, 10);
+    const uncached = candidates.filter(c => !cache[c.qid]);
+    if (uncached.length < candidates.length)
+        console.log(`Cache: skipping ${candidates.length - uncached.length} already-checked entries, scanning ${uncached.length}.`);
+
     // 2. Search iNat by scientific name
-    const taxonNames = candidates.map(c => c.taxonName);
+    const taxonNames = uncached.map(c => c.taxonName);
     console.log(`Searching iNaturalist for ${taxonNames.length} taxon names...`);
     const inatResults = await findInatIds(taxonNames);
 
@@ -51,6 +60,8 @@ WHERE {
 
     if (foundInatIds.length === 0) {
         console.log('No iNat matches found. Nothing to do.');
+        for (const c of uncached) cache[c.qid] = today;
+        saveCache(CACHE_FILE, cache);
         await generateLinksHTML([], []);
         return;
     }
@@ -78,7 +89,7 @@ WHERE {
     let conflicts = [];
     let skipped = 0;
 
-    for (const candidate of candidates) {
+    for (const candidate of uncached) {
         const found = inatResults.get(candidate.taxonName);
         if (!found) {
             skipped++;
@@ -141,6 +152,9 @@ WHERE {
         fs.writeFileSync(conflictFile, JSON.stringify(conflictRecords, null, 2), 'utf8');
         console.log(`Conflict bookkeeping written to ${conflictFile}.`);
     }
+
+    for (const c of uncached) cache[c.qid] = today;
+    saveCache(CACHE_FILE, cache);
 
     // 6. Generate HTML
     await generateLinksHTML(matches, conflicts);

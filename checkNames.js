@@ -4,6 +4,9 @@ import pLimit from 'p-limit';
 import { fetchEntities, chunk } from './generateWikitext.js';
 import { fetchInatNames } from './getInatNames.js';
 import { generateNamesHTML } from './generateNamesHTML.js';
+import { loadCache, saveCache } from './cache.js';
+
+const CACHE_FILE = 'cache-names.json';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -34,8 +37,14 @@ WHERE {
     }
     console.log(`Found ${inatToWD.size} taxa with iNat IDs.`);
 
+    const cache = loadCache(CACHE_FILE);
+    const today = new Date().toISOString().slice(0, 10);
+    const uncached = new Map([...inatToWD].filter(([id]) => !cache[id]));
+    if (uncached.size < inatToWD.size)
+        console.log(`Cache: skipping ${inatToWD.size - uncached.size} already-checked entries, scanning ${uncached.size}.`);
+
     // Fetch P225 + P1843 from Wikidata for all items
-    const wdUris = [...inatToWD.values()];
+    const wdUris = [...uncached.values()];
     const qids = wdUris.map(qidFromUri);
     console.log(`Fetching Wikidata vernacular names for ${qids.length} items...`);
 
@@ -58,14 +67,14 @@ WHERE {
     console.log('Wikidata fetch complete.');
 
     // Fetch iNat vernacular names
-    const inatIds = [...inatToWD.keys()];
+    const inatIds = [...uncached.keys()];
     console.log(`Fetching iNat vernacular names for ${inatIds.length} taxa...`);
     const inatNames = await fetchInatNames(inatIds);
     console.log('iNat fetch complete.');
 
     // Diff: collect names present in iNat but absent from Wikidata P1843
     const items = [];
-    for (const [inatId, wdUri] of inatToWD) {
+    for (const [inatId, wdUri] of uncached) {
         const qid = qidFromUri(wdUri);
         const wd = wdData[qid];
         if (!wd) continue;
@@ -84,6 +93,9 @@ WHERE {
 
     await generateNamesHTML(items);
     console.log('HTML export complete.');
+
+    for (const id of uncached.keys()) cache[id] = today;
+    saveCache(CACHE_FILE, cache);
 }
 
 run(limit).catch(err => {

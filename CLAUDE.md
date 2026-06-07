@@ -17,6 +17,8 @@ npm run links -- 200       # same via npm
 
 No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, and `inat-links-conflicts.json` (all gitignored).
 
+Each workflow maintains a local cache file (`cache-images.json`, `cache-names.json`, `cache-links.json`, all gitignored) that records previously checked entries so re-runs skip the iNat API for already-scanned taxa. Delete a cache file to force a full re-scan.
+
 ## Architecture
 
 Three independent tools sharing some modules. All data flows in memory — no intermediate files.

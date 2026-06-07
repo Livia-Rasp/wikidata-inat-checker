@@ -105,6 +105,9 @@ drafts.html
 names.html
 links.html
 inat-links-conflicts.json
+cache-images.json
+cache-names.json
+cache-links.json
 
 # TernJS port file
 .tern-port

@@ -2,6 +2,9 @@ import WBK from 'wikibase-sdk';
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
+import { loadCache, saveCache } from './cache.js';
+
+const CACHE_FILE = 'cache-images.json';
 
 const wbk = WBK({
     instance: 'https://www.wikidata.org',
@@ -35,8 +38,14 @@ WHERE
     }
     console.log(`Found ${inatToWD.size} taxa without images.`);
 
-    console.log(`Checking ${inatToWD.size} taxa against iNat for CC0 photos...`);
-    const { available, inatTaxonIds } = await processInatIds(inatToWD);
+    const cache = loadCache(CACHE_FILE);
+    const today = new Date().toISOString().slice(0, 10);
+    const uncached = new Map([...inatToWD].filter(([id]) => !cache[id]));
+    if (uncached.size < inatToWD.size)
+        console.log(`Cache: skipping ${inatToWD.size - uncached.size} already-checked entries, scanning ${uncached.size}.`);
+
+    console.log(`Checking ${uncached.size} taxa against iNat for CC0 photos...`);
+    const { available, inatTaxonIds } = await processInatIds(uncached);
     console.log("iNat check complete.");
 
     const drafts = await generateDraftWikitext(available);
@@ -44,6 +53,9 @@ WHERE
 
     await generateDraftsHTML(drafts, inatTaxonIds);
     console.log("HTML export complete.");
+
+    for (const id of uncached.keys()) cache[id] = today;
+    saveCache(CACHE_FILE, cache);
 }
 
 run(limit).catch(err => {
