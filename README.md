@@ -46,7 +46,7 @@ A single run produces one output file:
 | Wikidata item | Link to the Wikidata entity (e.g. `Q15438811`). |
 | iNat taxon | Link to the filtered iNaturalist observations page for that taxon (research-grade, CC0/CC-BY/CC-BY-SA), so you can preview candidate photos without a separate lookup. |
 | Commons category | Opens the Commons category page in edit mode — ready to paste if it doesn't exist yet, or to edit if it does. |
-| Draft Wikitext | Click to copy to clipboard. Includes `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, `{{VN}}`, NCBI/EOL/MycoBank/Index Fungorum identifiers (whichever are present on the Wikidata item), and the parent category link. Fill in `authority=` manually if needed. |
+| Draft Wikitext | Click to copy to clipboard. Includes `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, `{{VN}}` (only when the Wikidata item has at least one vernacular name, P1843), NCBI/EOL/MycoBank/Index Fungorum identifiers (whichever are present on the Wikidata item), and the parent category link. Fill in `authority=` manually if needed. |
 
 ## Typical workflow
 

@@ -40,7 +40,8 @@ function parseEntity(entity) {
         eol:       claims.P830?.[0],
         mycobank:  claims.P962?.[0],
         fungorum:  claims.P1391?.[0],
-        hasWikispecies: !!entity.sitelinks?.specieswiki
+        hasWikispecies: !!entity.sitelinks?.specieswiki,
+        hasVernacularName: (claims.P1843?.length ?? 0) > 0
     };
 }
 
@@ -109,9 +110,9 @@ function buildWikitext(itemData, genus, familyName) {
 
     const lines = [
         '{{Wikidata Infobox}}',
-        `{{Taxonavigation|\n${taxonavLines.join('\n')}}}`,
-        '{{VN}}'
+        `{{Taxonavigation|\n${taxonavLines.join('\n')}}}`
     ];
+    if (itemData.hasVernacularName) lines.push('{{VN}}');
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
     if (eol)  lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
