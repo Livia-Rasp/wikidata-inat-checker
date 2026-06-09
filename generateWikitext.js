@@ -15,6 +15,37 @@ const RANK_LABELS   = {
 };
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
+async function fetchNcbiAuthorities(items) {
+    const result = new Map();
+    for (const batch of chunk(items, 200)) {
+        try {
+            const ids = batch.map(i => i.ncbi).join(',');
+            const url = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy&id=${ids}&retmode=xml`;
+            const res = await fetch(url, { headers: HEADERS });
+            const xml = await res.text();
+            for (const block of xml.split('<Taxon>').slice(1)) {
+                const idMatch   = block.match(/<TaxId>(\d+)<\/TaxId>/);
+                const sciMatch  = block.match(/<ScientificName>(.+?)<\/ScientificName>/);
+                const authMatch = block.match(/<ClassCDE>authority<\/ClassCDE>\s*<DispName>(.+?)<\/DispName>/);
+                if (!idMatch) continue;
+                const ncbiId = idMatch[1];
+                if (!authMatch) { result.set(ncbiId, null); continue; }
+                const dispName  = authMatch[1];
+                const sciName   = sciMatch?.[1] ?? '';
+                const wordCount = sciName ? sciName.split(' ').length : 0;
+                const dispWords = dispName.trim().split(/\s+/);
+                const raw = wordCount > 0 && wordCount < dispWords.length
+                    ? dispWords.slice(wordCount).join(' ')
+                    : dispName;
+                result.set(ncbiId, raw.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+            }
+        } catch {
+            for (const i of batch) result.set(i.ncbi, null);
+        }
+    }
+    return result;
+}
+
 async function fetchTaxonavTemplates() {
     const api = 'https://commons.wikimedia.org/w/api.php';
     const names = new Set();
@@ -135,7 +166,7 @@ function resolveAncestors(qid, cache) {
 }
 
 function buildWikitext(itemData, chain, templates) {
-    const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies } = itemData;
+    const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies, authority } = itemData;
     if (!taxonName) return null;
 
     const parts = taxonName.split(' ');
@@ -153,7 +184,7 @@ function buildWikitext(itemData, chain, templates) {
     for (const { name, rank: r } of manualRanks) taxonavLines.push(`${RANK_LABELS[r]}|${name}|`);
     taxonavLines.push(`Genus|${resolvedGenus}|`);
     taxonavLines.push(`Species|${taxonName}|`);
-    taxonavLines.push(`authority=`);
+    taxonavLines.push(`authority=${authority ?? ''}`);
 
     const lines = [
         '{{Wikidata Infobox}}',
@@ -188,12 +219,18 @@ export async function generateDraftWikitext(available) {
         fetchTaxonavTemplates(),
     ]);
 
+    const ncbiItems = qids
+        .filter(qid => cache[qid]?.ncbi)
+        .map(qid => ({ ncbi: cache[qid].ncbi, taxonName: cache[qid].taxonName }));
+    const authorities = ncbiItems.length > 0 ? await fetchNcbiAuthorities(ncbiItems) : new Map();
+
     const drafts = {};
     for (const qid of qids) {
         const itemData = cache[qid];
         if (!itemData) continue;
         const chain = resolveAncestors(qid, cache);
-        const wikitext = buildWikitext(itemData, chain, templates);
+        const authority = authorities.get(itemData.ncbi) ?? '';
+        const wikitext = buildWikitext({ ...itemData, authority }, chain, templates);
         if (wikitext) drafts[uriByQid[qid]] = wikitext;
     }
 
