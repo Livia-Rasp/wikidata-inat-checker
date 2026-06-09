@@ -7,7 +7,52 @@ const RANK_FAMILY   = 'Q35409';
 const RANK_ORDER    = 'Q36602';
 const RANK_SUBCLASS = 'Q5867051';
 const RANK_CLASS    = 'Q37517';
+const RANK_LABELS   = {
+    [RANK_CLASS]:    'Classis',
+    [RANK_SUBCLASS]: 'Subclassis',
+    [RANK_ORDER]:    'Ordo',
+    [RANK_FAMILY]:   'Familia',
+};
 const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
+
+async function fetchTaxonavTemplates() {
+    const api = 'https://commons.wikimedia.org/w/api.php';
+    const names = new Set();
+
+    async function fetchPages(catTitle) {
+        let cont;
+        do {
+            const params = new URLSearchParams({
+                action: 'query', list: 'categorymembers',
+                cmtitle: catTitle, cmtype: 'page', cmlimit: '500',
+                format: 'json', formatversion: '2',
+                ...(cont ? { cmcontinue: cont } : {})
+            });
+            const res = await fetch(`${api}?${params}`, { headers: HEADERS });
+            const data = await res.json();
+            for (const m of data.query?.categorymembers ?? [])
+                names.add(m.title.replace(/^Template:/, ''));
+            cont = data.continue?.cmcontinue;
+        } while (cont);
+    }
+
+    const params = new URLSearchParams({
+        action: 'query', list: 'categorymembers',
+        cmtitle: 'Category:Templates to include in Taxonavigation',
+        cmtype: 'subcat', cmlimit: '500', format: 'json', formatversion: '2',
+    });
+    const res = await fetch(`${api}?${params}`, { headers: HEADERS });
+    const data = await res.json();
+    const subcats = (data.query?.categorymembers ?? []).map(m => m.title);
+
+    await Promise.all([
+        'Category:Templates to include in Taxonavigation',
+        ...subcats,
+    ].map(fetchPages));
+
+    console.log(`Loaded ${names.size} Taxonavigation templates from Commons.`);
+    return names;
+}
 
 export function chunk(arr, n) {
     const out = [];
@@ -79,38 +124,33 @@ async function buildAncestorCache(itemQids) {
 }
 
 function resolveAncestors(qid, cache) {
-    const a = { genus: null, family: null, order: null, subclass: null, class: null };
+    const chain = []; // genus-first (closest to species)
     let current = cache[qid]?.parentQid;
-    for (let i = 0; i < 15 && current && cache[current]; i++) {
+    for (let i = 0; i < 20 && current && cache[current]; i++) {
         const data = cache[current];
-        if (data.rank === RANK_GENUS     && !a.genus)    a.genus    = data.taxonName;
-        if (data.rank === RANK_FAMILY    && !a.family)   a.family   = data.taxonName;
-        if (data.rank === RANK_ORDER     && !a.order)    a.order    = data.taxonName;
-        if (data.rank === RANK_SUBCLASS  && !a.subclass) a.subclass = data.taxonName;
-        if (data.rank === RANK_CLASS     && !a.class)    a.class    = data.taxonName;
-        if (a.genus && a.family && a.order && a.subclass && a.class) break;
+        if (data.taxonName) chain.push({ name: data.taxonName, rank: data.rank });
         current = data.parentQid;
     }
-    return a;
+    return chain;
 }
 
-function buildWikitext(itemData, ancestors) {
+function buildWikitext(itemData, chain, templates) {
     const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies } = itemData;
     if (!taxonName) return null;
 
     const parts = taxonName.split(' ');
-    const resolvedGenus = ancestors.genus || parts[0];
+    const genusAncestor = chain.find(a => a.rank === RANK_GENUS);
+    const resolvedGenus = genusAncestor?.name || parts[0];
     const epithet = parts.slice(1).join(' ');
 
+    const includeIdx = chain.findIndex(a => templates.has(a.name));
+    const includeName = includeIdx >= 0 ? chain[includeIdx].name : null;
+    const manualChain = includeIdx >= 0 ? chain.slice(0, includeIdx) : chain;
+    const manualRanks = manualChain.filter(a => RANK_LABELS[a.rank]).reverse();
+
     const taxonavLines = [];
-    if (ancestors.class) taxonavLines.push(`include=${ancestors.class}|`);
-    for (const [name, label] of [
-        [ancestors.subclass, 'Subclassis'],
-        [ancestors.order,    'Ordo'],
-        [ancestors.family,   'Familia'],
-    ]) {
-        if (name) taxonavLines.push(`${label}|${name}|`);
-    }
+    if (includeName) taxonavLines.push(`include=${includeName}|`);
+    for (const { name, rank: r } of manualRanks) taxonavLines.push(`${RANK_LABELS[r]}|${name}|`);
     taxonavLines.push(`Genus|${resolvedGenus}|`);
     taxonavLines.push(`Species|${taxonName}|`);
     taxonavLines.push(`authority=`);
@@ -143,14 +183,17 @@ export async function generateDraftWikitext(available) {
     const qids = wdUris.map(qidFromUri);
     const uriByQid = Object.fromEntries(wdUris.map(uri => [qidFromUri(uri), uri]));
 
-    const cache = await buildAncestorCache(qids);
+    const [cache, templates] = await Promise.all([
+        buildAncestorCache(qids),
+        fetchTaxonavTemplates(),
+    ]);
 
     const drafts = {};
     for (const qid of qids) {
         const itemData = cache[qid];
         if (!itemData) continue;
-        const ancestors = resolveAncestors(qid, cache);
-        const wikitext = buildWikitext(itemData, ancestors);
+        const chain = resolveAncestors(qid, cache);
+        const wikitext = buildWikitext(itemData, chain, templates);
         if (wikitext) drafts[uriByQid[qid]] = wikitext;
     }
 

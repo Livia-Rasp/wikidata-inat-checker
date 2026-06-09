@@ -55,7 +55,7 @@ checkLinks.js
   └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
 ```
 
-**`generateWikitext.js`** — exports `fetchEntities(qids)` and `chunk(arr, n)` used by multiple tools. Also fetches Wikidata entities in rounds (max 7), walking P171 (parent taxon) links for the image checker. Builds Commons category Wikitext including `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, and identifier templates (NCBI, EOL, MycoBank, Index Fungorum). The `{{Taxonavigation}}` `include=` parameter uses the class name (e.g. `Eurotiomycetes`, `Magnoliopsida`); intermediate ranks (Subclassis, Ordo, Familia) are listed when found in the ancestor chain. `{{VN}}` is included only when the item has at least one P1843 vernacular name. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740, `{{Fungorum species}}` otherwise.
+**`generateWikitext.js`** — exports `fetchEntities(qids)` and `chunk(arr, n)` used by multiple tools. Also fetches Wikidata entities in rounds (max 7), walking P171 (parent taxon) links for the image checker. Builds Commons category Wikitext including `{{Wikidata Infobox}}`, `{{Taxonavigation}}`, and identifier templates (NCBI, EOL, MycoBank, Index Fungorum). At startup, `fetchTaxonavTemplates()` fetches the full list of ~900 templates from [Category:Templates to include in Taxonavigation](https://commons.wikimedia.org/wiki/Category:Templates_to_include_in_Taxonavigation) (including subcategories) on Commons. The `{{Taxonavigation}}` `include=` parameter is set to the **most specific ancestor** whose name matches a template in that list — order-level for insects (e.g. `Hemiptera`, `Coleoptera`) or class-level for fungi (e.g. `Agaricomycetes`). Only ranks below the include= level are listed manually (Subclassis, Ordo, Familia as applicable). `{{VN}}` is included only when the item has at least one P1843 vernacular name. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740, `{{Fungorum species}}` otherwise.
 
 **`getFromInat.js`** — batches 200 iNat taxon IDs per request to `/v1/observations/species_counts`, token-bucket rate-limited to ~1 req/s. Returns taxa that have at least one research-grade photo with CC0/CC-BY/CC-BY-SA license.
 
@@ -85,6 +85,6 @@ checkLinks.js
 | P1843 | vernacular name (monolingualtext) |
 | P13177 | homonymous taxon (used to filter false P3151 conflicts) |
 
-Rank QIDs: `Q34740` = genus, `Q35409` = family, `Q36602` = order, `Q5867051` = subclass, `Q37517` = class.
+Rank QIDs used for `RANK_LABELS` mapping (Taxonavigation intermediate ranks): `Q34740` = genus, `Q35409` = family, `Q36602` = order, `Q5867051` = subclass, `Q37517` = class.
 
 iNaturalist Wikidata item: Q16958215 (used as S248 source in P1843 references).
