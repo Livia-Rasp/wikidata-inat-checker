@@ -3,17 +3,25 @@ import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
 import { HEADERS, qidFromUri } from './utils.js';
 
-const ENTITY_BATCH  = 50;
-const RANK_GENUS    = 'Q34740';
-const RANK_FAMILY   = 'Q35409';
-const RANK_ORDER    = 'Q36602';
-const RANK_SUBCLASS = 'Q5867051';
-const RANK_CLASS    = 'Q37517';
+const ENTITY_BATCH   = 50;
+const RANK_GENUS     = 'Q34740';
+const RANK_FAMILY    = 'Q35409';
+const RANK_ORDER     = 'Q36602';
+const RANK_SUBCLASS  = 'Q5867051';
+const RANK_CLASS     = 'Q37517';
+const RANK_SUPERFAMILY = 'Q2136103';
+const RANK_SUBFAMILY   = 'Q164280';
+const RANK_TRIBE       = 'Q227936';
+const RANK_SUBTRIBE    = 'Q3965313';
 const RANK_LABELS   = {
-    [RANK_CLASS]:    'Classis',
-    [RANK_SUBCLASS]: 'Subclassis',
-    [RANK_ORDER]:    'Ordo',
-    [RANK_FAMILY]:   'Familia',
+    [RANK_CLASS]:       'Classis',
+    [RANK_SUBCLASS]:    'Subclassis',
+    [RANK_ORDER]:       'Ordo',
+    [RANK_FAMILY]:      'Familia',
+    [RANK_SUPERFAMILY]: 'Superfamilia',
+    [RANK_SUBFAMILY]:   'Subfamilia',
+    [RANK_TRIBE]:       'Tribus',
+    [RANK_SUBTRIBE]:    'Subtribus',
 };
 
 async function fetchNcbiAuthorities(items) {

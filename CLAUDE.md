@@ -87,6 +87,6 @@ checkLinks.js
 | P1843 | vernacular name (monolingualtext) |
 | P13177 | homonymous taxon (used to filter false P3151 conflicts) |
 
-Rank QIDs used for `RANK_LABELS` mapping (Taxonavigation intermediate ranks): `Q34740` = genus, `Q35409` = family, `Q36602` = order, `Q5867051` = subclass, `Q37517` = class.
+Rank QIDs used for `RANK_LABELS` mapping (Taxonavigation intermediate ranks): `Q34740` = genus, `Q35409` = family, `Q2136103` = superfamily, `Q164280` = subfamily, `Q227936` = tribe, `Q3965313` = subtribe, `Q36602` = order, `Q5867051` = subclass, `Q37517` = class.
 
 iNaturalist Wikidata item: Q16958215 (used as S248 source in P1843 references).
