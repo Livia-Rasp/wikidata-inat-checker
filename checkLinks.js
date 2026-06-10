@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import fs from 'fs';
 import { findInatIds } from './getInatLinks.js';
 import { generateLinksHTML } from './generateLinksHTML.js';

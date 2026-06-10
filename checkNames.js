@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
 import { fetchEntities, chunk } from './generateWikitext.js';

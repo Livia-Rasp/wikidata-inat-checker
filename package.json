@@ -6,6 +6,11 @@
   "engines": {
     "node": ">=18"
   },
+  "bin": {
+    "check-images": "checkImages.js",
+    "check-names":  "checkNames.js",
+    "check-links":  "checkLinks.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "images": "node checkImages.js",

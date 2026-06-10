@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
