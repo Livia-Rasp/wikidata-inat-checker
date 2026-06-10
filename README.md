@@ -107,14 +107,14 @@ A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3
 ### How it works
 
 1. Queries Wikidata for taxon items that have a scientific name (P225) but no P3151.
-2. Downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket on first run and caches it at `~/.cache/wikidata-inat-checker/taxa.csv.gz`. The cache is refreshed automatically every 30 days.
-3. Looks up each Wikidata scientific name in the local taxa database (O(1) — no API calls). Names matching two or more active iNat taxa are treated as ambiguous and skipped.
+2. On first run, downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer.
+3. Looks up each Wikidata scientific name in the SQLite index (no API calls). Names matching two or more active iNat taxa are treated as ambiguous and skipped.
 4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
 5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
 6. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
 7. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-After the initial download, the tool runs in seconds regardless of how many taxa are checked. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
+After the initial download and index build (~20 seconds), the tool runs in under a second regardless of how many taxa are checked. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
 
 ### Usage
 

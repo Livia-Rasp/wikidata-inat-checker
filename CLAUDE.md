@@ -48,8 +48,8 @@ checkNames.js
 ```
 checkLinks.js
   └─ SPARQL → Wikidata: taxa with P225 but no P3151 (limited)
-  └─ getInatTaxaDb.js: downloads taxa.csv.gz from iNat open data (S3, ~39 MB, cached 30 days)
-       → Map<taxonName, {inatId, rank} | null>  (null = homonym ambiguity)
+  └─ getInatTaxaDb.js: SQLite-backed taxa index (~124 MB, built from iNat open-data S3 dump)
+       → {get(name)} returning {inatId, rank} | undefined (undefined = not found or homonym)
   └─ SPARQL → Wikidata: check found iNat IDs for existing P3151 on other items
   └─ SPARQL → Wikidata: P13177 (homonymous taxon) check to filter false conflicts
   └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
@@ -61,7 +61,7 @@ checkLinks.js
 
 **`getInatNames.js`** — batches 30 iNat taxon IDs per request to `/v1/taxa?all_names=true`, rate-limited to ~1 req/s. Normalizes `zh-CN`→`zh-hans`, `zh-TW`→`zh-hant` (Wikidata uses lowercase script subtags). Filters invalid and scientific-name entries.
 
-**`getInatTaxaDb.js`** — downloads `taxa.csv.gz` from the iNat open-data S3 bucket (~39 MB compressed, 1.64 M taxa, monthly cadence). Cached at `~/.cache/wikidata-inat-checker/taxa.csv.gz`; re-downloaded if older than 30 days. Parses the tab-separated file (columns: taxon_id, ancestry, rank_level, rank, name, active), filters for `active = t`, and returns `Map<name, {inatId, rank} | null>` — null signals a homonym (same name appearing in two or more distinct active taxa). Replaces per-name API calls in the links checker.
+**`getInatTaxaDb.js`** — maintains a SQLite taxa index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). On first use (or when the TSV is newer than the DB), downloads `taxa.csv.gz` from the iNat open-data S3 bucket (~180 MB uncompressed, ~1.4 M active taxa, monthly cadence) to `taxa.csv.gz` in the same directory, then builds the SQLite DB in a single transaction. The DB is re-downloaded if the TSV is older than 30 days and rebuilt whenever the TSV is newer than the DB. Schema: `taxa(taxon_id PK, name, rank)` with an index on `name` (for name lookups) and the implicit primary-key index on `taxon_id` (for future use). Returns `{get(name)}` — a `LIMIT 2` query: if exactly 1 row matches, returns `{inatId, rank}`; otherwise `undefined` (covers both not-found and homonym ambiguity).
 
 **`getInatLinks.js`** — searches iNat `/v1/taxa?q={name}` per scientific name. Exact match only; returns null for zero or multiple matches (ambiguous). `pLimit(1)` + 1000 ms token bucket = 1 req/s sustained. Retries up to 3× on HTTP 429, honouring the `Retry-After` header. No longer used by `checkLinks.js` (superseded by `getInatTaxaDb.js`) but kept for potential one-off use.
 

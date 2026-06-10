@@ -8,8 +8,8 @@
   },
   "bin": {
     "check-images": "checkImages.js",
-    "check-names":  "checkNames.js",
-    "check-links":  "checkLinks.js"
+    "check-names": "checkNames.js",
+    "check-links": "checkLinks.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -35,7 +35,11 @@
   },
   "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "p-limit": "^7.3.0",
     "wikibase-sdk": "^11.6.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.10.0": true
   }
 }
