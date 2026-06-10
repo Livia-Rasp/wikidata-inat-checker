@@ -179,11 +179,17 @@ function buildWikitext(itemData, chain, templates) {
     const manualChain = includeIdx >= 0 ? chain.slice(0, includeIdx) : chain;
     const manualRanks = manualChain.filter(a => RANK_LABELS[a.rank]).reverse();
 
+    const higherRankLabel = RANK_LABELS[rank] ?? (rank === RANK_GENUS ? 'Genus' : null);
+
     const taxonavLines = [];
     if (includeName) taxonavLines.push(`include=${includeName}|`);
     for (const { name, rank: r } of manualRanks) taxonavLines.push(`${RANK_LABELS[r]}|${name}|`);
-    taxonavLines.push(`Genus|${resolvedGenus}|`);
-    taxonavLines.push(`Species|${taxonName}|`);
+    if (higherRankLabel) {
+        taxonavLines.push(`${higherRankLabel}|${taxonName}|`);
+    } else {
+        taxonavLines.push(`Genus|${resolvedGenus}|`);
+        taxonavLines.push(`Species|${taxonName}|`);
+    }
     taxonavLines.push(`authority=${authority ?? ''}`);
 
     const lines = [
@@ -198,7 +204,9 @@ function buildWikitext(itemData, chain, templates) {
     if (mycobank) lines.push(`* {{MycoBank|${mycobank}|''${taxonName}''}}`);
     if (fungorum) lines.push(`* {{${fungorumTemplate}|${fungorum}|''${taxonName}''}}`);
     lines.push('');
-    lines.push(`[[Category:${resolvedGenus}|${epithet}]]`);
+    const parentCat = higherRankLabel ? (chain[0]?.name ?? taxonName) : resolvedGenus;
+    const sortKey   = higherRankLabel ? taxonName : epithet;
+    lines.push(`[[Category:${parentCat}|${sortKey}]]`);
 
     return lines.join('\n');
 }
