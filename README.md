@@ -102,24 +102,25 @@ npm run names -- 500     # custom limit
 
 ## iNaturalist links checker
 
-A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, searches iNaturalist by scientific name to find the matching taxon, and produces QuickStatements to add the missing link.
+A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches them against iNaturalist's full taxonomy, and produces QuickStatements to add the missing link.
 
 ### How it works
 
 1. Queries Wikidata for taxon items that have a scientific name (P225) but no P3151.
-2. Searches iNaturalist by scientific name for each taxon (exact match only; ambiguous or zero results are skipped).
-3. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
-4. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
-5. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
-6. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
+2. Downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket on first run and caches it at `~/.cache/wikidata-inat-checker/taxa.csv.gz`. The cache is refreshed automatically every 30 days.
+3. Looks up each Wikidata scientific name in the local taxa database (O(1) — no API calls). Names matching two or more active iNat taxa are treated as ambiguous and skipped.
+4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
+5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
+6. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
+7. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-The default limit is 200 taxa (each taxon = one iNat search request at 1 req/s; 200 taxa takes roughly 3–4 minutes). Results are cached locally in `cache-links.json` so re-runs skip taxa already searched. Delete the file to force a full re-scan.
+After the initial download, the tool runs in seconds regardless of how many taxa are checked. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
 
 ### Usage
 
 ```sh
-npm run links            # default: 200 taxa
-npm run links -- 500     # custom limit
+npm run links             # default: 200 taxa
+npm run links -- 1000     # custom limit — fast even for large numbers
 ```
 
 ### links.html columns
@@ -138,7 +139,7 @@ The conflict table below (shown only when conflicts exist) lists iNat IDs found 
 
 ### Typical workflow
 
-1. Run `npm run links -- 200` to generate `links.html`.
+1. Run `npm run links -- 1000` to generate `links.html` (first run downloads the taxa database; subsequent runs are instant).
 2. Open `links.html` in a browser.
 3. Review the matches — spot-check a few taxon names against the iNat page to confirm correctness.
 4. Check rows you want to import. Copy the aggregate field and paste into [QuickStatements](https://quickstatements.toolforge.org/).
