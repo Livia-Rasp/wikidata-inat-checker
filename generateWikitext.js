@@ -28,7 +28,7 @@ const RANK_LABELS   = {
 // Least Concern (Q211005) omitted — no corresponding Commons maintenance category.
 const IUCN_CATEGORIES = {
     'Q219127':  'IUCN Critically endangered species',
-    'Q11394':   'IUCN Endangered species',
+    'Q96377276': 'IUCN Endangered species',
     'Q278113':  'IUCN Vulnerable species',
     'Q719675':  'IUCN Near Threatened species',
     'Q3245245': 'IUCN Data Deficient species',

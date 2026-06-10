@@ -4,22 +4,29 @@ import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk } from './utils.js';
+import { HEADERS, wbk, IUCN_STATUS_QIDS } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
 const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
+const iucnArg = process.argv[3]?.toUpperCase();
+const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
+if (iucnArg && !iucnQid) {
+    console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
+    process.exit(1);
+}
 
 /** Queries Wikidata for taxa without P18, checks iNat for CC-licensed photos, writes drafts.html. */
 async function run(limit) {
+    if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     const sparql = `SELECT ?item ?inatID
 WHERE
 {
   ?item wdt:P31 wd:Q16521 .
   ?item wdt:P3151 ?inatID .
-  FILTER (
+${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER (
      !EXISTS {
      ?item p:P18 ?statement1.
        }

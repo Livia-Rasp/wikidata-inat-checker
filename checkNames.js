@@ -6,21 +6,28 @@ import { fetchEntities, chunk } from './generateWikitext.js';
 import { fetchInatNames } from './getInatNames.js';
 import { generateNamesHTML } from './generateNamesHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, qidFromUri } from './utils.js';
+import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
 
 const CACHE_FILE = 'cache-names.json';
 
 const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
+const iucnArg = process.argv[3]?.toUpperCase();
+const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
+if (iucnArg && !iucnQid) {
+    console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
+    process.exit(1);
+}
 
 /** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {
+    if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     const sparql = `SELECT ?item ?inatID
 WHERE {
   ?item wdt:P31 wd:Q16521 .
   ?item wdt:P3151 ?inatID .
-} LIMIT ${limit}`;
+${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
 
     const response = await fetch(wbk.sparqlQuery(sparql), { headers: HEADERS });
     const jsonRes = await response.json();

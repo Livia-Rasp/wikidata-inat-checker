@@ -4,13 +4,19 @@ import fs from 'fs';
 import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, qidFromUri } from './utils.js';
+import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
 
 const CACHE_FILE = 'cache-links.json';
 
 const DEFAULT_LIMIT = 200;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
+const iucnArg = process.argv[3]?.toUpperCase();
+const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
+if (iucnArg && !iucnQid) {
+    console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
+    process.exit(1);
+}
 
 /**
  * Executes a SPARQL query against Wikidata with exponential-backoff retry on 502/503.
@@ -32,13 +38,14 @@ async function sparql(query, retries = 3) {
 
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
+    if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     // 1. Fetch Wikidata taxa that have a scientific name but no iNat ID
     console.log(`Querying Wikidata for taxa without P3151 (limit ${limit})...`);
     const missingBindings = await sparql(`SELECT ?item ?taxonName
 WHERE {
   ?item wdt:P31 wd:Q16521 .
   ?item wdt:P225 ?taxonName .
-  FILTER NOT EXISTS { ?item wdt:P3151 ?any . }
+${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER NOT EXISTS { ?item wdt:P3151 ?any . }
 } LIMIT ${limit}`);
 
     const candidates = missingBindings.map(b => ({

@@ -5,14 +5,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-node checkImages.js 500    # image checker — custom limit
-npm run images -- 500      # same via npm (-- required to forward arg)
+node checkImages.js 500       # image checker — custom limit
+node checkImages.js 500 VU    # optional second arg: filter by IUCN status (VU, CR, EN, NT, DD, EX, EW, LC, NE)
+npm run images -- 500         # same via npm (-- required to forward args)
+npm run images -- 500 VU      # same with IUCN filter
 
-node checkNames.js 500     # vernacular names checker — custom limit
-npm run names -- 500       # same via npm
+node checkNames.js 500        # vernacular names checker — custom limit
+node checkNames.js 500 CR     # with IUCN filter
+npm run names -- 500          # same via npm
+npm run names -- 500 CR       # same with IUCN filter
 
-node checkLinks.js 200     # iNat links checker — custom limit
-npm run links -- 200       # same via npm
+node checkLinks.js 200        # iNat links checker — custom limit
+node checkLinks.js 200 EN     # with IUCN filter
+npm run links -- 200          # same via npm
+npm run links -- 200 EN       # same with IUCN filter
 ```
 
 No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, and `inat-links-conflicts.json` (all gitignored).

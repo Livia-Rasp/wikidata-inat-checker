@@ -45,3 +45,16 @@ export function createRateLimiter(intervalMs = 1000) {
         if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
     };
 }
+
+/** IUCN Red List P1813 short codes → Wikidata QIDs, for SPARQL P141 filtering. */
+export const IUCN_STATUS_QIDS = {
+    EX: 'Q237350',
+    EW: 'Q239509',
+    CR: 'Q219127',
+    EN: 'Q96377276',
+    VU: 'Q278113',
+    NT: 'Q719675',
+    LC: 'Q211005',
+    DD: 'Q3245245',
+    NE: 'Q3350324',
+};
