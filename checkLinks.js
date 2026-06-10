@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import fs from 'fs';
-import { findInatIds } from './getInatLinks.js';
+import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { loadCache, saveCache } from './cache.js';
 import { HEADERS, wbk, qidFromUri } from './utils.js';
@@ -46,10 +46,15 @@ WHERE {
     if (uncached.length < candidates.length)
         console.log(`Cache: skipping ${candidates.length - uncached.length} already-checked entries, scanning ${uncached.length}.`);
 
-    // 2. Search iNat by scientific name
-    const taxonNames = uncached.map(c => c.taxonName);
-    console.log(`Searching iNaturalist for ${taxonNames.length} taxon names...`);
-    const inatResults = await findInatIds(taxonNames);
+    // 2. Look up taxon names in local iNat taxa database
+    if (uncached.length === 0) {
+        console.log('No new taxa to scan. Nothing to do.');
+        await generateLinksHTML([], []);
+        return;
+    }
+    const taxaDb = await loadTaxaDb();
+    const inatResults = new Map(uncached.map(c => [c.taxonName, taxaDb.get(c.taxonName) ?? null]));
+    console.log(`Matched ${[...inatResults.values()].filter(Boolean).length} of ${uncached.length} names in local taxa database.`);
 
     // Collect only the iNat IDs we actually found
     const foundInatIds = [...inatResults.values()]
