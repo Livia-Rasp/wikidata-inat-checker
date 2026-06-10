@@ -1,5 +1,11 @@
+// @ts-check
 import fs from 'fs';
 import { escapeHtml } from './utils.js';
+
+/**
+ * @typedef {{ locale: string, name: string }} LocaleName
+ * @typedef {{ wdUri: string, qid: string, inatId: string, taxonName: string | null, missing: LocaleName[] }} NameItem
+ */
 
 const WD_DATE = `+${new Date().toISOString().slice(0, 10)}T00:00:00Z/11`;
 
@@ -32,6 +38,11 @@ function buildRow({ wdUri, qid, inatId, taxonName, missing }) {
     </tr>`;
 }
 
+/**
+ * @param {NameItem[]} items
+ * @param {string} [outputFile]
+ * @returns {Promise<void>}
+ */
 export async function generateNamesHTML(items, outputFile = 'names.html') {
     if (items.length === 0) {
         console.log('No missing names found.');

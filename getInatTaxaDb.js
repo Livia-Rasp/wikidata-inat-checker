@@ -1,9 +1,14 @@
+// @ts-check
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import zlib from 'zlib';
 import Database from 'better-sqlite3';
 import { HEADERS } from './utils.js';
+
+/**
+ * @typedef {{ inatId: string, rank: string }} TaxonEntry
+ */
 
 const TAXA_URL  = 'https://inaturalist-open-data.s3.amazonaws.com/taxa.csv.gz';
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'wikidata-inat-checker');
@@ -67,6 +72,11 @@ function buildDb() {
     console.log(`SQLite index built (${rows.length} active taxa).`);
 }
 
+/**
+ * Returns a read-only handle to the local iNat taxa SQLite index, downloading and building it if needed.
+ * undefined from .get() means not found or a homonym (2+ active taxa share the same name).
+ * @returns {Promise<{ get(name: string): TaxonEntry | undefined }>}
+ */
 export async function loadTaxaDb() {
     if (tsvIsStale()) await downloadTaxa();
     if (dbIsStale()) buildDb();

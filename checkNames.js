@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
 import { fetchEntities, chunk } from './generateWikitext.js';
@@ -13,6 +14,7 @@ const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
 
+/** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {
     const sparql = `SELECT ?item ?inatID
 WHERE {

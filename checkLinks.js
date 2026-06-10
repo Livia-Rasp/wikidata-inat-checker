@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import fs from 'fs';
 import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
@@ -11,6 +12,12 @@ const DEFAULT_LIMIT = 200;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
 
+/**
+ * Executes a SPARQL query against Wikidata with exponential-backoff retry on 502/503.
+ * @param {string} query
+ * @param {number} [retries]
+ * @returns {Promise<object[]>} SPARQL result bindings
+ */
 async function sparql(query, retries = 3) {
     const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });
     if ((res.status === 502 || res.status === 503) && retries > 0) {
@@ -23,6 +30,7 @@ async function sparql(query, retries = 3) {
     return (await res.json()).results.bindings;
 }
 
+/** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
     // 1. Fetch Wikidata taxa that have a scientific name but no iNat ID
     console.log(`Querying Wikidata for taxa without P3151 (limit ${limit})...`);

@@ -1,3 +1,4 @@
+// @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
 import { HEADERS, qidFromUri } from './utils.js';
@@ -85,6 +86,12 @@ async function fetchTaxonavTemplates() {
     return names;
 }
 
+/**
+ * @template T
+ * @param {T[]} arr
+ * @param {number} n
+ * @returns {T[][]}
+ */
 export function chunk(arr, n) {
     const out = [];
     for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
@@ -92,6 +99,11 @@ export function chunk(arr, n) {
 }
 
 
+/**
+ * Batch-fetches Wikidata entities via wbgetentities (claims + specieswiki sitelink).
+ * @param {string[]} qids
+ * @returns {Promise<object>} Raw API response.
+ */
 export async function fetchEntities(qids) {
     const url = 'https://www.wikidata.org/w/api.php?' + new URLSearchParams({
         action: 'wbgetentities',
@@ -208,6 +220,10 @@ function buildWikitext(itemData, chain, templates) {
     return lines.join('\n');
 }
 
+/**
+ * @param {Record<string, true>} available - wdUri → true for taxa with qualifying iNat photos
+ * @returns {Promise<Record<string, string>>} wdUri → Commons category Wikitext draft
+ */
 export async function generateDraftWikitext(available) {
     const wdUris = Object.keys(available);
     if (wdUris.length === 0) {

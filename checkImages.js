@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
@@ -11,6 +12,7 @@ const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
 
+/** Queries Wikidata for taxa without P18, checks iNat for CC-licensed photos, writes drafts.html. */
 async function run(limit) {
     const sparql = `SELECT ?item ?inatID
 WHERE

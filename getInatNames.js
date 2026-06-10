@@ -1,5 +1,10 @@
+// @ts-check
 import { chunk } from './generateWikitext.js';
 import { createRateLimiter } from './utils.js';
+
+/**
+ * @typedef {{ locale: string, name: string }} LocaleName
+ */
 
 const BATCH_SIZE = 30;
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
@@ -23,6 +28,10 @@ async function fetchBatch(inatIds) {
     return r.json();
 }
 
+/**
+ * @param {string[]} inatIds
+ * @returns {Promise<Map<string, LocaleName[]>>} Map from iNat taxon ID → vernacular names
+ */
 export async function fetchInatNames(inatIds) {
     const result = new Map();
     const batches = chunk(inatIds, BATCH_SIZE);

@@ -1,5 +1,10 @@
+// @ts-check
 import pLimit from 'p-limit';
 import { HEADERS, createRateLimiter } from './utils.js';
+
+/**
+ * @typedef {{ inatId: string, rank: string }} InatMatch
+ */
 
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
 
@@ -19,8 +24,11 @@ async function searchByName(name, retries = 3) {
     return r.json();
 }
 
-// Returns Map<taxonName, {inatId, rank} | null>
-// null means: no result, or multiple conflicting exact matches (ambiguous)
+/**
+ * Searches iNat /v1/taxa?q= per name. Kept for one-off use; getInatTaxaDb is faster for bulk lookups.
+ * @param {string[]} taxonNames
+ * @returns {Promise<Map<string, InatMatch | null>>} null = not found or multiple exact matches (ambiguous)
+ */
 export async function findInatIds(taxonNames) {
     const result = new Map();
     let done = 0;

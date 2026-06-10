@@ -1,5 +1,7 @@
+// @ts-check
 import WBK from 'wikibase-sdk';
 
+/** @type {Record<string, string>} */
 export const HEADERS = {
     'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)'
 };
@@ -9,8 +11,16 @@ export const wbk = WBK({
     sparqlEndpoint: 'https://query.wikidata.org/sparql'
 });
 
+/**
+ * @param {string} uri
+ * @returns {string}
+ */
 export function qidFromUri(uri) { return uri.split('/').pop(); }
 
+/**
+ * @param {string | number} str
+ * @returns {string}
+ */
 export function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -19,6 +29,12 @@ export function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * Returns an async function that enforces a minimum gap between calls.
+ * Each caller should have its own instance so rate limits don't bleed across modules.
+ * @param {number} [intervalMs=1000]
+ * @returns {() => Promise<void>}
+ */
 export function createRateLimiter(intervalMs = 1000) {
     let nextSlot = 0;
     return async function rateLimit() {

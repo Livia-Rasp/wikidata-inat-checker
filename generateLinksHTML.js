@@ -1,5 +1,11 @@
+// @ts-check
 import fs from 'fs';
 import { escapeHtml } from './utils.js';
+
+/**
+ * @typedef {{ wdUri: string, qid: string, taxonName: string, inatId: string }} Match
+ * @typedef {Match & { conflictWdUri: string, conflictQid: string, conflictTaxonName: string | null }} Conflict
+ */
 
 function buildQS(qid, inatId) {
     return `${qid}\tP3151\t"${inatId}"`;
@@ -30,6 +36,12 @@ function buildConflictRow({ taxonName, wdUri, qid, inatId, conflictWdUri, confli
     </tr>`;
 }
 
+/**
+ * @param {Match[]} matches
+ * @param {Conflict[]} conflicts
+ * @param {string} [outputFile]
+ * @returns {Promise<void>}
+ */
 export async function generateLinksHTML(matches, conflicts, outputFile = 'links.html') {
     const matchRows = matches.map(buildMatchRow).join('\n');
 

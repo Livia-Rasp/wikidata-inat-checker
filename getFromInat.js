@@ -1,4 +1,9 @@
+// @ts-check
 import { createRateLimiter } from './utils.js';
+
+/**
+ * @typedef {{ available: Record<string, true>, inatTaxonIds: Record<string, string> }} InatResult
+ */
 
 const BATCH_SIZE = 200;
 const PER_PAGE = 500;
@@ -43,6 +48,13 @@ async function processBatch(batch, license) {
     return [...matched].map(taxonId => ({ wdUri: idToWd.get(taxonId), taxonId }));
 }
 
+/**
+ * Queries iNat /v1/observations/species_counts for taxa in `map`, returning those
+ * with at least one research-grade photo under an accepted license.
+ * @param {Map<string, string>} map - iNat taxon ID → Wikidata URI
+ * @param {string} [license]
+ * @returns {Promise<InatResult>}
+ */
 export async function processInatIds(map, license = DEFAULT_LICENSE) {
     const todo = [...map];
     console.log(`Querying ${todo.length} taxa against iNat...`);

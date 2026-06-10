@@ -1,3 +1,4 @@
+// @ts-check
 import fs from 'fs';
 import { escapeHtml, qidFromUri } from './utils.js';
 
@@ -33,6 +34,12 @@ function buildRow(uri, wikitext, inatTaxonIds) {
     </tr>`;
 }
 
+/**
+ * @param {Record<string, string>} drafts - wdUri → Wikitext draft
+ * @param {Record<string, string>} inatTaxonIds - wdUri → iNat taxon ID
+ * @param {string} [outputFile]
+ * @returns {Promise<void>}
+ */
 export async function generateDraftsHTML(drafts, inatTaxonIds, outputFile = 'drafts.html') {
     const entries = Object.entries(drafts);
     if (entries.length === 0) {
