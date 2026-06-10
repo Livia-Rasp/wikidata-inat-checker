@@ -24,6 +24,18 @@ const RANK_LABELS   = {
     [RANK_SUBTRIBE]:    'Subtribus',
 };
 
+// Commons category names for IUCN Red List statuses (verified against live categories).
+// Least Concern (Q211005) omitted — no corresponding Commons maintenance category.
+const IUCN_CATEGORIES = {
+    'Q219127':  'IUCN Critically endangered species',
+    'Q11394':   'IUCN Endangered species',
+    'Q278113':  'IUCN Vulnerable species',
+    'Q719675':  'IUCN Near Threatened species',
+    'Q3245245': 'IUCN Data Deficient species',
+    'Q237350':  'IUCN Extinct species',
+    'Q239509':  'IUCN Extinct In The Wild species',
+};
+
 async function fetchNcbiAuthorities(items) {
     const result = new Map();
     for (const batch of chunk(items, 200)) {
@@ -136,6 +148,7 @@ function parseEntity(entity) {
         eol:       claims.P830?.[0],
         mycobank:  claims.P962?.[0],
         fungorum:  claims.P1391?.[0],
+        iucnStatus: claims.P141?.[0],
         hasWikispecies: !!entity.sitelinks?.specieswiki,
         hasVernacularName: (claims.P1843?.length ?? 0) > 0
     };
@@ -224,6 +237,8 @@ function buildWikitext(itemData, chain, templates) {
     const parentCat = higherRankLabel ? (chain[0]?.name ?? taxonName) : resolvedGenus;
     const sortKey   = higherRankLabel ? taxonName : epithet;
     lines.push(`[[Category:${parentCat}|${sortKey}]]`);
+    const iucnCat = IUCN_CATEGORIES[itemData.iucnStatus];
+    if (iucnCat) lines.push(`[[Category:${iucnCat}]]`);
 
     return lines.join('\n');
 }

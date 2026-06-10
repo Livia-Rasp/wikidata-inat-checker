@@ -84,6 +84,7 @@ checkLinks.js
 | P830 | Encyclopedia of Life ID |
 | P962 | MycoBank taxon name ID |
 | P1391 | Index Fungorum taxon ID |
+| P141 | IUCN conservation status (adds Commons IUCN category; Least Concern Q211005 is omitted) |
 | P1843 | vernacular name (monolingualtext) |
 | P13177 | homonymous taxon (used to filter false P3151 conflicts) |
 
