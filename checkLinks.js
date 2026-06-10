@@ -1,23 +1,14 @@
 import fs from 'fs';
-import WBK from 'wikibase-sdk';
 import { findInatIds } from './getInatLinks.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { loadCache, saveCache } from './cache.js';
+import { HEADERS, wbk, qidFromUri } from './utils.js';
 
 const CACHE_FILE = 'cache-links.json';
-
-const wbk = WBK({
-    instance: 'https://www.wikidata.org',
-    sparqlEndpoint: 'https://query.wikidata.org/sparql'
-});
 
 const DEFAULT_LIMIT = 200;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-
-const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
-
-function qidFromUri(uri) { return uri.split('/').pop(); }
 
 async function sparql(query, retries = 3) {
     const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });

@@ -1,18 +1,11 @@
 import fs from 'fs';
-
-function escapeHtml(str) {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
+import { escapeHtml, qidFromUri } from './utils.js';
 
 function buildRow(uri, wikitext, inatTaxonIds) {
-    const qid = uri.split('/').pop();
+    const qid = qidFromUri(uri);
 
-    const taxonMatch = wikitext.match(/Species\|([^|}\n]+)/);
-    const taxonName = taxonMatch ? taxonMatch[1].trim() : null;
+    const taxonMatches = [...wikitext.matchAll(/(?:Species|Genus|Familia|Ordo|Classis|Subclassis)\|([^|}\n]+)\|/g)];
+    const taxonName = taxonMatches.length > 0 ? taxonMatches[taxonMatches.length - 1][1].trim() : null;
     const commonsUrl = taxonName
         ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}&action=edit`
         : null;

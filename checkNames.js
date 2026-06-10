@@ -1,25 +1,16 @@
-import WBK from 'wikibase-sdk';
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
 import { fetchEntities, chunk } from './generateWikitext.js';
 import { fetchInatNames } from './getInatNames.js';
 import { generateNamesHTML } from './generateNamesHTML.js';
 import { loadCache, saveCache } from './cache.js';
+import { HEADERS, wbk, qidFromUri } from './utils.js';
 
 const CACHE_FILE = 'cache-names.json';
-
-const wbk = WBK({
-    instance: 'https://www.wikidata.org',
-    sparqlEndpoint: 'https://query.wikidata.org/sparql'
-});
 
 const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-
-const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
-
-function qidFromUri(uri) { return uri.split('/').pop(); }
 
 async function run(limit) {
     const sparql = `SELECT ?item ?inatID

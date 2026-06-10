@@ -1,17 +1,9 @@
 import pLimit from 'p-limit';
+import { HEADERS, createRateLimiter } from './utils.js';
 
-const REQUEST_INTERVAL_MS = 1000;  // 1 req/s sustained
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
-const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
-let nextSlot = 0;
-async function rateLimit() {
-    const now = Date.now();
-    const slot = Math.max(now, nextSlot);
-    nextSlot = slot + REQUEST_INTERVAL_MS;
-    const wait = slot - now;
-    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-}
+const rateLimit = createRateLimiter();
 
 async function searchByName(name, retries = 3) {
     await rateLimit();

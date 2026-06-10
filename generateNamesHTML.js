@@ -1,14 +1,7 @@
 import fs from 'fs';
+import { escapeHtml } from './utils.js';
 
 const WD_DATE = `+${new Date().toISOString().slice(0, 10)}T00:00:00Z/11`;
-
-function escapeHtml(str) {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
 
 function buildQuickStatements(qid, inatId, missing) {
     const ref = `\tS248\tQ16958215\tS854\t"https://www.inaturalist.org/taxa/${inatId}"\tS813\t${WD_DATE}`;

@@ -1,15 +1,10 @@
-import WBK from 'wikibase-sdk';
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
 import { loadCache, saveCache } from './cache.js';
+import { HEADERS, wbk } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
-
-const wbk = WBK({
-    instance: 'https://www.wikidata.org',
-    sparqlEndpoint: 'https://query.wikidata.org/sparql'
-});
 
 const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
@@ -28,8 +23,7 @@ WHERE
     )
 } LIMIT ${limit}`;
 
-    const headers = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
-    const response = await fetch(wbk.sparqlQuery(sparql), { headers });
+    const response = await fetch(wbk.sparqlQuery(sparql), { headers: HEADERS });
     const jsonRes = await response.json();
 
     const inatToWD = new Map();

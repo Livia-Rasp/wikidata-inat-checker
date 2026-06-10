@@ -1,5 +1,6 @@
+import { createRateLimiter } from './utils.js';
+
 const BATCH_SIZE = 200;
-const REQUEST_INTERVAL_MS = 1000;
 const PER_PAGE = 500;
 const API_URL = 'https://api.inaturalist.org/v1/observations/species_counts';
 const DEFAULT_LICENSE = 'cc0,cc-by,cc-by-sa';
@@ -17,14 +18,7 @@ async function fetchBatchPage(taxonIds, license, page) {
     return r.json();
 }
 
-let nextSlot = 0;
-async function rateLimit() {
-    const now = Date.now();
-    const slot = Math.max(now, nextSlot);
-    nextSlot = slot + REQUEST_INTERVAL_MS;
-    const wait = slot - now;
-    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-}
+const rateLimit = createRateLimiter();
 
 async function processBatch(batch, license) {
     const taxonIds = batch.map(([k]) => k);

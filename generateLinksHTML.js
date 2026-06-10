@@ -1,12 +1,5 @@
 import fs from 'fs';
-
-function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
+import { escapeHtml } from './utils.js';
 
 function buildQS(qid, inatId) {
     return `${qid}\tP3151\t"${inatId}"`;

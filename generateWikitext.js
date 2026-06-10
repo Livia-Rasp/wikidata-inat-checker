@@ -1,5 +1,6 @@
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
+import { HEADERS, qidFromUri } from './utils.js';
 
 const ENTITY_BATCH  = 50;
 const RANK_GENUS    = 'Q34740';
@@ -13,7 +14,6 @@ const RANK_LABELS   = {
     [RANK_ORDER]:    'Ordo',
     [RANK_FAMILY]:   'Familia',
 };
-const HEADERS = { 'User-Agent': 'wikidata-inat-checker/1.0.0 (https://github.com/Livia-Rasp/wikidata-inat-checker)' };
 
 async function fetchNcbiAuthorities(items) {
     const result = new Map();
@@ -91,9 +91,6 @@ export function chunk(arr, n) {
     return out;
 }
 
-function qidFromUri(uri) {
-    return uri.split('/').pop();
-}
 
 export async function fetchEntities(qids) {
     const url = 'https://www.wikidata.org/w/api.php?' + new URLSearchParams({

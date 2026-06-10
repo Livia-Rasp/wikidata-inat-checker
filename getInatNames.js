@@ -1,7 +1,7 @@
 import { chunk } from './generateWikitext.js';
+import { createRateLimiter } from './utils.js';
 
 const BATCH_SIZE = 30;
-const REQUEST_INTERVAL_MS = 1000;
 const API_URL = 'https://api.inaturalist.org/v1/taxa';
 
 const LOCALE_MAP = {
@@ -9,14 +9,7 @@ const LOCALE_MAP = {
     'zh-TW': 'zh-hant',
 };
 
-let nextSlot = 0;
-async function rateLimit() {
-    const now = Date.now();
-    const slot = Math.max(now, nextSlot);
-    nextSlot = slot + REQUEST_INTERVAL_MS;
-    const wait = slot - now;
-    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-}
+const rateLimit = createRateLimiter();
 
 async function fetchBatch(inatIds) {
     await rateLimit();
