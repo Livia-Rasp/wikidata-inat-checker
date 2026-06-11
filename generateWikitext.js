@@ -102,8 +102,20 @@ async function fetchTaxonavTemplates() {
         ...subcats,
     ].map(fetchPages));
 
-    console.log(`Loaded ${names.size} Taxonavigation templates from Commons.`);
-    return names;
+    // Build base-name → full-name lookup.
+    // Suffixed variants (APG, IOC, Smith…) take precedence over plain names.
+    // Skip internal "(include)" templates (used by Coleoptera/Lepidoptera wrappers internally)
+    // and any sub-page entries like "Foo/sandbox".
+    const lookup = new Map();
+    for (const name of names) {
+        if (name.includes('/')) continue;
+        if (name.endsWith(' (include)')) continue;
+        const parenIdx = name.indexOf(' (');
+        const baseName = parenIdx >= 0 ? name.slice(0, parenIdx) : name;
+        if (!lookup.has(baseName) || parenIdx >= 0) lookup.set(baseName, name);
+    }
+    console.log(`Loaded ${lookup.size} Taxonavigation templates from Commons.`);
+    return lookup;
 }
 
 /**
@@ -253,7 +265,7 @@ function buildWikitext(itemData, chain, templates) {
         lines.push(block);
     } else {
         const includeIdx = chain.findIndex(a => templates.has(a.name));
-        const includeName = includeIdx >= 0 ? chain[includeIdx].name : null;
+        const includeName = includeIdx >= 0 ? templates.get(chain[includeIdx].name) : null;
         const manualChain = includeIdx >= 0 ? chain.slice(0, includeIdx) : chain;
         const manualRanks = manualChain.filter(a => RANK_LABELS[a.rank]).reverse();
 
