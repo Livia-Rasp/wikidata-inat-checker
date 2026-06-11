@@ -195,6 +195,38 @@ function resolveAncestors(qid, cache) {
     return chain;
 }
 
+function buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, epithet) {
+    const { taxonName, rank, authority } = itemData;
+
+    const familiaName = rank === RANK_FAMILY ? taxonName
+        : chain.find(a => a.rank === RANK_FAMILY)?.name;
+    if (!familiaName) return null; // familia= is required by the template
+
+    const subfamiliaName = rank === RANK_SUBFAMILY ? taxonName
+        : chain.find(a => a.rank === RANK_SUBFAMILY)?.name;
+    const tribusName = rank === RANK_TRIBE ? taxonName
+        : chain.find(a => a.rank === RANK_TRIBE)?.name;
+    const subtribusName = rank === RANK_SUBTRIBE ? taxonName
+        : chain.find(a => a.rank === RANK_SUBTRIBE)?.name;
+
+    const params = [`|familia=${familiaName}`];
+    if (subfamiliaName) params.push(`|subfamilia=${subfamiliaName}`);
+    if (tribusName) params.push(`|tribus=${tribusName}`);
+    if (subtribusName) params.push(`|subtribus=${subtribusName}`);
+
+    if (rank === RANK_GENUS) {
+        params.push(`|genus=${taxonName}`);
+    } else if (!higherRankLabel) {
+        // Species level: genus= + species= epithet only
+        params.push(`|genus=${resolvedGenus}`);
+        params.push(`|species=${epithet}`);
+    }
+    // Family/subfamily/tribe/subtribe ranks: no genus/species params
+
+    params.push(`|auth=${authority ?? ''}`);
+    return `{{Coleoptera\n${params.join('\n')}}}`;
+}
+
 function buildWikitext(itemData, chain, templates) {
     const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies, authority } = itemData;
     if (!taxonName) return null;
@@ -203,29 +235,34 @@ function buildWikitext(itemData, chain, templates) {
     const genusAncestor = chain.find(a => a.rank === RANK_GENUS);
     const resolvedGenus = genusAncestor?.name || parts[0];
     const epithet = parts.slice(1).join(' ');
-
-    const includeIdx = chain.findIndex(a => templates.has(a.name));
-    const includeName = includeIdx >= 0 ? chain[includeIdx].name : null;
-    const manualChain = includeIdx >= 0 ? chain.slice(0, includeIdx) : chain;
-    const manualRanks = manualChain.filter(a => RANK_LABELS[a.rank]).reverse();
-
     const higherRankLabel = RANK_LABELS[rank] ?? (rank === RANK_GENUS ? 'Genus' : null);
 
-    const taxonavLines = [];
-    if (includeName) taxonavLines.push(`include=${includeName}|`);
-    for (const { name, rank: r } of manualRanks) taxonavLines.push(`${RANK_LABELS[r]}|${name}|`);
-    if (higherRankLabel) {
-        taxonavLines.push(`${higherRankLabel}|${taxonName}|`);
-    } else {
-        taxonavLines.push(`Genus|${resolvedGenus}|`);
-        taxonavLines.push(`Species|${taxonName}|`);
-    }
-    taxonavLines.push(`authority=${authority ?? ''}`);
+    const lines = ['{{Wikidata Infobox}}'];
 
-    const lines = [
-        '{{Wikidata Infobox}}',
-        `{{Taxonavigation|\n${taxonavLines.join('\n')}}}`
-    ];
+    const isInColeoptera = chain.some(a => a.rank === RANK_ORDER && a.name === 'Coleoptera');
+    if (isInColeoptera) {
+        const block = buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, epithet);
+        if (!block) return null;
+        lines.push(block);
+    } else {
+        const includeIdx = chain.findIndex(a => templates.has(a.name));
+        const includeName = includeIdx >= 0 ? chain[includeIdx].name : null;
+        const manualChain = includeIdx >= 0 ? chain.slice(0, includeIdx) : chain;
+        const manualRanks = manualChain.filter(a => RANK_LABELS[a.rank]).reverse();
+
+        const taxonavLines = [];
+        if (includeName) taxonavLines.push(`include=${includeName}|`);
+        for (const { name, rank: r } of manualRanks) taxonavLines.push(`${RANK_LABELS[r]}|${name}|`);
+        if (higherRankLabel) {
+            taxonavLines.push(`${higherRankLabel}|${taxonName}|`);
+        } else {
+            taxonavLines.push(`Genus|${resolvedGenus}|`);
+            taxonavLines.push(`Species|${taxonName}|`);
+        }
+        taxonavLines.push(`authority=${authority ?? ''}`);
+        lines.push(`{{Taxonavigation|\n${taxonavLines.join('\n')}}}`);
+    }
+
     if (itemData.hasVernacularName) lines.push('{{VN}}');
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
