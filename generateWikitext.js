@@ -161,7 +161,7 @@ async function buildAncestorCache(itemQids) {
     const cache = {};
     let frontier = new Set(itemQids);
 
-    for (let depth = 0; depth < 7 && frontier.size > 0; depth++) {
+    for (let depth = 0; depth < 20 && frontier.size > 0; depth++) {
         const toFetch = [...frontier].filter(q => !cache[q]);
         if (toFetch.length === 0) break;
 
@@ -195,7 +195,9 @@ function resolveAncestors(qid, cache) {
     return chain;
 }
 
-function buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, epithet) {
+// Builds the {{Coleoptera}} or {{Lepidoptera}} block (same named-param convention).
+// useSubtribus: Coleoptera supports |subtribus=, Lepidoptera does not.
+function buildOrderBlock(templateName, useSubtribus, itemData, chain, higherRankLabel, resolvedGenus, epithet) {
     const { taxonName, rank, authority } = itemData;
 
     const familiaName = rank === RANK_FAMILY ? taxonName
@@ -206,8 +208,8 @@ function buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, e
         : chain.find(a => a.rank === RANK_SUBFAMILY)?.name;
     const tribusName = rank === RANK_TRIBE ? taxonName
         : chain.find(a => a.rank === RANK_TRIBE)?.name;
-    const subtribusName = rank === RANK_SUBTRIBE ? taxonName
-        : chain.find(a => a.rank === RANK_SUBTRIBE)?.name;
+    const subtribusName = useSubtribus && (rank === RANK_SUBTRIBE ? taxonName
+        : chain.find(a => a.rank === RANK_SUBTRIBE)?.name);
 
     const params = [`|familia=${familiaName}`];
     if (subfamiliaName) params.push(`|subfamilia=${subfamiliaName}`);
@@ -224,7 +226,7 @@ function buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, e
     // Family/subfamily/tribe/subtribe ranks: no genus/species params
 
     params.push(`|auth=${authority ?? ''}`);
-    return `{{Coleoptera\n${params.join('\n')}}}`;
+    return `{{${templateName}\n${params.join('\n')}}}`;
 }
 
 function buildWikitext(itemData, chain, templates) {
@@ -239,9 +241,14 @@ function buildWikitext(itemData, chain, templates) {
 
     const lines = ['{{Wikidata Infobox}}'];
 
-    const isInColeoptera = chain.some(a => a.rank === RANK_ORDER && a.name === 'Coleoptera');
+    const isInColeoptera  = chain.some(a => a.rank === RANK_ORDER && a.name === 'Coleoptera');
+    const isInLepidoptera = chain.some(a => a.rank === RANK_ORDER && a.name === 'Lepidoptera');
     if (isInColeoptera) {
-        const block = buildColeopteraBlock(itemData, chain, higherRankLabel, resolvedGenus, epithet);
+        const block = buildOrderBlock('Coleoptera', true, itemData, chain, higherRankLabel, resolvedGenus, epithet);
+        if (!block) return null;
+        lines.push(block);
+    } else if (isInLepidoptera) {
+        const block = buildOrderBlock('Lepidoptera', false, itemData, chain, higherRankLabel, resolvedGenus, epithet);
         if (!block) return null;
         lines.push(block);
     } else {
