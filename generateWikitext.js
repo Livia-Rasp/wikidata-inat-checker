@@ -26,6 +26,7 @@ const RANK_LABELS   = {
 
 // Commons category names for IUCN Red List statuses (verified against live categories).
 // Least Concern (Q211005) omitted — no corresponding Commons maintenance category.
+// Used as fallback when P627 (IUCN taxon ID) is absent; otherwise {{IUCN}} auto-categorizes.
 const IUCN_CATEGORIES = {
     'Q219127':  'IUCN Critically endangered species',
     'Q96377276': 'IUCN Endangered species',
@@ -34,6 +35,19 @@ const IUCN_CATEGORIES = {
     'Q3245245': 'IUCN Data Deficient species',
     'Q237350':  'IUCN Extinct species',
     'Q239509':  'IUCN Extinct In The Wild species',
+};
+
+// Maps P141 QIDs to the 2-letter status codes expected by {{IUCN}} param 1.
+const IUCN_STATUS_CODES = {
+    'Q219127':   'CR',
+    'Q96377276': 'EN',
+    'Q278113':   'VU',
+    'Q719675':   'NT',
+    'Q3245245':  'DD',
+    'Q237350':   'EX',
+    'Q239509':   'EW',
+    'Q211005':   'LC',
+    'Q3350324':  'NE',
 };
 
 async function fetchNcbiAuthorities(items) {
@@ -161,6 +175,7 @@ function parseEntity(entity) {
         mycobank:  claims.P962?.[0],
         fungorum:  claims.P1391?.[0],
         iucnStatus: claims.P141?.[0],
+        iucnId:     claims.P627?.[0],
         hasWikispecies: !!entity.sitelinks?.specieswiki,
         hasVernacularName: (claims.P1843?.length ?? 0) > 0
     };
@@ -242,7 +257,7 @@ function buildOrderBlock(templateName, useSubtribus, itemData, chain, higherRank
 }
 
 function buildWikitext(itemData, chain, templates) {
-    const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies, authority } = itemData;
+    const { taxonName, ncbi, eol, mycobank, fungorum, rank, hasWikispecies, authority, iucnId } = itemData;
     if (!taxonName) return null;
 
     const parts = taxonName.split(' ');
@@ -285,6 +300,8 @@ function buildWikitext(itemData, chain, templates) {
     if (itemData.hasVernacularName) lines.push('{{VN}}');
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
+    const iucnCode = IUCN_STATUS_CODES[itemData.iucnStatus];
+    if (iucnId && iucnCode) lines.push(`* {{IUCN|${iucnCode}|${iucnId}|${taxonName}|${authority ?? ''}}}`);
     if (eol)  lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
     const fungorumTemplate = rank === RANK_GENUS ? 'Fungorum genus' : 'Fungorum species';
     if (mycobank) lines.push(`* {{MycoBank|${mycobank}|''${taxonName}''}}`);
@@ -293,8 +310,10 @@ function buildWikitext(itemData, chain, templates) {
     const parentCat = higherRankLabel ? (chain[0]?.name ?? taxonName) : resolvedGenus;
     const sortKey   = higherRankLabel ? taxonName : epithet;
     lines.push(`[[Category:${parentCat}|${sortKey}]]`);
-    const iucnCat = IUCN_CATEGORIES[itemData.iucnStatus];
-    if (iucnCat) lines.push(`[[Category:${iucnCat}]]`);
+    if (!iucnId) {
+        const iucnCat = IUCN_CATEGORIES[itemData.iucnStatus];
+        if (iucnCat) lines.push(`[[Category:${iucnCat}]]`);
+    }
 
     return lines.join('\n');
 }
