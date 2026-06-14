@@ -19,15 +19,18 @@ node checkLinks.js 200        # iNat links checker — custom limit
 node checkLinks.js 200 EN     # with IUCN filter
 npm run links -- 200          # same via npm
 npm run links -- 200 EN       # same with IUCN filter
+
+node checkArea.js 48.147 11.589 10   # area checker — lat lng radius_km
+npm run area -- 48.147 11.589 10     # same via npm
 ```
 
-No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, and `inat-links-conflicts.json` (all gitignored).
+No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `area.html`, and `inat-links-conflicts.json` (all gitignored).
 
-Each workflow maintains a local cache file (`cache-images.json`, `cache-names.json`, `cache-links.json`, all gitignored) that records previously checked entries so re-runs skip the iNat API for already-scanned taxa. Delete a cache file to force a full re-scan.
+The image/names/links checkers each maintain a local cache file (`cache-images.json`, `cache-names.json`, `cache-links.json`, all gitignored) that records previously checked entries so re-runs skip the iNat API for already-scanned taxa. Delete a cache file to force a full re-scan. The area checker has no cache — results depend on the chosen location and live Wikidata state.
 
 ## Architecture
 
-Three independent tools sharing some modules. All data flows in memory — no intermediate files.
+Four independent tools sharing some modules. All data flows in memory — no intermediate files.
 
 ### Image checker (`checkImages.js`)
 ```
@@ -59,6 +62,18 @@ checkLinks.js
   └─ SPARQL → Wikidata: check found iNat IDs for existing P3151 on other items
   └─ SPARQL → Wikidata: P13177 (homonymous taxon) check to filter false conflicts
   └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
+```
+
+### Area checker (`checkArea.js`)
+```
+checkArea.js (args: lat lng radius_km)
+  └─ iNat /v1/observations/species_counts (paginated, location + CC license filter)
+       → [{taxonId, taxonName, commonName, count}]   (all CC-licensed species in area)
+  └─ SPARQL VALUES → Wikidata: P3151 lookup + FILTER NOT EXISTS P18
+       → Map<inatId, {wdUri, wdName}>                (items with no image)
+  └─ iNat /v1/observations (batched 20 taxa/call, location-filtered, ordered by votes)
+       → Map<taxonId, [{obsId, photoUrl}]>            (up to 3 sample photos each)
+  └─ generateAreaHTML.js: writes area.html
 ```
 
 **`generateWikitext.js`** — exports `fetchEntities(qids)` and `chunk(arr, n)` used by multiple tools. Also fetches Wikidata entities in rounds (max 20), walking P171 (parent taxon) links for the image checker. The higher limit (vs. the original 7) is needed because Lepidoptera sits ~15 levels above species due to many unranked intermediate clades. Builds Commons category Wikitext including `{{Wikidata Infobox}}`, a taxonavigation block, and identifier templates (NCBI, EOL, MycoBank, Index Fungorum). When the item has P627 (IUCN Red List taxon ID) and P141 (IUCN status), generates `{{IUCN|statusCode|iucnId|name|authority}}` placed after NCBI — this template auto-categorizes into the correct `IUCN X species` Commons maintenance category, so no manual category line is emitted. If P627 is absent but P141 is set to a non-LC status, a manual `[[Category:IUCN X species]]` line is emitted instead. At startup, `fetchTaxonavTemplates()` fetches the full list of ~900 templates from [Category:Templates to include in Taxonavigation](https://commons.wikimedia.org/wiki/Category:Templates_to_include_in_Taxonavigation) (including subcategories) on Commons. **Coleoptera get `{{Coleoptera|…}}`** and **Lepidoptera get `{{Lepidoptera|…}}`** (each detected when any ancestor has rank=order and the matching name); both templates accept named parameters (`familia=`, `subfamilia=`, `tribus=`, `genus=`, `species=` epithet-only, `auth=`; `subtribus=` is Coleoptera-only) and resolve the superfamily automatically — `include=` is never set manually. All other taxa use `{{Taxonavigation}}`: `fetchTaxonavTemplates()` builds a `Map<baseName, fullName>` so that suffixed family templates — `(APG)` for angiosperms (~418 families), `(IOC)` for birds (~258 families), `(Smith)` for ferns (~33 families) — are found by plain ancestor name and the full suffixed name is used as `include=` (e.g. `include=Asparagaceae (APG)`). Conifer families (plain names, e.g. `Cupressaceae`) and higher-level templates (`Angiosperms`, `Mammalia`) work the same as before. Only ranks below include= are listed manually. `fetchNcbiAuthorities()` calls the NCBI efetch API (`eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy`) to populate `authority=` / `auth=` from the `OtherNames` authority entry; strips the taxon-name prefix using NCBI's own `ScientificName` word count (handles reclassified species where the original genus differs). `buildWikitext` is rank-aware: species get genus + species params; genus-rank items get genus only; family/order/class items get the appropriate `RANK_LABELS` label with no genus/species lines. The `[[Category:…]]` line uses the immediate Wikidata parent (P171) as the parent category for non-species ranks. `{{VN}}` is included only when the item has at least one P1843 vernacular name. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740, `{{Fungorum species}}` otherwise.

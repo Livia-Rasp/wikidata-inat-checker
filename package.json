@@ -9,13 +9,15 @@
   "bin": {
     "check-images": "checkImages.js",
     "check-names": "checkNames.js",
-    "check-links": "checkLinks.js"
+    "check-links": "checkLinks.js",
+    "check-area": "checkArea.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "images": "node checkImages.js",
     "names": "node checkNames.js",
-    "links": "node checkLinks.js"
+    "links": "node checkLinks.js",
+    "area": "node checkArea.js"
   },
   "keywords": [
     "wikidata",
