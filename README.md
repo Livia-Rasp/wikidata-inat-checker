@@ -156,7 +156,7 @@ Finds Wikidata taxon items that lack an image (P18) among all species observed w
 
 ### How it works
 
-1. Queries iNaturalist for all species with research-grade, CC-licensed observations within the specified radius (`/v1/observations/species_counts` with `lat`, `lng`, `radius`). Paginates until all results are fetched.
+1. Queries iNaturalist for all species with research-grade observations within the specified radius (`/v1/observations/species_counts` with `lat`, `lng`, `radius`). No license filter — the intent is to photograph these species yourself. Paginates until all results are fetched.
 2. For each iNat taxon ID found, queries Wikidata via a SPARQL VALUES lookup to find items where P3151 matches and P18 (image) is absent.
 3. For each qualifying taxon, fetches up to 3 sample observations from the area (ordered by community votes), providing thumbnail photos to help assess upload candidates.
 4. Exports `area.html` — a list of taxa with their Wikidata link, iNat taxon link, observation count in the area, and clickable photo thumbnails linking to the individual observations.
@@ -184,7 +184,7 @@ Each row shows:
 |---|---|
 | Taxon name | Scientific name (linked to iNat taxon page) and common name if available |
 | Wikidata | QID link to the Wikidata item |
-| Observation count | Number of research-grade CC-licensed observations in the area |
+| Observation count | Number of research-grade observations in the area |
 | Thumbnails | Up to 3 photos from the area; each links to the iNat observation page |
 
 Rows are sorted by observation count descending (most-observed first).

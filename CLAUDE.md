@@ -67,8 +67,8 @@ checkLinks.js
 ### Area checker (`checkArea.js`)
 ```
 checkArea.js (args: lat lng radius_km)
-  └─ iNat /v1/observations/species_counts (paginated, location + CC license filter)
-       → [{taxonId, taxonName, commonName, count}]   (all CC-licensed species in area)
+  └─ iNat /v1/observations/species_counts (paginated, location-filtered, research-grade)
+       → [{taxonId, taxonName, commonName, count}]   (all species observed in area)
   └─ SPARQL VALUES → Wikidata: P3151 lookup + FILTER NOT EXISTS P18
        → Map<inatId, {wdUri, wdName}>                (items with no image)
   └─ iNat /v1/observations (batched 20 taxa/call, location-filtered, ordered by votes)
