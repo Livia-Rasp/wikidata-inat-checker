@@ -71,7 +71,7 @@ export function generateAreaHTML({ lat, lng, radius, totalSpecies, qualified, no
 </head>
 <body>
   <h1>Species missing Wikidata images — within ${radius} km of ${lat}°, ${lng}°</h1>
-  <p class="subtitle">${qualified.length} of ${totalSpecies} iNat species in area have a Wikidata item but no image (P18). Thumbnails link to iNat observations; names link to iNat taxon pages.</p>
+  <p class="subtitle">${qualified.length} of ${totalSpecies} species observed in area have a Wikidata item but no image (P18). Thumbnails link to iNat observations for reference; names link to iNat taxon pages.</p>
 ${rows}
 </body>
 </html>`;

@@ -31,7 +31,6 @@ async function run() {
         const params = new URLSearchParams({
             lat: String(lat), lng: String(lng), radius: String(radius),
             quality_grade: 'research',
-            photo_license: 'cc0,cc-by,cc-by-sa',
             per_page: '500',
             page: String(page++),
         });
@@ -48,7 +47,7 @@ async function run() {
         if (page % 3 === 1 || species.length >= total) console.log(`  ${species.length}/${total} species fetched`);
         if (data.results.length === 0) break;
     }
-    console.log(`iNat: ${species.length} species with CC photos in area`);
+    console.log(`iNat: ${species.length} species with research-grade observations in area`);
 
     // Step 2: check which have a Wikidata item (P3151) that lacks an image (P18)
     console.log('Checking Wikidata for items without images...');
@@ -91,7 +90,6 @@ async function run() {
             taxon_id: ids,
             lat: String(lat), lng: String(lng), radius: String(radius),
             quality_grade: 'research',
-            photo_license: 'cc0,cc-by,cc-by-sa',
             per_page: '60',
             order_by: 'votes',
         });
