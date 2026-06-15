@@ -79,8 +79,10 @@ async function run() {
     }
 
     // Step 3: fetch up to 3 sample observations per qualified taxon
-    console.log('Fetching sample observations...');
+    console.log('Fetching sample observations and latest dates...');
     const qualified = species.filter(s => noImage.has(s.taxonId));
+
+    // Step 3a — photos ordered by votes for best thumbnail quality
     /** @type {Map<string, {obsId: number, photoUrl: string}[]>} */
     const obsMap = new Map();
     for (const batch of chunk(qualified, 20)) {
@@ -105,8 +107,30 @@ async function run() {
         }
     }
 
+    // Step 3b — latest observation date per taxon (ordered by observed_on desc)
+    /** @type {Map<string, string>} */
+    const latestDateMap = new Map();
+    for (const batch of chunk(qualified, 20)) {
+        await inatLimiter();
+        const ids = batch.map(s => s.taxonId).join(',');
+        const params = new URLSearchParams({
+            taxon_id: ids,
+            lat: String(lat), lng: String(lng), radius: String(radius),
+            quality_grade: 'research',
+            per_page: '20',
+            order_by: 'observed_on',
+            order: 'desc',
+        });
+        const data = await fetch(`${INAT_API}/observations?${params}`, { headers: HEADERS }).then(r => r.json());
+        for (const obs of data.results ?? []) {
+            const tid = String(obs.taxon?.id);
+            if (!latestDateMap.has(tid) && obs.observed_on)
+                latestDateMap.set(tid, obs.observed_on);
+        }
+    }
+
     // Step 4: generate HTML
-    generateAreaHTML({ lat, lng, radius, totalSpecies: species.length, qualified, noImage, obsMap });
+    generateAreaHTML({ lat, lng, radius, totalSpecies: species.length, qualified, noImage, obsMap, latestDateMap });
 }
 
 run().catch(err => {
