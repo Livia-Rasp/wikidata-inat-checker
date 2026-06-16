@@ -109,14 +109,15 @@ A separate tool that finds Wikidata taxon items with no iNaturalist taxon ID (P3
 ### How it works
 
 1. Queries Wikidata for taxon items that have a scientific name (P225) but no P3151.
-2. On first run, downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer.
+2. On first run, downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer (also auto-rebuilt once if the schema needs migration).
 3. Looks up each Wikidata scientific name in the SQLite index (no API calls). Names matching two or more active iNat taxa are treated as ambiguous and skipped.
 4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
 5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
-6. Exports `links.html` — QuickStatements to add P3151 for clean matches, plus a conflict table for cases needing manual investigation.
-7. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
+6. Fetches the full taxonomic ancestor chain for each clean match — from the SQLite index (iNat side, using the stored `ancestry` field, no API call) and from Wikidata via a `wdt:P171+` SPARQL query (Wikidata side).
+7. Exports `links.html` — QuickStatements to add P3151 for clean matches plus taxonomy trees for verification, and a conflict table for cases needing manual investigation.
+8. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-After the initial download and index build (~20 seconds), the tool runs in under a second regardless of how many taxa are checked. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
+After the initial download and index build (~20 seconds), name lookups and iNat tree fetches are instant (local SQLite only). The Wikidata tree SPARQL adds a few seconds for large result sets. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
 
 ### Usage
 
@@ -135,6 +136,10 @@ npm run links -- 1000 EN  # limit + IUCN status filter
 | Taxon name | Scientific name (P225). |
 | iNat taxon | Link to the iNaturalist taxon page. |
 | QuickStatements | Click to copy. Adds P3151 with the iNat taxon ID. |
+| WD tree | Full Wikidata ancestor chain (kingdom → genus), sourced from Wikidata P171 links. Rank labels shown for known ranks (genus, family, order, class, etc.). |
+| iNat tree | Full iNat ancestor chain (kingdom → genus), sourced from the local taxa database — no extra API call. Rank labels (Family, Order, Class, …) shown for all entries. |
+
+The two tree columns let you verify at a glance that a matched pair actually refers to the same organism — mismatched families or genera are immediately visible without opening additional tabs.
 
 An aggregate field above the table accumulates QuickStatements from all checked rows for batch copying.
 
@@ -142,9 +147,9 @@ The conflict table below (shown only when conflicts exist) lists iNat IDs found 
 
 ### Typical workflow
 
-1. Run `npm run links -- 1000` to generate `links.html` (first run downloads the taxa database; subsequent runs are instant).
+1. Run `npm run links -- 1000` to generate `links.html` (first run downloads the taxa database; subsequent runs are fast).
 2. Open `links.html` in a browser.
-3. Review the matches — spot-check a few taxon names against the iNat page to confirm correctness.
+3. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent.
 4. Check rows you want to import. Copy the aggregate field and paste into [QuickStatements](https://quickstatements.toolforge.org/).
 5. If a conflict table is present, review `inat-links-conflicts.json` and investigate each case before acting.
 

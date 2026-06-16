@@ -24,7 +24,13 @@ function tsvIsStale() {
 
 function dbIsStale() {
     try {
-        return fs.statSync(TSV_FILE).mtimeMs > fs.statSync(DB_FILE).mtimeMs;
+        const tsvNewer = fs.statSync(TSV_FILE).mtimeMs > fs.statSync(DB_FILE).mtimeMs;
+        if (tsvNewer) return true;
+        // Rebuild if ancestry column is missing (schema migration)
+        const db = new Database(DB_FILE, { readonly: true });
+        const cols = db.prepare('PRAGMA table_info(taxa)').all();
+        db.close();
+        return !cols.some(c => c.name === 'ancestry');
     } catch { return true; }
 }
 
@@ -50,12 +56,13 @@ function buildDb() {
         CREATE TABLE taxa (
             taxon_id TEXT PRIMARY KEY,
             name     TEXT NOT NULL,
-            rank     TEXT NOT NULL
+            rank     TEXT NOT NULL,
+            ancestry TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_name ON taxa(name);
     `);
 
-    const insert = db.prepare('INSERT OR IGNORE INTO taxa VALUES (?, ?, ?)');
+    const insert = db.prepare('INSERT OR IGNORE INTO taxa VALUES (?, ?, ?, ?)');
     const insertAll = db.transaction(rows => { for (const r of rows) insert.run(r); });
 
     // header: taxon_id\tancestry\trank_level\trank\tname\tactive
@@ -63,9 +70,9 @@ function buildDb() {
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split('\t');
         if (cols.length < 6 || cols[5].trim() !== 'true') continue;
-        const [taxonId, , , rank, name] = cols.map(c => c.trim());
+        const [taxonId, ancestry, , rank, name] = cols.map(c => c.trim());
         if (!name || !taxonId) continue;
-        rows.push([taxonId, name, rank]);
+        rows.push([taxonId, name, rank, ancestry || null]);
     }
     insertAll(rows);
     db.close();
@@ -82,13 +89,23 @@ export async function loadTaxaDb() {
     if (dbIsStale()) buildDb();
 
     const db = new Database(DB_FILE, { readonly: true });
-    const stmt = db.prepare('SELECT taxon_id, rank FROM taxa WHERE name = ? LIMIT 2');
+    const stmtByName = db.prepare('SELECT taxon_id, rank FROM taxa WHERE name = ? LIMIT 2');
+    const stmtById   = db.prepare('SELECT name, rank FROM taxa WHERE taxon_id = ?');
+    const stmtAnc    = db.prepare('SELECT ancestry FROM taxa WHERE taxon_id = ?');
 
     return {
         get(name) {
-            const rows = stmt.all(name);
+            const rows = stmtByName.all(name);
             if (rows.length !== 1) return undefined; // not found or homonym ambiguity
             return { inatId: rows[0].taxon_id, rank: rows[0].rank };
+        },
+        getAncestors(taxonId) {
+            const row = stmtAnc.get(taxonId);
+            if (!row?.ancestry) return [];
+            return row.ancestry.split('/').filter(Boolean)
+                .map(id => stmtById.get(id))
+                .filter(Boolean)                           // skip inactive ancestors absent from DB
+                .filter(a => a.rank !== 'stateofmatter'); // drop iNat's root concept
         }
     };
 }

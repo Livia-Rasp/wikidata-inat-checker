@@ -7,11 +7,27 @@ import { escapeHtml } from './utils.js';
  * @typedef {Match & { conflictWdUri: string, conflictQid: string, conflictTaxonName: string | null }} Conflict
  */
 
+const WD_RANK_LABELS = {
+    Q34740: 'genus', Q35409: 'family', Q2136103: 'superfamily',
+    Q164280: 'subfamily', Q227936: 'tribe', Q3965313: 'subtribe',
+    Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
+};
+
+function renderTree(chain, isInat) {
+    if (!chain?.length) return '<span class="no-tree">—</span>';
+    return '<ul class="tree">' + chain.map(({ name, rank, rankQid }) => {
+        const lbl = isInat
+            ? (rank ? rank[0].toUpperCase() + rank.slice(1) : '')
+            : (rankQid && WD_RANK_LABELS[rankQid] ? WD_RANK_LABELS[rankQid] : '');
+        return `<li>${lbl ? `<span class="rank">${escapeHtml(lbl)}</span> ` : ''}${escapeHtml(name)}</li>`;
+    }).join('') + '</ul>';
+}
+
 function buildQS(qid, inatId) {
     return `${qid}\tP3151\t"${inatId}"`;
 }
 
-function buildMatchRow({ wdUri, qid, taxonName, inatId }) {
+function buildMatchRow({ wdUri, qid, taxonName, inatId }, wdTreeMap, inatTreeMap) {
     const inatUrl = `https://www.inaturalist.org/taxa/${inatId}`;
     const qs = buildQS(qid, inatId);
     return `    <tr id="row-${qid}">
@@ -23,6 +39,8 @@ function buildMatchRow({ wdUri, qid, taxonName, inatId }) {
         <pre class="qs" onclick="copy(this)">${escapeHtml(qs)}</pre>
         <span class="hint">Copied!</span>
       </td>
+      <td class="tree-col">${renderTree(wdTreeMap.get(qid), false)}</td>
+      <td class="tree-col">${renderTree(inatTreeMap.get(inatId), true)}</td>
     </tr>`;
 }
 
@@ -39,11 +57,13 @@ function buildConflictRow({ taxonName, wdUri, qid, inatId, conflictWdUri, confli
 /**
  * @param {Match[]} matches
  * @param {Conflict[]} conflicts
+ * @param {Map<string, object[]>} [wdTreeMap]
+ * @param {Map<string, object[]>} [inatTreeMap]
  * @param {string} [outputFile]
  * @returns {Promise<void>}
  */
-export async function generateLinksHTML(matches, conflicts, outputFile = 'links.html') {
-    const matchRows = matches.map(buildMatchRow).join('\n');
+export async function generateLinksHTML(matches, conflicts, wdTreeMap = new Map(), inatTreeMap = new Map(), outputFile = 'links.html') {
+    const matchRows = matches.map(m => buildMatchRow(m, wdTreeMap, inatTreeMap)).join('\n');
 
     const conflictSection = conflicts.length === 0 ? '' : `
   <h2>Conflicts &mdash; ${conflicts.length} items</h2>
@@ -103,6 +123,10 @@ ${conflicts.map(buildConflictRow).join('\n')}
       background: #2a2; color: #fff; font-size: 0.75em;
       padding: 0.2em 0.5em; border-radius: 3px; pointer-events: none;
     }
+    .tree-col { vertical-align: top; min-width: 150px; max-width: 220px; }
+    .tree { margin: 0; padding: 0; list-style: none; font-size: 0.75em; line-height: 1.5; }
+    .rank { color: #999; display: inline-block; min-width: 5em; font-size: 0.9em; }
+    .no-tree { color: #ccc; font-size: 0.8em; }
   </style>
 </head>
 <body>
@@ -124,6 +148,8 @@ ${conflicts.map(buildConflictRow).join('\n')}
         <th>Taxon name</th>
         <th>iNat taxon</th>
         <th>QuickStatements (click to copy)</th>
+        <th>WD tree</th>
+        <th>iNat tree</th>
       </tr>
     </thead>
     <tbody>

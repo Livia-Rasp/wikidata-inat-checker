@@ -5,6 +5,7 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { loadCache, saveCache } from './cache.js';
 import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
+import { chunk } from './generateWikitext.js';
 
 const CACHE_FILE = 'cache-links.json';
 
@@ -159,7 +160,50 @@ WHERE {
 
     console.log(`Results: ${matches.length} matches, ${conflicts.length} conflicts, ${skipped} skipped (no iNat result, ambiguous, or homonym).`);
 
-    // 5. Write conflict bookkeeping file
+    // 5a. Build taxonomy trees for match verification
+    /** @type {Map<string, {name: string, rank: string}[]>} */
+    const inatTreeMap = new Map();
+    for (const m of matches) inatTreeMap.set(m.inatId, taxaDb.getAncestors(m.inatId));
+
+    /** @type {Map<string, {name: string, rankQid: string|null}[]>} */
+    const wdTreeMap = new Map();
+    for (const batch of chunk(matches, 50)) {
+        const vals = batch.map(m => `wd:${m.qid}`).join(' ');
+        const bindings = await sparql(`SELECT ?item ?directParent ?ancestor ?ancestorName ?ancestorRank ?ancestorParent WHERE {
+  VALUES ?item { ${vals} }
+  OPTIONAL {
+    ?item wdt:P171 ?directParent .
+    ?item wdt:P171+ ?ancestor .
+    ?ancestor wdt:P225 ?ancestorName .
+    OPTIONAL { ?ancestor wdt:P105 ?ancestorRank . }
+    OPTIONAL { ?ancestor wdt:P171 ?ancestorParent . }
+  }
+}`);
+        const byItem = new Map();
+        for (const b of bindings) {
+            const item = b.item.value;
+            if (!byItem.has(item)) byItem.set(item, { directParent: null, ancestors: new Map() });
+            const d = byItem.get(item);
+            if (b.directParent && !d.directParent) d.directParent = b.directParent.value;
+            if (b.ancestor) d.ancestors.set(b.ancestor.value, {
+                name:    b.ancestorName?.value ?? '',
+                rankQid: b.ancestorRank?.value?.split('/').pop() ?? null,
+                parent:  b.ancestorParent?.value ?? null,
+            });
+        }
+        for (const [itemUri, { directParent, ancestors }] of byItem) {
+            const chain = [];
+            let cur = directParent;
+            while (cur && ancestors.has(cur)) {
+                const a = ancestors.get(cur);
+                chain.push({ name: a.name, rankQid: a.rankQid });
+                cur = a.parent;
+            }
+            wdTreeMap.set(qidFromUri(itemUri), chain.reverse());
+        }
+    }
+
+    // 5b. Write conflict bookkeeping file
     if (conflicts.length > 0) {
         const conflictFile = 'inat-links-conflicts.json';
         const conflictRecords = conflicts.map(c => ({
@@ -174,7 +218,7 @@ WHERE {
     }
 
     // 6. Generate HTML
-    await generateLinksHTML(matches, conflicts);
+    await generateLinksHTML(matches, conflicts, wdTreeMap, inatTreeMap);
     console.log('Done.');
 }
 
