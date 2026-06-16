@@ -89,20 +89,21 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER NOT EXISTS { ?ite
 
     // 3. Check only the found iNat IDs against existing Wikidata P3151 mappings
     console.log(`Checking ${foundInatIds.length} found iNat IDs against existing Wikidata P3151 mappings...`);
-    const valuesClause = foundInatIds.map(id => `"${id}"`).join(' ');
-    const existingBindings = await sparql(`SELECT ?item ?inatId ?taxonName
+    const existingP3151 = new Map(); // inatId → {wdUri, taxonName}
+    for (const batch of chunk(foundInatIds, 150)) {
+        const valuesClause = batch.map(id => `"${id}"`).join(' ');
+        const existingBindings = await sparql(`SELECT ?item ?inatId ?taxonName
 WHERE {
   VALUES ?inatId { ${valuesClause} }
   ?item wdt:P3151 ?inatId .
   OPTIONAL { ?item wdt:P225 ?taxonName . }
 }`);
-
-    const existingP3151 = new Map(); // inatId → {wdUri, taxonName}
-    for (const b of existingBindings) {
-        existingP3151.set(b.inatId.value, {
-            wdUri: b.item.value,
-            taxonName: b.taxonName?.value ?? null,
-        });
+        for (const b of existingBindings) {
+            existingP3151.set(b.inatId.value, {
+                wdUri: b.item.value,
+                taxonName: b.taxonName?.value ?? null,
+            });
+        }
     }
 
     // 4. Cross-reference
@@ -135,20 +136,22 @@ WHERE {
 
     // 5. Filter out conflicts where the two WD items are known homonyms (P13177)
     if (conflicts.length > 0) {
-        const pairsClause = conflicts
-            .map(c => `(wd:${c.qid} wd:${c.conflictQid})`)
-            .join(' ');
-        const homonymBindings = await sparql(`SELECT ?item1 ?item2
+        const homonymPairs = new Set();
+        for (const batch of chunk(conflicts, 100)) {
+            const pairsClause = batch
+                .map(c => `(wd:${c.qid} wd:${c.conflictQid})`)
+                .join(' ');
+            const homonymBindings = await sparql(`SELECT ?item1 ?item2
 WHERE {
   VALUES (?item1 ?item2) { ${pairsClause} }
   { ?item1 wdt:P13177 ?item2 } UNION { ?item2 wdt:P13177 ?item1 }
 }`);
-        const homonymPairs = new Set(
-            homonymBindings.flatMap(b => [
-                `${qidFromUri(b.item1.value)}:${qidFromUri(b.item2.value)}`,
-                `${qidFromUri(b.item2.value)}:${qidFromUri(b.item1.value)}`,
-            ])
-        );
+            for (const b of homonymBindings) {
+                const a = qidFromUri(b.item1.value), c2 = qidFromUri(b.item2.value);
+                homonymPairs.add(`${a}:${c2}`);
+                homonymPairs.add(`${c2}:${a}`);
+            }
+        }
         const beforeFilter = conflicts.length;
         conflicts = conflicts.filter(c => !homonymPairs.has(`${c.qid}:${c.conflictQid}`));
         const homonymFiltered = beforeFilter - conflicts.length;
