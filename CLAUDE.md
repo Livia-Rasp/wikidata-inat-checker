@@ -24,7 +24,7 @@ node checkArea.js 48.147 11.589 10   # area checker — lat lng radius_km
 npm run area -- 48.147 11.589 10     # same via npm
 ```
 
-No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `area.html`, and `inat-links-conflicts.json` (all gitignored).
+No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `area.html`, and `inat-links-conflicts.json` (all gitignored).
 
 The image/names/links checkers each maintain a local cache file (`cache-images.json`, `cache-names.json`, `cache-links.json`, all gitignored) that records previously checked entries so re-runs skip the iNat API for already-scanned taxa. Delete a cache file to force a full re-scan. The area checker has no cache — results depend on the chosen location and live Wikidata state.
 
@@ -59,13 +59,17 @@ checkLinks.js
   └─ SPARQL → Wikidata: taxa with P225 but no P3151 (limited)
   └─ getInatTaxaDb.js: SQLite-backed taxa index (~124 MB, built from iNat open-data S3 dump)
        → {get(name)} returning {inatId, rank} | undefined (undefined = not found or homonym)
+       → {getAll(name)} returning [{inatId, rank}] for all active taxa sharing the name
+  └─ Ambiguous collection: names where get() returns undefined but getAll() finds 2+ taxa
+       → ambiguousCandidates [{wdUri, qid, taxonName, candidates}]
   └─ SPARQL → Wikidata: check found iNat IDs for existing P3151 on other items
   └─ SPARQL → Wikidata: P13177 (homonymous taxon) check to filter false conflicts
   └─ getInatTaxaDb.js {getAncestors(inatId)}: ancestor chain from SQLite (no API call)
        → Map<inatId, [{name, rank}]>           (iNat taxonomy tree, kingdom-first)
-  └─ SPARQL wdt:P171+ → Wikidata: full ancestor chain per matched item (batches of 50)
+  └─ SPARQL wdt:P171+ → Wikidata: full ancestor chain per matched + ambiguous item (batches of 50)
        → Map<qid, [{name, rankQid}]>           (Wikidata taxonomy tree, kingdom-first)
   └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
+  └─ generateAmbiguousHTML.js: writes links-ambiguous.html (grouped table, one row per iNat candidate)
 ```
 
 ### Area checker (`checkArea.js`)
@@ -86,7 +90,7 @@ checkArea.js (args: lat lng radius_km)
 
 **`getInatNames.js`** — batches 30 iNat taxon IDs per request to `/v1/taxa?all_names=true`, rate-limited to ~1 req/s. Normalizes `zh-CN`→`zh-hans`, `zh-TW`→`zh-hant` (Wikidata uses lowercase script subtags). Filters invalid and scientific-name entries.
 
-**`getInatTaxaDb.js`** — maintains a SQLite taxa index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). On first use (or when the TSV is newer than the DB), downloads `taxa.csv.gz` from the iNat open-data S3 bucket (~180 MB uncompressed, ~1.4 M active taxa, monthly cadence) to `taxa.csv.gz` in the same directory, then builds the SQLite DB in a single transaction. The DB is re-downloaded if the TSV is older than 30 days and rebuilt whenever the TSV is newer than the DB. `dbIsStale()` also triggers a rebuild if the `ancestry` column is missing (one-time schema migration for existing installs). Schema: `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. Returns `{get(name), getAncestors(taxonId)}`. `get(name)` does a `LIMIT 2` query: if exactly 1 row matches, returns `{inatId, rank}`; otherwise `undefined` (covers not-found and homonym ambiguity). `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor taxon IDs, root-to-parent), looks each up by primary key, and returns `[{name, rank}, …]` kingdom-first, filtering out the `stateofmatter` root concept — no API call needed.
+**`getInatTaxaDb.js`** — maintains a SQLite taxa index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). On first use (or when the TSV is newer than the DB), downloads `taxa.csv.gz` from the iNat open-data S3 bucket (~180 MB uncompressed, ~1.4 M active taxa, monthly cadence) to `taxa.csv.gz` in the same directory, then builds the SQLite DB in a single transaction. The DB is re-downloaded if the TSV is older than 30 days and rebuilt whenever the TSV is newer than the DB. `dbIsStale()` also triggers a rebuild if the `ancestry` column is missing (one-time schema migration for existing installs). Schema: `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. Returns `{get(name), getAll(name), getAncestors(taxonId)}`. `get(name)` does a `LIMIT 2` query: if exactly 1 row matches, returns `{inatId, rank}`; otherwise `undefined` (covers not-found and homonym ambiguity). `getAll(name)` returns all matching rows as `[{inatId, rank}]` — used to surface ambiguous cases for human review. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor taxon IDs, root-to-parent), looks each up by primary key, and returns `[{name, rank}, …]` kingdom-first, filtering out the `stateofmatter` root concept — no API call needed.
 
 **`getInatLinks.js`** — searches iNat `/v1/taxa?q={name}` per scientific name. Exact match only; returns null for zero or multiple matches (ambiguous). `pLimit(1)` + 1000 ms token bucket = 1 req/s sustained. Retries up to 3× on HTTP 429, honouring the `Retry-After` header. No longer used by `checkLinks.js` (superseded by `getInatTaxaDb.js`) but kept for potential one-off use.
 
@@ -95,6 +99,8 @@ checkArea.js (args: lat lng radius_km)
 **`generateNamesHTML.js`** — generates `names.html` with a table: done-checkbox, Wikidata link, taxon name, iNat taxon link, missing name list, and click-to-copy QuickStatements block. Each QS statement includes S248 (iNaturalist, Q16958215), S854 (taxon URL), and S813 (run date). An aggregate field above the table collects QS from all checked rows.
 
 **`generateLinksHTML.js`** — generates `links.html` with a QuickStatements table for clean P3151 matches (no references — the ID is self-sourcing) and a conflict table for iNat IDs already held by different Wikidata items. The matches table includes two taxonomy tree columns (WD tree / iNat tree) showing the full ancestor chain (kingdom→genus) side-by-side for quick verification that a matched pair actually refers to the same organism. WD rank QIDs are mapped to English labels for the known ranks; iNat rank strings are used directly. Also writes `inat-links-conflicts.json` for bookkeeping. Same aggregate field pattern as names.
+
+**`generateAmbiguousHTML.js`** — generates `links-ambiguous.html` for cases where a Wikidata taxon name matches 2+ active iNat taxa. Each WD item is a row group (rowspan): WD tree shown once on the left, one candidate row per iNat taxon on the right (iNat ID + rank + iNat tree + QS copy button). No aggregate — the user must choose one candidate per item. Done checkbox per WD item (localStorage-persisted, keyed `done-ambiguous-{qid}`).
 
 ## Key Wikidata properties used
 

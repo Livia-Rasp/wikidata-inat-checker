@@ -104,6 +104,8 @@ dist
 drafts.html
 names.html
 links.html
+links-ambiguous.html
+area.html
 inat-links-conflicts.json
 cache-images.json
 cache-names.json

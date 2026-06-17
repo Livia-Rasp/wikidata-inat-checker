@@ -89,15 +89,19 @@ export async function loadTaxaDb() {
     if (dbIsStale()) buildDb();
 
     const db = new Database(DB_FILE, { readonly: true });
-    const stmtByName = db.prepare('SELECT taxon_id, rank FROM taxa WHERE name = ? LIMIT 2');
-    const stmtById   = db.prepare('SELECT name, rank FROM taxa WHERE taxon_id = ?');
-    const stmtAnc    = db.prepare('SELECT ancestry FROM taxa WHERE taxon_id = ?');
+    const stmtByName    = db.prepare('SELECT taxon_id, rank FROM taxa WHERE name = ? LIMIT 2');
+    const stmtAllByName = db.prepare('SELECT taxon_id, rank FROM taxa WHERE name = ?');
+    const stmtById      = db.prepare('SELECT name, rank FROM taxa WHERE taxon_id = ?');
+    const stmtAnc       = db.prepare('SELECT ancestry FROM taxa WHERE taxon_id = ?');
 
     return {
         get(name) {
             const rows = stmtByName.all(name);
             if (rows.length !== 1) return undefined; // not found or homonym ambiguity
             return { inatId: rows[0].taxon_id, rank: rows[0].rank };
+        },
+        getAll(name) {
+            return stmtAllByName.all(name).map(r => ({ inatId: r.taxon_id, rank: r.rank }));
         },
         getAncestors(taxonId) {
             const row = stmtAnc.get(taxonId);
