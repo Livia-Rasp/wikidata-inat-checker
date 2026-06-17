@@ -13,14 +13,54 @@ const WD_RANK_LABELS = {
     Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
 };
 
-function renderTree(chain, isInat) {
-    if (!chain?.length) return '<span class="no-tree">—</span>';
-    return '<ul class="tree">' + chain.map(({ name, rank, rankQid }) => {
-        const lbl = isInat
-            ? (rank ? rank[0].toUpperCase() + rank.slice(1) : '')
-            : (rankQid && WD_RANK_LABELS[rankQid] ? WD_RANK_LABELS[rankQid] : '');
-        return `<li>${lbl ? `<span class="rank">${escapeHtml(lbl)}</span> ` : ''}${escapeHtml(name)}</li>`;
-    }).join('') + '</ul>';
+const RANK_ORDER = [
+    'kingdom','subkingdom','phylum','subphylum',
+    'superclass','class','subclass',
+    'superorder','order','suborder','infraorder',
+    'superfamily','family','subfamily',
+    'supertribe','tribe','subtribe',
+    'genus','subgenus','section','subsection',
+    'species','subspecies','variety',
+];
+
+function renderTreePair(wdChain, inatChain) {
+    const wdLabeled = (wdChain ?? [])
+        .filter(e => e.rankQid && WD_RANK_LABELS[e.rankQid])
+        .map(e => ({ rank: WD_RANK_LABELS[e.rankQid], name: e.name }));
+    const inatLabeled = (inatChain ?? [])
+        .filter(e => e.rank)
+        .map(e => ({ rank: e.rank.toLowerCase(), name: e.name }));
+
+    const wdByRank   = new Map(wdLabeled.map(e  => [e.rank.toLowerCase(), e.name]));
+    const inatByRank = new Map(inatLabeled.map(e => [e.rank, e.name]));
+
+    const allRanks = [...new Set([
+        ...wdLabeled.map(e => e.rank.toLowerCase()),
+        ...inatLabeled.map(e => e.rank),
+    ])];
+    allRanks.sort((a, b) => {
+        const ai = RANK_ORDER.indexOf(a), bi = RANK_ORDER.indexOf(b);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+    });
+
+    if (allRanks.length === 0) return '<span class="no-tree">—</span>';
+
+    return '<table class="tree-pair">' + allRanks.map(rank => {
+        const wdName   = wdByRank.get(rank)   ?? '';
+        const inatName = inatByRank.get(rank) ?? '';
+        let cls = '';
+        if (wdName && inatName)
+            cls = wdName.toLowerCase() === inatName.toLowerCase() ? ' class="tree-match"' : ' class="tree-mismatch"';
+        const label = rank[0].toUpperCase() + rank.slice(1);
+        return `<tr${cls}>`
+            + `<td class="tp-rank">${escapeHtml(label)}</td>`
+            + `<td class="tp-wd">${wdName   ? escapeHtml(wdName)   : '<span class="absent">—</span>'}</td>`
+            + `<td class="tp-inat">${inatName ? escapeHtml(inatName) : '<span class="absent">—</span>'}</td>`
+            + `</tr>`;
+    }).join('') + '</table>';
 }
 
 function buildQS(qid, inatId) {
@@ -39,8 +79,7 @@ function buildMatchRow({ wdUri, qid, taxonName, inatId }, wdTreeMap, inatTreeMap
         <pre class="qs" onclick="copy(this)">${escapeHtml(qs)}</pre>
         <span class="hint">Copied!</span>
       </td>
-      <td class="tree-col">${renderTree(wdTreeMap.get(qid), false)}</td>
-      <td class="tree-col">${renderTree(inatTreeMap.get(inatId), true)}</td>
+      <td class="tree-pair-col">${renderTreePair(wdTreeMap.get(qid), inatTreeMap.get(inatId))}</td>
     </tr>`;
 }
 
@@ -123,9 +162,14 @@ ${conflicts.map(buildConflictRow).join('\n')}
       background: #2a2; color: #fff; font-size: 0.75em;
       padding: 0.2em 0.5em; border-radius: 3px; pointer-events: none;
     }
-    .tree-col { vertical-align: top; min-width: 150px; max-width: 220px; }
-    .tree { margin: 0; padding: 0; list-style: none; font-size: 0.75em; line-height: 1.5; }
-    .rank { color: #999; display: inline-block; min-width: 5em; font-size: 0.9em; }
+    .tree-pair-col { vertical-align: top; }
+    .tree-pair { border-collapse: collapse; font-size: 0.75em; line-height: 1.5; }
+    .tree-pair td { padding: 0.05em 0.35em; vertical-align: top; }
+    .tp-rank { color: #999; white-space: nowrap; padding-right: 0.5em; }
+    .tp-wd, .tp-inat { min-width: 7em; }
+    .tree-match td { color: #2a7; }
+    .tree-mismatch td { color: #c33; }
+    .absent { color: #ccc; }
     .no-tree { color: #ccc; font-size: 0.8em; }
   </style>
 </head>
@@ -148,8 +192,7 @@ ${conflicts.map(buildConflictRow).join('\n')}
         <th>Taxon name</th>
         <th>iNat taxon</th>
         <th>QuickStatements (click to copy)</th>
-        <th>WD tree</th>
-        <th>iNat tree</th>
+        <th>Taxonomy (WD&nbsp;&middot;&nbsp;iNat)</th>
       </tr>
     </thead>
     <tbody>

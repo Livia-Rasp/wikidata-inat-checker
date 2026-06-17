@@ -8,25 +8,64 @@ const WD_RANK_LABELS = {
     Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
 };
 
-function renderTree(chain, isInat) {
-    if (!chain?.length) return '<span class="no-tree">—</span>';
-    return '<ul class="tree">' + chain.map(({ name, rank, rankQid }) => {
-        const lbl = isInat
-            ? (rank ? rank[0].toUpperCase() + rank.slice(1) : '')
-            : (rankQid && WD_RANK_LABELS[rankQid] ? WD_RANK_LABELS[rankQid] : '');
-        return `<li>${lbl ? `<span class="rank">${escapeHtml(lbl)}</span> ` : ''}${escapeHtml(name)}</li>`;
-    }).join('') + '</ul>';
+const RANK_ORDER = [
+    'kingdom','subkingdom','phylum','subphylum',
+    'superclass','class','subclass',
+    'superorder','order','suborder','infraorder',
+    'superfamily','family','subfamily',
+    'supertribe','tribe','subtribe',
+    'genus','subgenus','section','subsection',
+    'species','subspecies','variety',
+];
+
+function renderTreePair(wdChain, inatChain) {
+    const wdLabeled = (wdChain ?? [])
+        .filter(e => e.rankQid && WD_RANK_LABELS[e.rankQid])
+        .map(e => ({ rank: WD_RANK_LABELS[e.rankQid], name: e.name }));
+    const inatLabeled = (inatChain ?? [])
+        .filter(e => e.rank)
+        .map(e => ({ rank: e.rank.toLowerCase(), name: e.name }));
+
+    const wdByRank   = new Map(wdLabeled.map(e  => [e.rank.toLowerCase(), e.name]));
+    const inatByRank = new Map(inatLabeled.map(e => [e.rank, e.name]));
+
+    const allRanks = [...new Set([
+        ...wdLabeled.map(e => e.rank.toLowerCase()),
+        ...inatLabeled.map(e => e.rank),
+    ])];
+    allRanks.sort((a, b) => {
+        const ai = RANK_ORDER.indexOf(a), bi = RANK_ORDER.indexOf(b);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+    });
+
+    if (allRanks.length === 0) return '<span class="no-tree">—</span>';
+
+    return '<table class="tree-pair">' + allRanks.map(rank => {
+        const wdName   = wdByRank.get(rank)   ?? '';
+        const inatName = inatByRank.get(rank) ?? '';
+        let cls = '';
+        if (wdName && inatName)
+            cls = wdName.toLowerCase() === inatName.toLowerCase() ? ' class="tree-match"' : ' class="tree-mismatch"';
+        const label = rank[0].toUpperCase() + rank.slice(1);
+        return `<tr${cls}>`
+            + `<td class="tp-rank">${escapeHtml(label)}</td>`
+            + `<td class="tp-wd">${wdName   ? escapeHtml(wdName)   : '<span class="absent">—</span>'}</td>`
+            + `<td class="tp-inat">${inatName ? escapeHtml(inatName) : '<span class="absent">—</span>'}</td>`
+            + `</tr>`;
+    }).join('') + '</table>';
 }
 
 function buildRows(item, wdTreeMap, inatTreeMap) {
     const { wdUri, qid, taxonName, candidates } = item;
     const n = candidates.length;
-    const wdTree = renderTree(wdTreeMap.get(qid), false);
 
     return candidates.map(({ inatId, rank }, i) => {
-        const inatUrl = `https://www.inaturalist.org/taxa/${inatId}`;
-        const qs = `${qid}\tP3151\t"${inatId}"`;
-        const inatTree = renderTree(inatTreeMap.get(inatId), true);
+        const inatUrl   = `https://www.inaturalist.org/taxa/${inatId}`;
+        const qs        = `${qid}\tP3151\t"${inatId}"`;
+        const treePair  = renderTreePair(wdTreeMap.get(qid), inatTreeMap.get(inatId));
         const rankLabel = rank ? ` <span class="rank-badge">${escapeHtml(rank)}</span>` : '';
 
         if (i === 0) {
@@ -34,9 +73,8 @@ function buildRows(item, wdTreeMap, inatTreeMap) {
       <td class="check-col" rowspan="${n}"><input type="checkbox" id="cb-${qid}" onchange="setDone('${qid}', this.checked)"></td>
       <td class="wd-col" rowspan="${n}"><a href="${escapeHtml(wdUri)}" target="_blank">${escapeHtml(qid)}</a></td>
       <td class="taxon-col" rowspan="${n}">${escapeHtml(taxonName)}</td>
-      <td class="tree-col" rowspan="${n}">${wdTree}</td>
       <td class="inat-col"><a href="${escapeHtml(inatUrl)}" target="_blank">${escapeHtml(inatId)}</a>${rankLabel}</td>
-      <td class="tree-col">${inatTree}</td>
+      <td class="tree-pair-col">${treePair}</td>
       <td class="qs-col">
         <pre class="qs" onclick="copy(this)">${escapeHtml(qs)}</pre>
         <span class="hint">Copied!</span>
@@ -45,7 +83,7 @@ function buildRows(item, wdTreeMap, inatTreeMap) {
         }
         return `    <tr class="candidate-row" data-qid="${qid}">
       <td class="inat-col"><a href="${escapeHtml(inatUrl)}" target="_blank">${escapeHtml(inatId)}</a>${rankLabel}</td>
-      <td class="tree-col">${inatTree}</td>
+      <td class="tree-pair-col">${treePair}</td>
       <td class="qs-col">
         <pre class="qs" onclick="copy(this)">${escapeHtml(qs)}</pre>
         <span class="hint">Copied!</span>
@@ -104,9 +142,14 @@ export async function generateAmbiguousHTML(items, wdTreeMap = new Map(), inatTr
       background: #2a2; color: #fff; font-size: 0.75em;
       padding: 0.2em 0.5em; border-radius: 3px; pointer-events: none;
     }
-    .tree-col { vertical-align: top; min-width: 150px; max-width: 220px; }
-    .tree { margin: 0; padding: 0; list-style: none; font-size: 0.75em; line-height: 1.5; }
-    .rank { color: #999; display: inline-block; min-width: 5em; font-size: 0.9em; }
+    .tree-pair-col { vertical-align: top; }
+    .tree-pair { border-collapse: collapse; font-size: 0.75em; line-height: 1.5; }
+    .tree-pair td { padding: 0.05em 0.35em; vertical-align: top; }
+    .tp-rank { color: #999; white-space: nowrap; padding-right: 0.5em; }
+    .tp-wd, .tp-inat { min-width: 7em; }
+    .tree-match td { color: #2a7; }
+    .tree-mismatch td { color: #c33; }
+    .absent { color: #ccc; }
     .no-tree { color: #ccc; font-size: 0.8em; }
   </style>
 </head>
@@ -115,18 +158,18 @@ export async function generateAmbiguousHTML(items, wdTreeMap = new Map(), inatTr
   <div id="controls">
     <button id="hide-done" onclick="toggleHideDone()">Hide done</button>
   </div>
-  <p>Each row group shows one Wikidata item with multiple matching iNat taxa. Compare the WD tree (left)
-     against each iNat candidate tree (right) to identify the correct match, then click the QuickStatements
-     cell to copy. Check the box to mark a group resolved.</p>
+  <p>Each row group shows one Wikidata item with multiple matching iNat taxa. The Taxonomy column shows
+     WD and iNat ranks aligned side-by-side: <span style="color:#2a7">green</span> = names match,
+     <span style="color:#c33">red</span> = names differ. Pick the candidate whose taxonomy aligns with WD,
+     then click its QuickStatements cell to copy. Check the box to mark a group resolved.</p>
   <table>
     <thead>
       <tr>
         <th class="check-col"></th>
         <th>Wikidata item</th>
         <th>Taxon name</th>
-        <th>WD tree</th>
         <th>iNat candidate</th>
-        <th>iNat tree</th>
+        <th>Taxonomy (WD&nbsp;&middot;&nbsp;iNat)</th>
         <th>QuickStatements (click to copy)</th>
       </tr>
     </thead>
