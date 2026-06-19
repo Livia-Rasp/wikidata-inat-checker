@@ -1,17 +1,11 @@
 // @ts-check
 import fs from 'fs';
-import { escapeHtml } from './utils.js';
+import { escapeHtml, WD_RANK_LABELS } from './utils.js';
 
 /**
  * @typedef {{ wdUri: string, qid: string, taxonName: string, inatId: string }} Match
  * @typedef {Match & { conflictWdUri: string, conflictQid: string, conflictTaxonName: string | null }} Conflict
  */
-
-const WD_RANK_LABELS = {
-    Q34740: 'genus', Q35409: 'family', Q2136103: 'superfamily',
-    Q164280: 'subfamily', Q227936: 'tribe', Q3965313: 'subtribe',
-    Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
-};
 
 const RANK_ORDER = [
     'kingdom','subkingdom','phylum','subphylum',

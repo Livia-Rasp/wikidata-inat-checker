@@ -13,16 +13,18 @@ node checkNames.js --limit 500 --all        # include taxa that already have som
 npm run names -- --limit 500 --iucn CR      # same via npm
 npm run names -- --limit 500 --all          # same with --all flag
 
-node checkLinks.js --limit 200 --iucn EN    # iNat links checker (--limit, --iucn optional)
-npm run links -- --limit 200 --iucn EN      # same via npm
-node checkLinksStats.js                     # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
-npm run linkStats                           # same via npm
+node checkLinks.js --limit 200 --iucn EN          # iNat links checker (--limit, --iucn optional)
+node checkLinks.js --limit 200 --auto             # also write links-auto.qs (certain matches only)
+npm run links -- --limit 200 --iucn EN            # same via npm
+npm run links -- --limit 200 --auto               # same with --auto flag
+node checkLinksStats.js                           # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
+npm run linkStats                                 # same via npm
 
 node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
 npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
 ```
 
-No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `area.html`, and `inat-links-conflicts.json` (all gitignored).
+No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `area.html`, and `inat-links-conflicts.json` (all gitignored).
 
 The image/names/links checkers each maintain a local cache file (`cache-images.json`, `cache-names.json`, `cache-links.json`, all gitignored) that records previously checked entries so re-runs skip the iNat API for already-scanned taxa. Delete a cache file to force a full re-scan. The area checker has no cache — results depend on the chosen location and live Wikidata state.
 

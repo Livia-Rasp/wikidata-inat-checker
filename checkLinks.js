@@ -5,7 +5,7 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, IUCN_STATUS_QIDS, parseArgs } from './utils.js';
+import { sparql, qidFromUri, IUCN_STATUS_QIDS, parseArgs, compareAncestorTrees } from './utils.js';
 import { chunk } from './generateWikitext.js';
 
 const CACHE_FILE = 'cache-links.json';
@@ -20,6 +20,7 @@ if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
     process.exit(1);
 }
+const autoMode = args.auto === true;
 
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
@@ -255,7 +256,23 @@ WHERE {
             if (!inatAmbigTreeMap.has(inatId))
                 inatAmbigTreeMap.set(inatId, taxaDb.getAncestors(inatId));
 
-    // 7. Generate HTML
+    // 7. Auto-export: filter matches by tree agreement and write links-auto.qs
+    if (autoMode) {
+        const safeLines = [];
+        for (const m of matches) {
+            const wdChain   = wdTreeMap.get(m.qid) ?? [];
+            const inatChain = inatTreeMap.get(m.inatId) ?? [];
+            const { matches: rankMatches, mismatches, matchedRanks } = compareAncestorTrees(wdChain, inatChain);
+            if (mismatches === 0 && rankMatches >= 3 &&
+                (matchedRanks.includes('family') || matchedRanks.includes('order'))) {
+                safeLines.push(`${m.qid}\tP3151\t"${m.inatId}"`);
+            }
+        }
+        fs.writeFileSync('links-auto.qs', safeLines.join('\n') + (safeLines.length ? '\n' : ''));
+        console.log(`Auto-approved ${safeLines.length} / ${matches.length} matches → links-auto.qs`);
+    }
+
+    // 8. Generate HTML
     await generateLinksHTML(matches, conflicts, wdTreeMap, inatTreeMap);
     await generateAmbiguousHTML(ambiguousCandidates, wdAmbigTreeMap, inatAmbigTreeMap);
     console.log('Done.');

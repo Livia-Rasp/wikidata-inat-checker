@@ -138,6 +138,46 @@ export function parseArgs(argv = process.argv.slice(2)) {
     return result;
 }
 
+/**
+ * Wikidata rank QIDs → lowercase rank labels used in tree comparison and auto-filter.
+ * Only ranks recognisable in this map are compared; others are treated as absent.
+ * @type {Record<string, string>}
+ */
+export const WD_RANK_LABELS = {
+    Q34740: 'genus', Q35409: 'family', Q2136103: 'superfamily',
+    Q164280: 'subfamily', Q227936: 'tribe', Q3965313: 'subtribe',
+    Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
+};
+
+/**
+ * Compare WD and iNat ancestor chains by rank, replicating the green/red tree logic.
+ * Returns counts of matching/mismatching ranks and the list of matching rank names.
+ * @param {Array<{name: string, rankQid: string|null}>} wdChain
+ * @param {Array<{name: string, rank: string}>} inatChain
+ * @returns {{ matches: number, mismatches: number, matchedRanks: string[] }}
+ */
+export function compareAncestorTrees(wdChain, inatChain) {
+    const wdByRank = new Map(
+        (wdChain ?? [])
+            .filter(e => e.rankQid && WD_RANK_LABELS[e.rankQid])
+            .map(e => [WD_RANK_LABELS[e.rankQid], e.name.toLowerCase()])
+    );
+    const inatByRank = new Map(
+        (inatChain ?? [])
+            .filter(e => e.rank)
+            .map(e => [e.rank.toLowerCase(), e.name.toLowerCase()])
+    );
+    let matches = 0, mismatches = 0;
+    const matchedRanks = [];
+    for (const [rank, wdName] of wdByRank) {
+        const inatName = inatByRank.get(rank);
+        if (inatName === undefined) continue;
+        if (wdName === inatName) { matches++; matchedRanks.push(rank); }
+        else mismatches++;
+    }
+    return { matches, mismatches, matchedRanks };
+}
+
 /** IUCN Red List P1813 short codes → Wikidata QIDs, for SPARQL P141 filtering. */
 export const IUCN_STATUS_QIDS = {
     EX: 'Q237350',

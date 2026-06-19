@@ -22,6 +22,7 @@ After the initial download and index build (~20 seconds), name lookups and iNat 
 npm run links                              # default: 200 taxa
 npm run links -- --limit 1000             # custom limit — fast even for large numbers
 npm run links -- --limit 1000 --iucn EN   # limit + IUCN status filter
+npm run links -- --limit 1000 --auto      # also write links-auto.qs (certain matches only)
 npm run linkStats                          # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
 ```
 
@@ -95,9 +96,28 @@ TOTAL           | 380,120 |  92,815 |     525 |   286,780
 
 **Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `links-ambiguous.html`. **No match** = name not found in the iNat database. No files are written and the cache is not modified.
 
+## Auto mode (`--auto`)
+
+Pass `--auto` to additionally write `links-auto.qs` — a plain-text QuickStatements file
+containing only matches that pass a programmatic certainty filter:
+
+- **Zero mismatches** — no labeled rank (genus, family, order, class, …) conflicts between the WD and iNat taxonomy trees
+- **≥3 rank agreements** — at least three labeled ranks match by name
+- **Family or order among the matches** — prevents three obscure intermediate ranks (e.g. subfamily/tribe/subtribe) from coincidentally agreeing
+
+Matches that fail these criteria still appear in `links.html` for manual review.
+
+`links-auto.qs` format — one statement per line, ready to paste into [QuickStatements](https://quickstatements.toolforge.org/):
+
+```
+Q12345	P3151	"67890"
+```
+
 ## Typical workflow
 
 1. Run `npm run links -- --limit 1000` to generate `links.html` and `links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
 2. Open `links.html` in a browser. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent. Check rows you want to import, copy the aggregate field, and paste into [QuickStatements](https://quickstatements.toolforge.org/).
 3. Open `links-ambiguous.html`. For each group, compare the WD tree against the iNat candidate trees to identify the correct match (if any), then click its QuickStatements cell to copy.
 4. If a conflict table is present in `links.html`, review `inat-links-conflicts.json` and investigate each case before acting.
+
+**With `--auto`:** paste `links-auto.qs` directly into QuickStatements for the certain matches, then use `links.html` for the remainder.
