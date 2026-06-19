@@ -100,11 +100,13 @@ checkArea.js (args: lat lng radius_km)
 
 ## Module notes
 
-**`generateWikitext.js`** — ancestor traversal fetches up to 20 rounds of wbgetentities; Lepidoptera needs this many due to ~15 unranked intermediate clades between species and kingdom. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740 (genus), `{{Fungorum species}}` otherwise. Full taxonavigation template logic (Coleoptera/Lepidoptera wrappers, APG/IOC/Smith suffixes, IUCN template) is documented in README.
-
-**`getInatNames.js`** — normalizes `zh-CN`→`zh-hans`, `zh-TW`→`zh-hant` (Wikidata uses lowercase script subtags).
-
-**`getInatTaxaDb.js`** — SQLite index at `~/.cache/wikidata-inat-checker/taxa.db`, auto-refreshed from iNat S3 every 30 days. `get(name)` uses `LIMIT 2`: returns `{inatId, rank}` for exactly-one-match, `undefined` for no-match or homonym. `getAll(name)` returns all rows. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (no API call), filters the `stateofmatter` root.
+See [`docs/dev.md`](docs/dev.md) for implementation details — read it on demand when working on the relevant modules:
+- **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()` behaviour, stateofmatter filter (`getInatTaxaDb.js`)
+- **zh-hans/zh-hant normalization** — why `zh-CN`/`zh-TW` are remapped (`getInatNames.js`)
+- **Ancestor traversal depth** — why the cap is 20 rounds; Lepidoptera unranked clades (`generateWikitext.js`)
+- **Commons Taxonavigation templates** — Coleoptera/Lepidoptera wrappers, APG/IOC/Smith suffixed families, Fungorum rank sensitivity, IUCN Commons category names and QIDs, category placement rules (`generateWikitext.js`)
+- **SPARQL TSV format** — why `wbk.sparqlQuery()` must not be used for TSV requests (`utils.js`)
+- **SPARQL large-dataset pagination** — why partition-by-category is used instead of OPTIONAL + LIMIT/OFFSET (`checkLinksStats.js`)
 
 ## Key Wikidata properties used
 
