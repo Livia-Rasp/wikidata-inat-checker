@@ -53,15 +53,15 @@ Two templates exist for Index Fungorum entries: `{{Fungorum genus}}` (rank = gen
 
 Species with IUCN status get `[[Category:IUCN X species]]`. LC (Q211005) has no Commons maintenance category and is omitted. Category names:
 
-| P141 QID | Commons category |
-|---|---|
-| Q219127 | IUCN Critically endangered species |
-| Q96377276 | IUCN Endangered species |
-| Q278113 | IUCN Vulnerable species |
-| Q719675 | IUCN Near Threatened species |
-| Q3245245 | IUCN Data Deficient species |
-| Q237350 | IUCN Extinct species |
-| Q239509 | IUCN Extinct In The Wild species |
+| P141 QID | Code | Commons category |
+|---|---|---|
+| Q219127 | CR | IUCN Critically endangered species |
+| Q96377276 | EN | IUCN Endangered species |
+| Q278113 | VU | IUCN Vulnerable species |
+| Q719675 | NT | IUCN Near Threatened species |
+| Q3245245 | DD | IUCN Data Deficient species |
+| Q237350 | EX | IUCN Extinct species |
+| Q239509 | EW | IUCN Extinct In The Wild species |
 
 Note: "Critically **e**ndangered" is lowercase; "Extinct **I**n **T**he **W**ild" is mixed caps. The correct QID for Endangered is `Q96377276`, not `Q11394`.
 
