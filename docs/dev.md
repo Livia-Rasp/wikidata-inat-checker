@@ -10,6 +10,10 @@ The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa
 
 iNaturalist returns Chinese names under `zh-CN` and `zh-TW`. These are normalised to `zh-hans` and `zh-hant` respectively before comparison with Wikidata, because Wikidata uses lowercase script subtags for these languages.
 
+## Genus-as-vernacular leak (`checkNames.js`)
+
+iNaturalist sometimes stores the genus name itself as a vernacular name for a species in certain locales (e.g. `de:"Olyra"` for *Olyra longicaudata*). These pass through the scientific-name exclusion filter — which only strips the full binomial — unless explicitly checked. `checkNames.js` filters them by comparing each candidate name against the first word of the scientific name (`sciName.split(' ')[0]`).
+
 ## Taxonavigation ancestor traversal (`generateWikitext.js`)
 
 The wbgetentities ancestor walk is capped at 20 rounds. This is higher than one might expect: Lepidoptera sits roughly 15 levels above species rank due to many unranked intermediate clades in the Wikidata taxonomy, so a lower cap would silently truncate the taxonavigation block for butterflies and moths.
@@ -100,3 +104,13 @@ Wikidata's Blazegraph does not maintain cursor state between requests. `LIMIT/OF
 **What works — partition by category:** run one dedicated query per group (e.g. one per IUCN status code), then paginate the dominant no-match group separately with `FILTER NOT EXISTS { ?item wdt:P141 ?any . }`. This is why `checkLinksStats.js` uses two phases.
 
 **Rate limiting:** Wikidata returns HTTP 429 at high OFFSET values (~350k+). Retry with 30s delay; add 2s inter-page pause for long runs. A 200 response can also return a truncated body — fewer rows than LIMIT without an error code.
+
+---
+
+## Taxonomy tree comparison and `--auto` certainty filter (`utils.js`, `checkLinks.js`)
+
+`compareAncestorTrees(wdChain, inatChain)` aligns the WD and iNat ancestor chains by rank name (case-insensitive), counts agreements and disagreements among labeled ranks present in **both** chains, and returns `{ matches, mismatches, matchedRanks }`. Only the 9 ranks in `WD_RANK_LABELS` can be labeled on the WD side (genus, family, superfamily, subfamily, tribe, subtribe, order, subclass, class); iNat rank strings are used as-is. Ranks present in only one chain are ignored — they do not count as mismatches.
+
+The `--auto` certainty filter requires: `mismatches === 0 && matches >= 3 && (matchedRanks.includes('family') || matchedRanks.includes('order'))`. The family-or-order anchor prevents three coincidentally agreeing intermediate ranks (e.g. subfamily/tribe/subtribe within a split family) from triggering auto-approval on an actually wrong match.
+
+**Known recurring disagreement — Noctuidae/Erebidae:** many moth genera were reclassified from Noctuidae to Erebidae; WD and iNat have not fully converged on this split. Affected genera produce a family-level mismatch for otherwise correct matches and correctly fail the auto-filter, appearing in `links.html` for human review.

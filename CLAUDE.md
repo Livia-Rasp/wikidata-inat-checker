@@ -105,6 +105,7 @@ See [`docs/dev.md`](docs/dev.md) for implementation details — read it on deman
 - **Commons Taxonavigation templates** — Coleoptera/Lepidoptera wrappers, APG/IOC/Smith suffixed families, Fungorum rank sensitivity, IUCN Commons category names and QIDs, category placement rules (`generateWikitext.js`)
 - **SPARQL TSV format** — why `wbk.sparqlQuery()` must not be used for TSV requests (`utils.js`)
 - **SPARQL large-dataset pagination** — why partition-by-category is used instead of OPTIONAL + LIMIT/OFFSET (`checkLinksStats.js`)
+- **Taxonomy tree comparison and `--auto` filter** — `compareAncestorTrees()` rank-alignment logic, certainty filter rationale, Noctuidae/Erebidae recurring disagreement (`utils.js`, `checkLinks.js`)
 
 ## Key Wikidata properties used
 
