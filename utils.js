@@ -18,6 +18,19 @@ export const wbk = WBK({
 export function qidFromUri(uri) { return uri.split('/').pop(); }
 
 /**
+ * Split an array into chunks of at most `n` elements.
+ * @template T
+ * @param {T[]} arr
+ * @param {number} n
+ * @returns {T[][]}
+ */
+export function chunk(arr, n) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+}
+
+/**
  * @param {string | number} str
  * @returns {string}
  */
@@ -267,6 +280,17 @@ export function parseArgs(argv = process.argv.slice(2)) {
         }
     }
     return result;
+}
+
+/**
+ * Parse a positive-integer `--limit` from parsed args, falling back to `fallback`.
+ * @param {Record<string, string | true>} args
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function parseLimit(args, fallback) {
+    const n = Number.parseInt(/** @type {string} */ (args.limit), 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 /**

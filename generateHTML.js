@@ -1,6 +1,7 @@
 // @ts-check
 import fs from 'fs';
 import { escapeHtml, qidFromUri } from './utils.js';
+import { COPY_SCRIPT } from './htmlShared.js';
 
 function buildRow(uri, wikitext, inatTaxonIds) {
     const qid = qidFromUri(uri);
@@ -124,25 +125,7 @@ ${rows}
     </tbody>
   </table>
   <script>
-    function copy(el) {
-      const text = el.textContent;
-      const hint = el.nextElementSibling;
-      const show = () => {
-        hint.style.display = 'inline';
-        setTimeout(() => { hint.style.display = 'none'; }, 1500);
-      };
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(show);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        show();
-      }
-    }
+${COPY_SCRIPT}
 
     function setDone(qid, done) {
       localStorage.setItem('done-' + qid, done ? '1' : '');

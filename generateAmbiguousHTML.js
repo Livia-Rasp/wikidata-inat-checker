@@ -1,62 +1,7 @@
 // @ts-check
 import fs from 'fs';
 import { escapeHtml } from './utils.js';
-
-const WD_RANK_LABELS = {
-    Q34740: 'genus', Q35409: 'family', Q2136103: 'superfamily',
-    Q164280: 'subfamily', Q227936: 'tribe', Q3965313: 'subtribe',
-    Q36602: 'order', Q5867051: 'subclass', Q37517: 'class',
-};
-
-const RANK_ORDER = [
-    'kingdom','subkingdom','phylum','subphylum',
-    'superclass','class','subclass',
-    'superorder','order','suborder','infraorder',
-    'superfamily','family','subfamily',
-    'supertribe','tribe','subtribe',
-    'genus','subgenus','section','subsection',
-    'species','subspecies','variety',
-];
-
-function renderTreePair(wdChain, inatChain) {
-    const wdLabeled = (wdChain ?? [])
-        .filter(e => e.rankQid && WD_RANK_LABELS[e.rankQid])
-        .map(e => ({ rank: WD_RANK_LABELS[e.rankQid], name: e.name }));
-    const inatLabeled = (inatChain ?? [])
-        .filter(e => e.rank)
-        .map(e => ({ rank: e.rank.toLowerCase(), name: e.name }));
-
-    const wdByRank   = new Map(wdLabeled.map(e  => [e.rank.toLowerCase(), e.name]));
-    const inatByRank = new Map(inatLabeled.map(e => [e.rank, e.name]));
-
-    const allRanks = [...new Set([
-        ...wdLabeled.map(e => e.rank.toLowerCase()),
-        ...inatLabeled.map(e => e.rank),
-    ])];
-    allRanks.sort((a, b) => {
-        const ai = RANK_ORDER.indexOf(a), bi = RANK_ORDER.indexOf(b);
-        if (ai === -1 && bi === -1) return 0;
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-    });
-
-    if (allRanks.length === 0) return '<span class="no-tree">—</span>';
-
-    return '<table class="tree-pair">' + allRanks.map(rank => {
-        const wdName   = wdByRank.get(rank)   ?? '';
-        const inatName = inatByRank.get(rank) ?? '';
-        let cls = '';
-        if (wdName && inatName)
-            cls = wdName.toLowerCase() === inatName.toLowerCase() ? ' class="tree-match"' : ' class="tree-mismatch"';
-        const label = rank[0].toUpperCase() + rank.slice(1);
-        return `<tr${cls}>`
-            + `<td class="tp-rank">${escapeHtml(label)}</td>`
-            + `<td class="tp-wd">${wdName   ? escapeHtml(wdName)   : '<span class="absent">—</span>'}</td>`
-            + `<td class="tp-inat">${inatName ? escapeHtml(inatName) : '<span class="absent">—</span>'}</td>`
-            + `</tr>`;
-    }).join('') + '</table>';
-}
+import { renderTreePair, COPY_SCRIPT } from './htmlShared.js';
 
 function buildRows(item, wdTreeMap, inatTreeMap) {
     const { wdUri, qid, taxonName, candidates } = item;
@@ -178,25 +123,7 @@ ${tableRows}
     </tbody>
   </table>
   <script>
-    function copy(el) {
-      const text = el.textContent;
-      const hint = el.nextElementSibling;
-      const show = () => {
-        hint.style.display = 'inline';
-        setTimeout(() => { hint.style.display = 'none'; }, 1500);
-      };
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(show);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        show();
-      }
-    }
+${COPY_SCRIPT}
 
     function setDone(qid, done) {
       localStorage.setItem('done-ambiguous-' + qid, done ? '1' : '');

@@ -1,7 +1,7 @@
 // @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
-import { HEADERS, qidFromUri } from './utils.js';
+import { HEADERS, qidFromUri, chunk } from './utils.js';
 
 const ENTITY_BATCH   = 50;
 const RANK_GENUS     = 'Q34740';
@@ -50,6 +50,14 @@ const IUCN_STATUS_CODES = {
     'Q3350324':  'NE',
 };
 
+/**
+ * Fetches the author citation (e.g. "Linnaeus, 1758") for each item's NCBI taxon ID
+ * via NCBI E-utilities, parsing the XML by hand (no XML dep). NCBI's authority
+ * "DispName" is the full scientific name followed by the citation, so we strip the
+ * leading scientific-name words to leave just the author part.
+ * @param {{ncbi: string, taxonName?: string}[]} items
+ * @returns {Promise<Map<string, string|null>>} NCBI taxon ID → authority (null if none/error)
+ */
 async function fetchNcbiAuthorities(items) {
     const result = new Map();
     for (const batch of chunk(items, 200)) {
@@ -65,6 +73,7 @@ async function fetchNcbiAuthorities(items) {
                 if (!idMatch) continue;
                 const ncbiId = idMatch[1];
                 if (!authMatch) { result.set(ncbiId, null); continue; }
+                // Drop the leading scientific-name words from the DispName, keeping the citation.
                 const dispName  = authMatch[1];
                 const sciName   = sciMatch?.[1] ?? '';
                 const wordCount = sciName ? sciName.split(' ').length : 0;
@@ -131,19 +140,6 @@ async function fetchTaxonavTemplates() {
     console.log(`Loaded ${lookup.size} Taxonavigation templates from Commons.`);
     return lookup;
 }
-
-/**
- * @template T
- * @param {T[]} arr
- * @param {number} n
- * @returns {T[][]}
- */
-export function chunk(arr, n) {
-    const out = [];
-    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-    return out;
-}
-
 
 /**
  * Batch-fetches Wikidata entities via wbgetentities (claims + specieswiki sitelink).
