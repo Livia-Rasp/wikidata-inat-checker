@@ -126,6 +126,8 @@ After the initial download and index build (~20 seconds), name lookups and iNat 
 npm run links             # default: 200 taxa
 npm run links -- 1000     # custom limit — fast even for large numbers
 npm run links -- 1000 EN  # limit + IUCN status filter
+node checkLinksStats.js     # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
+npm run linkStats           # same via npm
 ```
 
 ### links.html columns
@@ -161,6 +163,42 @@ Each row group represents one Wikidata item whose scientific name matches multip
 | QuickStatements | Click to copy `{qid} P3151 "{inatId}"` for this specific candidate. |
 
 Compare the WD tree against each iNat candidate tree to identify which (if any) refers to the same organism.
+
+### Stats mode
+
+`node checkLinks.js --stats` fetches every Wikidata taxon without P3151 (no limit, paginated), classifies each name against the iNat SQLite index, and prints a console table:
+
+```
+Loading iNat taxa DB…
+
+Fetching IUCN-coded taxa…
+  CR… 1,764 taxa
+  EN… 4,855 taxa
+  ...
+
+Fetching taxa without IUCN status (paginated)…
+  Page 1 (offset 0)… 25000 rows, 25,000 unique so far
+  ...
+
+IUCN stats — Wikidata taxa without P3151
+=========================================================
+Status          |   Total |   Match |   Ambig |  No match
+-----------------+---------+---------+---------+-----------
+CR              |   1,764 |     765 |       0 |       999
+EN              |   4,855 |   2,738 |       4 |     2,113
+VU              |   3,577 |   1,992 |       1 |     1,584
+NT              |   1,953 |   1,004 |       2 |       947
+LC              |  14,014 |   8,579 |       4 |     5,431
+DD              |   4,473 |   1,748 |       3 |     2,722
+EX              |      46 |      24 |       0 |        22
+EW              |       6 |       5 |       0 |         1
+NE              |      24 |       5 |       0 |        19
+(no IUCN status) (incomplete)| 349,408 |  75,955 |     511 |   272,942
+-----------------+---------+---------+---------+-----------
+TOTAL           | 380,120 |  92,815 |     525 |   286,780
+```
+
+**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `links-ambiguous.html`. **No match** = name not found in the iNat database. No files are written and the cache is not modified.
 
 ### Typical workflow
 
@@ -216,6 +254,26 @@ Rows are sorted by observation count descending (most-observed first).
 2. Open `area.html` in a browser.
 3. Browse the thumbnails to find a good candidate photo. Click the thumbnail to open the iNat observation, then upload the photo to Commons.
 4. Add the uploaded file as P18 on the Wikidata item (linked from each row).
+
+## Implementation notes
+
+Details useful when extending or debugging the tools.
+
+### iNat taxa SQLite index (`getInatTaxaDb.js`)
+
+The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept.
+
+### Vernacular name language codes (`getInatNames.js`)
+
+iNaturalist returns Chinese names under `zh-CN` and `zh-TW`. These are normalised to `zh-hans` and `zh-hant` respectively before comparison with Wikidata, because Wikidata uses lowercase script subtags for these languages.
+
+### Taxonavigation ancestor traversal (`generateWikitext.js`)
+
+The wbgetentities ancestor walk is capped at 20 rounds. This is higher than one might expect: Lepidoptera sits roughly 15 levels above species rank due to many unranked intermediate clades in the Wikidata taxonomy, so a lower cap would silently truncate the taxonavigation block for butterflies and moths.
+
+### Commons Fungorum templates (`generateWikitext.js`)
+
+Two templates exist for Index Fungorum entries: `{{Fungorum genus}}` (used when the item has rank = genus, Q34740) and `{{Fungorum species}}` (all other ranks). Using the wrong one causes the Commons category to be miscategorised.
 
 ## License
 

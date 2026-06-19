@@ -5,7 +5,7 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
+import { sparql, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
 import { chunk } from './generateWikitext.js';
 
 const CACHE_FILE = 'cache-links.json';
@@ -18,24 +18,6 @@ const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
 if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
     process.exit(1);
-}
-
-/**
- * Executes a SPARQL query against Wikidata with exponential-backoff retry on 502/503.
- * @param {string} query
- * @param {number} [retries]
- * @returns {Promise<object[]>} SPARQL result bindings
- */
-async function sparql(query, retries = 3) {
-    const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });
-    if ((res.status === 502 || res.status === 503) && retries > 0) {
-        const delay = (4 - retries) * 3000;
-        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        return sparql(query, retries - 1);
-    }
-    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
-    return (await res.json()).results.bindings;
 }
 
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
@@ -278,7 +260,4 @@ WHERE {
     console.log('Done.');
 }
 
-run().catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+run().catch(err => { console.error('Fatal error:', err); process.exit(1); });

@@ -46,6 +46,74 @@ export function createRateLimiter(intervalMs = 1000) {
     };
 }
 
+const SPARQL_ENDPOINT = 'https://query.wikidata.org/sparql';
+
+/**
+ * Executes a SPARQL query against Wikidata (JSON format) with exponential-backoff retry.
+ * @param {string} query
+ * @param {number} [retries]
+ * @returns {Promise<object[]>} SPARQL result bindings
+ */
+export async function sparql(query, retries = 3) {
+    const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });
+    if ((res.status === 502 || res.status === 503) && retries > 0) {
+        const delay = (4 - retries) * 3000;
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparql(query, retries - 1);
+    }
+    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    const text = await res.text();
+    // Some Wikidata string values contain literal C0 control characters (invalid JSON).
+    const cleaned = text.replace(/[\x00-\x1F\x7F]/g, '');
+    return JSON.parse(cleaned).results.bindings;
+}
+
+/**
+ * Like sparql() but requests TSV — avoids JSON escaping bugs on large result sets.
+ * Returns plain objects: { [varName]: stringValue | undefined }.
+ * URIs come back as the full URI string; literals with surrounding quotes stripped.
+ * @param {string} query
+ * @param {number} [retries]
+ * @returns {Promise<object[]>}
+ */
+export async function sparqlTSV(query, retries = 3) {
+    // Raw endpoint URL without format= — wbk.sparqlQuery() adds format=json which
+    // overrides the Accept header. Accept header only works without a format= param.
+    const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separated-values' } });
+    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
+        const delay = res.status === 429 ? 30000 : (4 - retries) * 3000;
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparqlTSV(query, retries - 1);
+    }
+    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    const lines = (await res.text()).replace(/^﻿/, '').split(/\r?\n/);
+    if (lines.length < 2) return [];
+    const headers = lines[0].split('\t').map(h => h.replace(/^\?/, ''));
+    const rows = [];
+    for (const line of lines.slice(1)) {
+        if (!line.trim()) continue;
+        const cells = line.split('\t');
+        const row = {};
+        for (let i = 0; i < headers.length; i++) {
+            const cell = (cells[i] ?? '').trim();
+            if (!cell) continue;
+            if (cell.startsWith('<')) {
+                row[headers[i]] = cell.slice(1, -1);
+            } else if (cell.startsWith('"')) {
+                const last = cell.lastIndexOf('"');
+                row[headers[i]] = cell.slice(1, last).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+            } else {
+                row[headers[i]] = cell;
+            }
+        }
+        rows.push(row);
+    }
+    return rows;
+}
+
 /** IUCN Red List P1813 short codes → Wikidata QIDs, for SPARQL P141 filtering. */
 export const IUCN_STATUS_QIDS = {
     EX: 'Q237350',

@@ -10,6 +10,7 @@
     "check-images": "checkImages.js",
     "check-names": "checkNames.js",
     "check-links": "checkLinks.js",
+    "check-links-stats": "checkLinksStats.js",
     "check-area": "checkArea.js"
   },
   "scripts": {
@@ -17,6 +18,7 @@
     "images": "node checkImages.js",
     "names": "node checkNames.js",
     "links": "node checkLinks.js",
+    "linkStats": "node checkLinksStats.js",
     "area": "node checkArea.js"
   },
   "keywords": [

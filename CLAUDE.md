@@ -19,6 +19,8 @@ node checkLinks.js 200        # iNat links checker — custom limit
 node checkLinks.js 200 EN     # with IUCN filter
 npm run links -- 200          # same via npm
 npm run links -- 200 EN       # same with IUCN filter
+node checkLinksStats.js       # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
+npm run linkStats             # same via npm
 
 node checkArea.js 48.147 11.589 10   # area checker — lat lng radius_km
 npm run area -- 48.147 11.589 10     # same via npm
@@ -54,6 +56,7 @@ checkNames.js
 ```
 
 ### iNat links checker (`checkLinks.js`)
+
 ```
 checkLinks.js
   └─ SPARQL → Wikidata: taxa with P225 but no P3151 (limited)
@@ -72,6 +75,17 @@ checkLinks.js
   └─ generateAmbiguousHTML.js: writes links-ambiguous.html (grouped table, one row per iNat candidate)
 ```
 
+### iNat links stats (`checkLinksStats.js`)
+
+Two-phase fetch — one dedicated query per IUCN status code (CR/EN/VU/…, small result sets, exact counts) then LIMIT/OFFSET pagination (25 000 rows/page, TSV, 2 s inter-page delay) for taxa with no P141 at all. Classifies each name against the SQLite DB (match / ambiguous / no match). Prints a console table grouped by IUCN code in conservation-priority order. Warns and shows partial results if the no-status phase hits 429/504 at high offsets. No HTML output, no cache interaction.
+
+```
+checkLinksStats.js
+  └─ sparqlTSV() → Wikidata: one query per IUCN status + paginated no-status query
+  └─ getInatTaxaDb.js {get(), getAll()}: classify each name (match / ambig / no match)
+  └─ console table output
+```
+
 ### Area checker (`checkArea.js`)
 ```
 checkArea.js (args: lat lng radius_km)
@@ -84,23 +98,13 @@ checkArea.js (args: lat lng radius_km)
   └─ generateAreaHTML.js: writes area.html
 ```
 
-**`generateWikitext.js`** — exports `fetchEntities(qids)` and `chunk(arr, n)` used by multiple tools. Also fetches Wikidata entities in rounds (max 20), walking P171 (parent taxon) links for the image checker. The higher limit (vs. the original 7) is needed because Lepidoptera sits ~15 levels above species due to many unranked intermediate clades. Builds Commons category Wikitext including `{{Wikidata Infobox}}`, a taxonavigation block, and identifier templates (NCBI, EOL, MycoBank, Index Fungorum). When the item has P627 (IUCN Red List taxon ID) and P141 (IUCN status), generates `{{IUCN|statusCode|iucnId|name|authority}}` placed after NCBI — this template auto-categorizes into the correct `IUCN X species` Commons maintenance category, so no manual category line is emitted. If P627 is absent but P141 is set to a non-LC status, a manual `[[Category:IUCN X species]]` line is emitted instead. At startup, `fetchTaxonavTemplates()` fetches the full list of ~900 templates from [Category:Templates to include in Taxonavigation](https://commons.wikimedia.org/wiki/Category:Templates_to_include_in_Taxonavigation) (including subcategories) on Commons. **Coleoptera get `{{Coleoptera|…}}`** and **Lepidoptera get `{{Lepidoptera|…}}`** (each detected when any ancestor has rank=order and the matching name); both templates accept named parameters (`familia=`, `subfamilia=`, `tribus=`, `genus=`, `species=` epithet-only, `auth=`; `subtribus=` is Coleoptera-only) and resolve the superfamily automatically — `include=` is never set manually. All other taxa use `{{Taxonavigation}}`: `fetchTaxonavTemplates()` builds a `Map<baseName, fullName>` so that suffixed family templates — `(APG)` for angiosperms (~418 families), `(IOC)` for birds (~258 families), `(Smith)` for ferns (~33 families) — are found by plain ancestor name and the full suffixed name is used as `include=` (e.g. `include=Asparagaceae (APG)`). Conifer families (plain names, e.g. `Cupressaceae`) and higher-level templates (`Angiosperms`, `Mammalia`) work the same as before. Only ranks below include= are listed manually. `fetchNcbiAuthorities()` calls the NCBI efetch API (`eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy`) to populate `authority=` / `auth=` from the `OtherNames` authority entry; strips the taxon-name prefix using NCBI's own `ScientificName` word count (handles reclassified species where the original genus differs). `buildWikitext` is rank-aware: species get genus + species params; genus-rank items get genus only; family/order/class items get the appropriate `RANK_LABELS` label with no genus/species lines. The `[[Category:…]]` line uses the immediate Wikidata parent (P171) as the parent category for non-species ranks. `{{VN}}` is included only when the item has at least one P1843 vernacular name. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740, `{{Fungorum species}}` otherwise.
+## Module notes
 
-**`getFromInat.js`** — batches 200 iNat taxon IDs per request to `/v1/observations/species_counts`, token-bucket rate-limited to ~1 req/s. Returns taxa that have at least one research-grade photo with CC0/CC-BY/CC-BY-SA license.
+**`generateWikitext.js`** — ancestor traversal fetches up to 20 rounds of wbgetentities; Lepidoptera needs this many due to ~15 unranked intermediate clades between species and kingdom. Fungorum template is rank-sensitive: `{{Fungorum genus}}` for Q34740 (genus), `{{Fungorum species}}` otherwise. Full taxonavigation template logic (Coleoptera/Lepidoptera wrappers, APG/IOC/Smith suffixes, IUCN template) is documented in README.
 
-**`getInatNames.js`** — batches 30 iNat taxon IDs per request to `/v1/taxa?all_names=true`, rate-limited to ~1 req/s. Normalizes `zh-CN`→`zh-hans`, `zh-TW`→`zh-hant` (Wikidata uses lowercase script subtags). Filters invalid and scientific-name entries.
+**`getInatNames.js`** — normalizes `zh-CN`→`zh-hans`, `zh-TW`→`zh-hant` (Wikidata uses lowercase script subtags).
 
-**`getInatTaxaDb.js`** — maintains a SQLite taxa index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). On first use (or when the TSV is newer than the DB), downloads `taxa.csv.gz` from the iNat open-data S3 bucket (~180 MB uncompressed, ~1.4 M active taxa, monthly cadence) to `taxa.csv.gz` in the same directory, then builds the SQLite DB in a single transaction. The DB is re-downloaded if the TSV is older than 30 days and rebuilt whenever the TSV is newer than the DB. `dbIsStale()` also triggers a rebuild if the `ancestry` column is missing (one-time schema migration for existing installs). Schema: `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. Returns `{get(name), getAll(name), getAncestors(taxonId)}`. `get(name)` does a `LIMIT 2` query: if exactly 1 row matches, returns `{inatId, rank}`; otherwise `undefined` (covers not-found and homonym ambiguity). `getAll(name)` returns all matching rows as `[{inatId, rank}]` — used to surface ambiguous cases for human review. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor taxon IDs, root-to-parent), looks each up by primary key, and returns `[{name, rank}, …]` kingdom-first, filtering out the `stateofmatter` root concept — no API call needed.
-
-**`getInatLinks.js`** — searches iNat `/v1/taxa?q={name}` per scientific name. Exact match only; returns null for zero or multiple matches (ambiguous). `pLimit(1)` + 1000 ms token bucket = 1 req/s sustained. Retries up to 3× on HTTP 429, honouring the `Retry-After` header. No longer used by `checkLinks.js` (superseded by `getInatTaxaDb.js`) but kept for potential one-off use.
-
-**`generateHTML.js`** — generates `drafts.html` with a table: done-checkbox (localStorage-persisted), Wikidata link, filtered iNat observations link, Commons category edit link, and click-to-copy draft Wikitext.
-
-**`generateNamesHTML.js`** — generates `names.html` with a table: done-checkbox, Wikidata link, taxon name, iNat taxon link, missing name list, and click-to-copy QuickStatements block. Each QS statement includes S248 (iNaturalist, Q16958215), S854 (taxon URL), and S813 (run date). An aggregate field above the table collects QS from all checked rows.
-
-**`generateLinksHTML.js`** — generates `links.html` with a QuickStatements table for clean P3151 matches (no references — the ID is self-sourcing) and a conflict table for iNat IDs already held by different Wikidata items. The matches table includes two taxonomy tree columns (WD tree / iNat tree) showing the full ancestor chain (kingdom→genus) side-by-side for quick verification that a matched pair actually refers to the same organism. WD rank QIDs are mapped to English labels for the known ranks; iNat rank strings are used directly. Also writes `inat-links-conflicts.json` for bookkeeping. Same aggregate field pattern as names.
-
-**`generateAmbiguousHTML.js`** — generates `links-ambiguous.html` for cases where a Wikidata taxon name matches 2+ active iNat taxa. Each WD item is a row group (rowspan): WD tree shown once on the left, one candidate row per iNat taxon on the right (iNat ID + rank + iNat tree + QS copy button). No aggregate — the user must choose one candidate per item. Done checkbox per WD item (localStorage-persisted, keyed `done-ambiguous-{qid}`).
+**`getInatTaxaDb.js`** — SQLite index at `~/.cache/wikidata-inat-checker/taxa.db`, auto-refreshed from iNat S3 every 30 days. `get(name)` uses `LIMIT 2`: returns `{inatId, rank}` for exactly-one-match, `undefined` for no-match or homonym. `getAll(name)` returns all rows. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (no API call), filters the `stateofmatter` root.
 
 ## Key Wikidata properties used
 
