@@ -5,14 +5,12 @@ import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
 import { loadCache, saveCache } from './cache.js';
 import { loadTaxaDb } from './getInatTaxaDb.js';
-import { fetchWdTaxaByInatIds, parseArgs, parseIucnArg } from './utils.js';
+import { fetchWdTaxaByInatIds, parseArgs, parseIucnArg, parseLimit } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
-const DEFAULT_LIMIT = 5000;
 const args = parseArgs();
-const limitVal = Number.parseInt(args.limit, 10);
-const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const limit = parseLimit(args, 5000);
 const { iucnArg, iucnQid } = parseIucnArg(args);
 
 /** Queries Wikidata for taxa without P18, checks iNat for CC-licensed photos, writes drafts.html. */

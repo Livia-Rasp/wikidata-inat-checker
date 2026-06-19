@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // @ts-check
-import { HEADERS, wbk, createRateLimiter, qidFromUri, parseArgs } from './utils.js';
-import { chunk } from './generateWikitext.js';
+import { HEADERS, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './utils.js';
 import { generateAreaHTML } from './generateAreaHTML.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
@@ -57,14 +56,13 @@ async function run() {
     for (const batch of chunk(species, 200)) {
         await sparqlLimiter();
         const values = batch.map(s => `"${s.taxonId}"`).join(' ');
-        const sparql = `SELECT ?item ?inatId ?taxonName WHERE {
+        const query = `SELECT ?item ?inatId ?taxonName WHERE {
   VALUES ?inatId { ${values} }
   ?item wdt:P3151 ?inatId .
   OPTIONAL { ?item wdt:P225 ?taxonName . }
   FILTER NOT EXISTS { ?item wdt:P18 ?img . }
 }`;
-        const res = await fetch(wbk.sparqlQuery(sparql), { headers: HEADERS });
-        const { results: { bindings } } = await res.json();
+        const bindings = await sparql(query);
         for (const b of bindings) {
             noImage.set(b.inatId.value, {
                 wdUri:  b.item.value,

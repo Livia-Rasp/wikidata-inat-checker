@@ -1,61 +1,12 @@
 // @ts-check
 import fs from 'fs';
-import { escapeHtml, WD_RANK_LABELS } from './utils.js';
+import { escapeHtml } from './utils.js';
+import { renderTreePair, COPY_SCRIPT } from './htmlShared.js';
 
 /**
  * @typedef {{ wdUri: string, qid: string, taxonName: string, inatId: string }} Match
  * @typedef {Match & { conflictWdUri: string, conflictQid: string, conflictTaxonName: string | null }} Conflict
  */
-
-const RANK_ORDER = [
-    'kingdom','subkingdom','phylum','subphylum',
-    'superclass','class','subclass',
-    'superorder','order','suborder','infraorder',
-    'superfamily','family','subfamily',
-    'supertribe','tribe','subtribe',
-    'genus','subgenus','section','subsection',
-    'species','subspecies','variety',
-];
-
-function renderTreePair(wdChain, inatChain) {
-    const wdLabeled = (wdChain ?? [])
-        .filter(e => e.rankQid && WD_RANK_LABELS[e.rankQid])
-        .map(e => ({ rank: WD_RANK_LABELS[e.rankQid], name: e.name }));
-    const inatLabeled = (inatChain ?? [])
-        .filter(e => e.rank)
-        .map(e => ({ rank: e.rank.toLowerCase(), name: e.name }));
-
-    const wdByRank   = new Map(wdLabeled.map(e  => [e.rank.toLowerCase(), e.name]));
-    const inatByRank = new Map(inatLabeled.map(e => [e.rank, e.name]));
-
-    const allRanks = [...new Set([
-        ...wdLabeled.map(e => e.rank.toLowerCase()),
-        ...inatLabeled.map(e => e.rank),
-    ])];
-    allRanks.sort((a, b) => {
-        const ai = RANK_ORDER.indexOf(a), bi = RANK_ORDER.indexOf(b);
-        if (ai === -1 && bi === -1) return 0;
-        if (ai === -1) return 1;
-        if (bi === -1) return -1;
-        return ai - bi;
-    });
-
-    if (allRanks.length === 0) return '<span class="no-tree">—</span>';
-
-    return '<table class="tree-pair">' + allRanks.map(rank => {
-        const wdName   = wdByRank.get(rank)   ?? '';
-        const inatName = inatByRank.get(rank) ?? '';
-        let cls = '';
-        if (wdName && inatName)
-            cls = wdName.toLowerCase() === inatName.toLowerCase() ? ' class="tree-match"' : ' class="tree-mismatch"';
-        const label = rank[0].toUpperCase() + rank.slice(1);
-        return `<tr${cls}>`
-            + `<td class="tp-rank">${escapeHtml(label)}</td>`
-            + `<td class="tp-wd">${wdName   ? escapeHtml(wdName)   : '<span class="absent">—</span>'}</td>`
-            + `<td class="tp-inat">${inatName ? escapeHtml(inatName) : '<span class="absent">—</span>'}</td>`
-            + `</tr>`;
-    }).join('') + '</table>';
-}
 
 function buildQS(qid, inatId) {
     return `${qid}\tP3151\t"${inatId}"`;
@@ -195,25 +146,7 @@ ${matchRows}
   </table>
 ${conflictSection}
   <script>
-    function copy(el) {
-      const text = el.textContent;
-      const hint = el.nextElementSibling;
-      const show = () => {
-        hint.style.display = 'inline';
-        setTimeout(() => { hint.style.display = 'none'; }, 1500);
-      };
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(show);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        show();
-      }
-    }
+${COPY_SCRIPT}
 
     function updateAggregate() {
       const rows = [...document.querySelectorAll('tr.done[id^="row-"]')];

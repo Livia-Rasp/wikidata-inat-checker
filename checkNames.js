@@ -2,18 +2,16 @@
 // @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
-import { fetchEntities, chunk } from './generateWikitext.js';
+import { fetchEntities } from './generateWikitext.js';
 import { fetchInatNames } from './getInatNames.js';
 import { generateNamesHTML } from './generateNamesHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, qidFromUri, parseArgs, parseIucnArg } from './utils.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, chunk } from './utils.js';
 
 const CACHE_FILE = 'cache-names.json';
 
-const DEFAULT_LIMIT = 5000;
 const args = parseArgs();
-const limitVal = Number.parseInt(args.limit, 10);
-const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const limit = parseLimit(args, 5000);
 const { iucnArg, iucnQid } = parseIucnArg(args);
 const showAll = args.all === true;
 
@@ -21,17 +19,15 @@ const showAll = args.all === true;
 async function run(limit) {
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     if (!showAll) console.log('Mode: zero-P1843 only (pass --all to include taxa that already have some names)');
-    const sparql = `SELECT ?item ?inatID
+    const query = `SELECT ?item ?inatID
 WHERE {
   ?item wdt:P31 wd:Q16521 .
   ?item wdt:P3151 ?inatID .
 ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
 
-    const response = await fetch(wbk.sparqlQuery(sparql), { headers: HEADERS });
-    const jsonRes = await response.json();
-
+    const bindings = await sparql(query);
     const inatToWD = new Map();
-    for (const binding of jsonRes.results.bindings) {
+    for (const binding of bindings) {
         inatToWD.set(binding.inatID.value, binding.item.value);
     }
     console.log(`Found ${inatToWD.size} taxa with iNat IDs.`);

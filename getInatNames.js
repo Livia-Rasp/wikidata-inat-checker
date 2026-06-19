@@ -1,6 +1,5 @@
 // @ts-check
-import { chunk } from './generateWikitext.js';
-import { createRateLimiter } from './utils.js';
+import { chunk, createRateLimiter } from './utils.js';
 
 /**
  * @typedef {{ locale: string, name: string }} LocaleName

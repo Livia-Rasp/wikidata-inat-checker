@@ -5,15 +5,12 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames } from './utils.js';
-import { chunk } from './generateWikitext.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, chunk } from './utils.js';
 
 const CACHE_FILE = 'cache-links.json';
 
-const DEFAULT_LIMIT = 200;
 const args = parseArgs();
-const limitVal = Number.parseInt(args.limit, 10);
-const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const limit = parseLimit(args, 200);
 const { iucnArg, iucnQid } = parseIucnArg(args);
 const autoMode = args.auto === true;
 
