@@ -17,7 +17,7 @@ node checkLinks.js --limit 200 --iucn EN          # iNat links checker (--limit,
 node checkLinks.js --limit 200 --auto             # also write links-auto.qs (certain matches only)
 npm run links -- --limit 200 --iucn EN            # same via npm
 npm run links -- --limit 200 --auto               # same with --auto flag
-node checkLinksStats.js                           # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
+node checkLinksStats.js                           # stats mode: per-IUCN match/ambig/no-match breakdown for all taxa without P3151 (no HTML output)
 npm run linkStats                                 # same via npm
 
 node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
@@ -57,10 +57,13 @@ checkNames.js
 
 ```
 checkLinks.js
-  └─ SPARQL → Wikidata: taxa with P225 but no P3151 (limited)
   └─ getInatTaxaDb.js: SQLite-backed taxa index (~124 MB, built from iNat open-data S3 dump)
        → {get(name)} returning {inatId, rank} | undefined (undefined = not found or homonym)
        → {getAll(name)} returning [{inatId, rank}] for all active taxa sharing the name
+       → {allNames()} returning all distinct iNat names (drives the Wikidata query)
+  └─ utils.fetchWdTaxaByNames() → Wikidata: query BY iNat name in VALUES POST batches
+       → taxa with P225 = an iNat name but no P3151 (IUCN via OPTIONAL, JS-filtered)
+       → --limit caps collected candidates (real matches), not raw taxa scanned
   └─ Ambiguous collection: names where get() returns undefined but getAll() finds 2+ taxa
        → ambiguousCandidates [{wdUri, qid, taxonName, candidates}]
   └─ SPARQL → Wikidata: check found iNat IDs for existing P3151 on other items
@@ -75,13 +78,14 @@ checkLinks.js
 
 ### iNat links stats (`checkLinksStats.js`)
 
-Two-phase fetch — one dedicated query per IUCN status code (CR/EN/VU/…, small result sets, exact counts) then LIMIT/OFFSET pagination (25 000 rows/page, TSV, 2 s inter-page delay) for taxa with no P141 at all. Classifies each name against the SQLite DB (match / ambiguous / no match). Prints a console table grouped by IUCN code in conservation-priority order. Warns and shows partial results if the no-status phase hits 429/504 at high offsets. No HTML output, no cache interaction.
+Two phases, both reliable to completion. (1) Exact per-IUCN-status totals from CirrusSearch (`cirrusCount()`) — WDQS times out merely *counting* the ~3 M no-P3151 set. (2) Match/ambig by querying Wikidata BY iNat name (`fetchWdTaxaByNames()`, VALUES POST batches over the full ~1.4 M-name index, ~20 min). No-match is derived as `total − match − ambig`. Prints a console table grouped by IUCN code in conservation-priority order. No HTML output, no cache interaction.
 
 ```
 checkLinksStats.js
-  └─ sparqlTSV() → Wikidata: one query per IUCN status + paginated no-status query
-  └─ getInatTaxaDb.js {get(), getAll()}: classify each name (match / ambig / no match)
-  └─ console table output
+  └─ getInatTaxaDb.js {allNames(), get(), getAll()}: name universe + classification
+  └─ utils.cirrusCount() → Wikidata CirrusSearch: exact total per IUCN bucket (instant)
+  └─ utils.fetchWdTaxaByNames() → Wikidata: match/ambig via name-keyed VALUES POST batches
+  └─ console table output (No match = total − match − ambig)
 ```
 
 ### Area checker (`checkArea.js`)
@@ -104,7 +108,7 @@ See [`docs/dev.md`](docs/dev.md) for implementation details — read it on deman
 - **Ancestor traversal depth** — why the cap is 20 rounds; Lepidoptera unranked clades (`generateWikitext.js`)
 - **Commons Taxonavigation templates** — Coleoptera/Lepidoptera wrappers, APG/IOC/Smith suffixed families, Fungorum rank sensitivity, IUCN Commons category names and QIDs, category placement rules (`generateWikitext.js`)
 - **SPARQL TSV format** — why `wbk.sparqlQuery()` must not be used for TSV requests (`utils.js`)
-- **SPARQL large-dataset pagination** — why partition-by-category is used instead of OPTIONAL + LIMIT/OFFSET (`checkLinksStats.js`)
+- **Large-dataset enumeration** — why WDQS can't scan the ~3 M no-P3151 set (even COUNT), CirrusSearch counts, and the query-by-iNat-name (`VALUES` POST) inversion (`utils.js`, `checkLinksStats.js`, `checkLinks.js`)
 - **Taxonomy tree comparison and `--auto` filter** — `compareAncestorTrees()` rank-alignment logic, certainty filter rationale, Noctuidae/Erebidae recurring disagreement (`utils.js`, `checkLinks.js`)
 
 ## Key Wikidata properties used

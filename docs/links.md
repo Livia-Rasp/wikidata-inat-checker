@@ -4,9 +4,9 @@ Finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches 
 
 ## How it works
 
-1. Queries Wikidata for taxon items that have a scientific name (P225) but no P3151.
-2. On first run, downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer (also auto-rebuilt once if the schema needs migration).
-3. Looks up each Wikidata scientific name in the SQLite index (no API calls). Names matching exactly one active iNat taxon are clean matches. Names matching two or more are flagged as ambiguous for human review. Names with no match are skipped.
+1. On first run, downloads the iNaturalist open-data taxa dump (~180 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~124 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer (also auto-rebuilt once if the schema needs migration).
+2. Queries Wikidata *by iNaturalist name*: for each name in the local index it asks Wikidata — in bounded `VALUES` POST batches — for taxon items carrying that name (P225) with no P3151. This inverts the old approach (which scanned Wikidata's ~3 M no-P3151 taxa and discarded the non-matches); WDQS cannot scan that full set, whereas batched name lookups are fast and reliable. Every candidate returned is therefore already a name match. `--limit` caps the number of collected candidates (real matches), and the cache lets re-runs reach further into the name list.
+3. Classifies each candidate name against the SQLite index (no API calls). Names matching exactly one active iNat taxon are clean matches. Names matching two or more are flagged as ambiguous for human review.
 4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
 5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
 6. Fetches the full taxonomic ancestor chain for each clean match and each ambiguous case — from the SQLite index (iNat side, using the stored `ancestry` field, no API call) and from Wikidata via a `wdt:P171+` SPARQL query (Wikidata side).
@@ -62,39 +62,43 @@ Compare the WD tree against each iNat candidate tree to identify which (if any) 
 
 ## Stats mode
 
-`npm run linkStats` fetches every Wikidata taxon without P3151 (no limit, paginated), classifies each name against the iNat SQLite index, and prints a console table:
+`npm run linkStats` reports, per IUCN status, how many Wikidata taxa without P3151 have a name that matches the iNat index. It works in two phases:
+
+1. **Exact totals** per IUCN status come from Wikidata's CirrusSearch backend (instant). WDQS/Blazegraph times out merely *counting* the ~3 M no-P3151 set, so it cannot be used here.
+2. **Match / Ambig** are found by querying Wikidata *by* every iNat name in bounded `VALUES` POST batches (~20 min for the full ~1.4 M-name index, and it always runs to completion). Every Wikidata taxon name either is an iNat name (→ match or ambiguous) or isn't (→ no match), so **No match is derived** as `total − match − ambig`.
 
 ```
 Loading iNat taxa DB…
+1,401,759 distinct iNat names loaded.
 
-Fetching IUCN-coded taxa…
-  CR… 1,764 taxa
-  EN… 4,855 taxa
+Fetching exact totals (CirrusSearch)…
+  CR               1,043
   ...
 
-Fetching taxa without IUCN status (paginated)…
-  Page 1 (offset 0)… 25000 rows, 25,000 unique so far
-  ...
+Classifying matches (querying Wikidata by iNat name)…
+  1,401,759 / 1,401,759 names queried
 
 IUCN stats — Wikidata taxa without P3151
 =========================================================
 Status          |   Total |   Match |   Ambig |  No match
 -----------------+---------+---------+---------+-----------
-CR              |   1,764 |     765 |       0 |       999
-EN              |   4,855 |   2,738 |       4 |     2,113
-VU              |   3,577 |   1,992 |       1 |     1,584
-NT              |   1,953 |   1,004 |       2 |       947
-LC              |  14,014 |   8,579 |       4 |     5,431
-DD              |   4,473 |   1,748 |       3 |     2,722
-EX              |      46 |      24 |       0 |        22
-EW              |       6 |       5 |       0 |         1
-NE              |      24 |       5 |       0 |        19
-(no IUCN status) (incomplete)| 349,408 |  75,955 |     511 |   272,942
+CR              |   1,043 |      37 |       0 |     1,006
+EN              |   3,783 |   1,364 |       0 |     2,419
+VU              |   1,950 |     317 |       1 |     1,632
+NT              |   1,182 |     177 |       0 |     1,005
+LC              |  14,010 |   8,579 |       4 |     5,427
+DD              |   4,519 |   1,748 |       3 |     2,768
+EX              |      24 |       2 |       0 |        22
+EW              |       1 |       0 |       0 |         1
+NE              |      22 |       3 |       0 |        19
+(no IUCN status)|2,938,679| 443,243 |   2,614 | 2,492,822
 -----------------+---------+---------+---------+-----------
-TOTAL           | 380,120 |  92,815 |     525 |   286,780
+TOTAL           |2,965,213| 455,470 |   2,622 | 2,507,121
 ```
 
-**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `links-ambiguous.html`. **No match** = name not found in the iNat database. No files are written and the cache is not modified.
+**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `links-ambiguous.html`. **No match** = Wikidata name not present in the iNat database (derived from the total). No files are written and the cache is not modified.
+
+Totals come from CirrusSearch and matches from WDQS, two backends that index independently. Match/ambig are exact; because no-match is derived (`total − match − ambig`), any few-item indexing lag between the backends lands in the no-match figure.
 
 ## Auto mode (`--auto`)
 
