@@ -85,10 +85,13 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
 
         const inatEntries = inatNames.get(inatId) || [];
         const sciName = wd.taxonName?.toLowerCase();
-        const missing = inatEntries.filter(({ locale, name }) =>
-            !wd.wdNames.has(`${locale}:${name.toLowerCase()}`) &&
-            name.toLowerCase() !== sciName
-        );
+        const sciGenus = sciName?.split(' ')[0];
+        const missing = inatEntries.filter(({ locale, name }) => {
+            const n = name.toLowerCase();
+            return !wd.wdNames.has(`${locale}:${n}`) &&
+                n !== sciName &&
+                n !== sciGenus;
+        });
         if (missing.length > 0) {
             items.push({ wdUri, qid, inatId, taxonName: wd.taxonName, missing });
         }
