@@ -10,10 +10,12 @@ node checkImages.js 500 VU    # optional second arg: filter by IUCN status (VU, 
 npm run images -- 500         # same via npm (-- required to forward args)
 npm run images -- 500 VU      # same with IUCN filter
 
-node checkNames.js 500        # vernacular names checker — custom limit
+node checkNames.js 500        # vernacular names checker — custom limit (zero-P1843 taxa only by default)
 node checkNames.js 500 CR     # with IUCN filter
+node checkNames.js 500 --all  # include taxa that already have some P1843
 npm run names -- 500          # same via npm
 npm run names -- 500 CR       # same with IUCN filter
+npm run names -- 500 --all    # same with --all flag
 
 node checkLinks.js 200        # iNat links checker — custom limit
 node checkLinks.js 200 EN     # with IUCN filter

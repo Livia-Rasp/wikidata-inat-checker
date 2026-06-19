@@ -15,10 +15,15 @@ Results are cached locally in `cache-names.json` so re-runs skip taxa already ch
 ## Usage
 
 ```sh
-npm run names            # default: 5000 taxa
-npm run names -- 500     # custom limit
-npm run names -- 500 CR  # limit + IUCN status filter
+npm run names              # default: 5000 taxa with zero existing P1843
+npm run names -- 500       # custom limit
+npm run names -- 500 CR    # limit + IUCN status filter
+npm run names -- --all     # include taxa that already have some P1843
+npm run names -- 500 --all
+npm run names -- 500 CR --all
 ```
+
+By default, only taxa with **no** vernacular names on Wikidata (P1843) yet are shown — these are the highest-priority additions. Pass `--all` to also include taxa that already have some names but are still missing certain iNat ones.
 
 ## names.html columns
 

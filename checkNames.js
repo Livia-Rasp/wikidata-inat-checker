@@ -13,16 +13,18 @@ const CACHE_FILE = 'cache-names.json';
 const DEFAULT_LIMIT = 5000;
 const limitArg = Number.parseInt(process.argv[2], 10);
 const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-const iucnArg = process.argv[3]?.toUpperCase();
+const iucnArg = process.argv[3]?.startsWith('--') ? undefined : process.argv[3]?.toUpperCase();
 const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
 if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
     process.exit(1);
 }
+const showAll = process.argv.includes('--all');
 
 /** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
+    if (!showAll) console.log('Mode: zero-P1843 only (pass --all to include taxa that already have some names)');
     const sparql = `SELECT ?item ?inatID
 WHERE {
   ?item wdt:P31 wd:Q16521 .
@@ -79,6 +81,7 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
         const qid = qidFromUri(wdUri);
         const wd = wdData[qid];
         if (!wd) continue;
+        if (!showAll && wd.wdNames.size > 0) continue;
 
         const inatEntries = inatNames.get(inatId) || [];
         const sciName = wd.taxonName?.toLowerCase();
