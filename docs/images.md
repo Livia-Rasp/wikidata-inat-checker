@@ -35,7 +35,22 @@ npm run images -- --limit 500 --iucn VU  # limit + IUCN status filter (VU, EN, C
 | Wikidata item | Link to the Wikidata entity (e.g. `Q15438811`). |
 | iNat taxon | Link to the filtered iNaturalist observations page for that taxon (research-grade, CC0/CC-BY/CC-BY-SA), so you can preview candidate photos without a separate lookup. |
 | Commons category | Opens the Commons category page in edit mode — ready to paste if it doesn't exist yet, or to edit if it does. |
-| Draft Wikitext | Click to copy to clipboard. Includes `{{Wikidata Infobox}}`, a taxonavigation block, `{{VN}}` (only when P1843 vernacular names are present), NCBI/EOL/MycoBank/Index Fungorum identifier templates, an optional `{{IUCN}}` conservation status link, and the parent category link. Details: **Taxonavigation** — Coleoptera taxa use `{{Coleoptera\|familia=…\|…}}` and Lepidoptera taxa use `{{Lepidoptera\|familia=…\|…}}` (dedicated wrapper templates with named params for family through species and authority; superfamily resolved automatically). All other taxa use `{{Taxonavigation\|include=…}}` with the most specific matching ancestor template from Commons: angiosperm families use the `(APG)` suffixed form (e.g. `include=Asparagaceae (APG)`), bird families the `(IOC)` form, fern families the `(Smith)` form; conifer families and higher-level groups (Mammalia, Reptilia, Agaricomycetes, …) use plain names. Only ranks below the include= level are listed manually. Rank-aware: species get `Genus|…|` + `Species|…|`, genus-rank items get `Genus|…|` only, family/order/class items use their rank label with no genus/species lines. `authority=` is populated automatically from NCBI (P685) where available. **IUCN** — when the Wikidata item has both P627 (IUCN Red List ID) and P141 (conservation status), a `{{IUCN\|code\|id\|name\|authority}}` line is added after NCBI; this template auto-categorizes the Commons page into the correct IUCN maintenance category. If only P141 is present (no P627), a manual `[[Category:IUCN X species]]` line is added instead. |
+| Draft Wikitext | Click to copy to clipboard. The generated Commons category Wikitext — see [Draft Wikitext contents](#draft-wikitext-contents). |
+
+## Draft Wikitext contents
+
+Each draft contains:
+
+- `{{Wikidata Infobox}}`
+- a **taxonavigation** block (see below)
+- `{{VN}}` — only when the item has P1843 vernacular names
+- NCBI / EOL / MycoBank / Index Fungorum identifier templates
+- an optional `{{IUCN}}` conservation-status line (see below)
+- the parent category link
+
+**Taxonavigation.** Coleoptera and Lepidoptera taxa use the dedicated `{{Coleoptera|familia=…}}` / `{{Lepidoptera|familia=…}}` wrappers (named params for family through species plus authority; superfamily resolved automatically). All other taxa use `{{Taxonavigation|include=…}}` with the most specific matching Commons ancestor template — angiosperm families take the `(APG)` suffix (e.g. `include=Asparagaceae (APG)`), bird families `(IOC)`, fern families `(Smith)`; conifer families and higher groups (Mammalia, Reptilia, Agaricomycetes, …) use plain names. Only ranks below the `include=` level are listed manually, and rank-aware: species get `Genus|…|` + `Species|…|`, genus-rank items get `Genus|…|` only, family/order/class items use just their rank label. `authority=` is filled from NCBI (P685) where available. Full template rules: [docs/dev.md](dev.md#commons-taxonavigation-templates-generatewikitextjs).
+
+**IUCN.** When the item has both P627 (Red List ID) and P141 (status), a `{{IUCN|code|id|name|authority}}` line is added after NCBI — it auto-categorises the Commons page into the correct IUCN maintenance category. With P141 only (no P627), a manual `[[Category:IUCN X species]]` line is added instead.
 
 ## Typical workflow
 

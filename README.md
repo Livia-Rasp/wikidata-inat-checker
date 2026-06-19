@@ -19,9 +19,9 @@ npm install
 | Image checker | `npm run images` | `drafts.html` | [docs/images.md](docs/images.md) |
 | Vernacular names | `npm run names` | `names.html` | [docs/names.md](docs/names.md) |
 | iNat links | `npm run links` | `links.html`, `links-ambiguous.html` | [docs/links.md](docs/links.md) |
-| Area checker | `npm run area -- <lat> <lng> <km>` | `area.html` | [docs/area.md](docs/area.md) |
+| Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `area.html` | [docs/area.md](docs/area.md) |
 
-All tools accept an optional taxon limit as the first argument and an IUCN status filter (e.g. `CR`, `EN`, `VU`) as the second:
+The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e.g. `CR`, `EN`, `VU`) flags; the area checker takes `--lat`/`--lng`/`--radius` instead. The `--` after `npm run <tool>` is required so npm forwards the flags to the script.
 
 ```sh
 npm run images -- --limit 500 --iucn CR   # 500 Critically Endangered taxa

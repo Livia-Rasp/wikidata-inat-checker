@@ -2,6 +2,68 @@
 
 Implementation details for contributors and for Claude to read on demand when debugging or extending the tools.
 
+## Module wiring
+
+Each entry script wires shared modules together; all data flows in memory.
+
+### Image checker (`checkImages.js`)
+```
+checkImages.js
+  └─ SPARQL → Wikidata: taxa with P3151 (iNat ID) but no P18 (image)
+       └─ getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
+       └─ generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
+       └─ generateHTML.js: writes drafts.html
+```
+
+### Vernacular names checker (`checkNames.js`)
+```
+checkNames.js
+  └─ SPARQL → Wikidata: all taxa with P3151
+       └─ generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per item
+       └─ getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
+       └─ diff: iNat names absent from Wikidata P1843 (case-insensitive, scientific name excluded)
+       └─ generateNamesHTML.js: writes names.html (QuickStatements + aggregate field)
+```
+
+### iNat links checker (`checkLinks.js`)
+```
+checkLinks.js
+  └─ getInatTaxaDb.js: SQLite taxa index (~124 MB, built from iNat open-data S3 dump)
+       → get(name) → {inatId, rank} | undefined   (undefined = not found or homonym)
+       → getAll(name) → [{inatId, rank}]           (all active taxa sharing the name)
+       → allNames() → all distinct iNat names       (drives the Wikidata query)
+  └─ utils.fetchWdTaxaByNames() → Wikidata: query BY iNat name in VALUES POST batches
+       → taxa with P225 = an iNat name but no P3151 (IUCN via OPTIONAL, JS-filtered)
+       → --limit caps collected candidates (real matches), not raw taxa scanned
+  └─ Ambiguous collection: names where get() is undefined but getAll() finds 2+ taxa
+  └─ SPARQL → Wikidata: found iNat IDs already on other items (conflict detection)
+  └─ SPARQL → Wikidata: P13177 (homonymous taxon) to filter false conflicts
+  └─ getInatTaxaDb.getAncestors(inatId): iNat ancestor chain from SQLite (no API call)
+  └─ utils.fetchWdAncestorChains() (wdt:P171+, batches of 50): Wikidata ancestor chain
+  └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
+  └─ generateAmbiguousHTML.js: writes links-ambiguous.html (one row per iNat candidate)
+```
+
+### iNat links stats (`checkLinksStats.js`)
+```
+checkLinksStats.js
+  └─ getInatTaxaDb.js {allNames(), get(), getAll()}: name universe + classification
+  └─ utils.cirrusCount() → CirrusSearch: exact total per IUCN bucket (instant)
+  └─ utils.fetchWdTaxaByNames() → Wikidata: match/ambig via name-keyed VALUES POST batches
+  └─ console table (No match = total − match − ambig)
+```
+
+### Area checker (`checkArea.js`)
+```
+checkArea.js (args: --lat --lng --radius)
+  └─ iNat /v1/observations/species_counts (paginated, location-filtered, research-grade)
+       → [{taxonId, taxonName, commonName, count}]
+  └─ SPARQL VALUES → Wikidata: P3151 lookup + FILTER NOT EXISTS P18
+       → Map<inatId, {wdUri, wdName}>            (items with no image)
+  └─ iNat /v1/observations (batched 20 taxa/call, ordered by votes): up to 3 sample photos each
+  └─ generateAreaHTML.js: writes area.html
+```
+
 ## iNat taxa SQLite index (`getInatTaxaDb.js`)
 
 The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept.
@@ -77,6 +139,8 @@ Note: "Critically **e**ndangered" is lowercase; "Extinct **I**n **T**he **W**ild
 
 ## SPARQL patterns (`utils.js`, `checkLinksStats.js`)
 
+The endpoint is `https://query.wikidata.org/sparql` (Blazegraph). Since the May 2025 [WDQS graph split](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service/WDQS_graph_split) it serves the **main** subgraph (scholarly articles moved to a separate `query-scholarly` endpoint); taxon data is in the main graph, so the default endpoint is correct here. Always send a descriptive `User-Agent` — Wikidata blocks anonymous bots.
+
 ### TSV format for large result sets
 
 Request TSV instead of JSON to avoid the ~7 MB JSON truncation limit and control-character parse errors:
@@ -125,3 +189,17 @@ Endpoint `https://www.wikidata.org/w/api.php?action=query&list=search&srnamespac
 The `--auto` certainty filter requires: `mismatches === 0 && matches >= 3 && (matchedRanks.includes('family') || matchedRanks.includes('order'))`. The family-or-order anchor prevents three coincidentally agreeing intermediate ranks (e.g. subfamily/tribe/subtribe within a split family) from triggering auto-approval on an actually wrong match.
 
 **Known recurring disagreement — Noctuidae/Erebidae:** many moth genera were reclassified from Noctuidae to Erebidae; WD and iNat have not fully converged on this split. Affected genera produce a family-level mismatch for otherwise correct matches and correctly fail the auto-filter, appearing in `links.html` for human review.
+
+---
+
+## Wikidata QID reference
+
+Most QIDs live in code constants; this is the human-readable map. **QIDs can change via item merges** — if rank or ancestor detection breaks unexpectedly, re-verify these against the live items.
+
+**Taxon ranks** (`WD_RANK_LABELS` in `utils.js`, `RANK_LABELS` in `generateWikitext.js`): genus `Q34740`, family `Q35409`, superfamily `Q2136103`, subfamily `Q164280`, tribe `Q227936`, subtribe `Q3965313`, order `Q36602`, subclass `Q5867051`, class `Q37517`. "Instance of taxon" is `Q16521`.
+
+**IUCN status (P141)** QIDs and their Commons categories: see the [IUCN Commons categories](#iucn-commons-categories) table above. Note EN is `Q96377276` (not `Q11394`).
+
+**`{{IUCN}}` template logic** (`generateWikitext.js`): when an item has both P627 (Red List numeric ID) and P141 (status), emit `{{IUCN|code|id|name|authority}}`, which auto-categorises the Commons page into the correct IUCN maintenance category. With P141 only (no P627), emit a manual `[[Category:IUCN X species]]` instead.
+
+**Source item:** the iNaturalist Wikidata item `Q16958215` is used as the `S248` (stated in) source on generated P1843 vernacular-name references (`checkNames.js`).
