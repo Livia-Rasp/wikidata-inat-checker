@@ -81,11 +81,17 @@ async function runStats() {
         }
         classifyInto(g, names, taxaDb, allByNameCache);
         console.log(` ${rows.length} rows, ${seenNoStatus.size.toLocaleString()} unique so far`);
-        if (rows.length < PAGE_SIZE) break;
+        if (rows.length < PAGE_SIZE) {
+            if (rows.length > 0) {
+                partial = true;
+                console.log(`Warning: last page returned only ${rows.length.toLocaleString()} rows (< ${PAGE_SIZE.toLocaleString()}) — possible Wikidata truncation, results may be incomplete.`);
+            }
+            break;
+        }
         offset += PAGE_SIZE;
         await new Promise(r => setTimeout(r, 2000));
     }
-    if (partial) console.log(`Warning: no-IUCN-status group is incomplete (timed out at offset ${offset.toLocaleString()}).`);
+    if (partial) console.log(`Warning: no-IUCN-status group is incomplete (stopped at offset ${offset.toLocaleString()}).`);
 
     const col = (n, w) => n.toLocaleString().padStart(w);
     const W = [16, 8, 8, 8, 10];
