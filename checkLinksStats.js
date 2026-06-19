@@ -1,97 +1,67 @@
 #!/usr/bin/env node
 // @ts-check
 import { loadTaxaDb } from './getInatTaxaDb.js';
-import { sparqlTSV, IUCN_STATUS_QIDS } from './utils.js';
+import { cirrusCount, fetchWdTaxaByNames, IUCN_STATUS_QIDS, IUCN_QID_TO_CODE } from './utils.js';
 
-const IUCN_ORDER = ['CR', 'EN', 'VU', 'NT', 'LC', 'DD', 'EX', 'EW', 'NE', '(no IUCN status)'];
-const PAGE_SIZE = 25000;
-
-/**
- * Classify taxon names against the iNat DB and accumulate counts into a group bucket.
- * @param {{ total:number, match:number, ambig:number, none:number }} g
- * @param {string[]} names
- * @param {object} taxaDb
- * @param {Map<string, object[]>} allByNameCache
- */
-function classifyInto(g, names, taxaDb, allByNameCache) {
-    for (const name of names) {
-        g.total++;
-        if (taxaDb.get(name)) { g.match++; continue; }
-        if (!allByNameCache.has(name)) allByNameCache.set(name, taxaDb.getAll(name));
-        if (allByNameCache.get(name).length >= 2) g.ambig++;
-        else g.none++;
-    }
-}
+const NO_STATUS = '(no IUCN status)';
+const IUCN_ORDER = ['CR', 'EN', 'VU', 'NT', 'LC', 'DD', 'EX', 'EW', 'NE', NO_STATUS];
+// All groups share: instance of taxon, has a scientific name, no iNat ID.
+const BASE_FILTER = 'haswbstatement:P31=Q16521 haswbstatement:P225 -haswbstatement:P3151';
 
 async function runStats() {
     console.log('Loading iNat taxa DB…');
     const taxaDb = await loadTaxaDb();
+    const names = taxaDb.allNames();
+    console.log(`${names.length.toLocaleString()} distinct iNat names loaded.`);
 
-    const allByNameCache = new Map();
     const groups = {};
     for (const code of IUCN_ORDER) groups[code] = { total: 0, match: 0, ambig: 0, none: 0 };
 
-    // Phase 1: one query per IUCN status — small result sets, no pagination needed
-    console.log('\nFetching IUCN-coded taxa…');
-    for (const [code, statusQid] of Object.entries(IUCN_STATUS_QIDS)) {
-        process.stdout.write(`  ${code}…`);
-        const rows = await sparqlTSV(`SELECT ?item ?taxonName WHERE {
-  ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P225 ?taxonName .
-  ?item wdt:P141 wd:${statusQid} .
-  FILTER NOT EXISTS { ?item wdt:P3151 ?any . }
-} LIMIT 50000`);
-        const seen = new Set();
-        const names = [];
-        for (const b of rows) {
-            if (!b.item || seen.has(b.item)) continue;
-            seen.add(b.item);
-            names.push(b.taxonName ?? '');
-        }
-        classifyInto(groups[code], names, taxaDb, allByNameCache);
-        console.log(` ${seen.size.toLocaleString()} taxa`);
+    // Phase 1: exact totals per bucket via CirrusSearch.
+    // WDQS times out scanning the ~3M no-P3151 set (even COUNT); CirrusSearch is instant.
+    console.log('\nFetching exact totals (CirrusSearch)…');
+    for (const code of IUCN_ORDER) {
+        const filter = code === NO_STATUS
+            ? `${BASE_FILTER} -haswbstatement:P141`
+            : `${BASE_FILTER} haswbstatement:P141=${IUCN_STATUS_QIDS[code]}`;
+        groups[code].total = await cirrusCount(filter);
+        console.log(`  ${code.padEnd(16)} ${groups[code].total.toLocaleString()}`);
     }
 
-    // Phase 2: paginate items with no P141 at all
-    console.log('\nFetching taxa without IUCN status (paginated)…');
-    const g = groups['(no IUCN status)'];
-    let offset = 0, page = 0, partial = false;
-    const seenNoStatus = new Set();
-    while (true) {
-        page++;
-        process.stdout.write(`  Page ${page} (offset ${offset.toLocaleString()})…`);
-        let rows;
-        try {
-            rows = await sparqlTSV(`SELECT ?item ?taxonName WHERE {
-  ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P225 ?taxonName .
-  FILTER NOT EXISTS { ?item wdt:P3151 ?any . }
-  FILTER NOT EXISTS { ?item wdt:P141 ?any . }
-} LIMIT ${PAGE_SIZE} OFFSET ${offset}`);
-        } catch (err) {
-            console.log(`\nWarning: stopped at offset ${offset.toLocaleString()} after ${page - 1} page(s): ${err.message}`);
-            partial = true;
-            break;
+    // Phase 2: match/ambig by querying Wikidata *by iNat name* (bounded VALUES POST batches).
+    // Every WD taxon name either is an iNat name (→ match/ambig) or isn't (→ no-match),
+    // so this captures the full match+ambig population; no-match is derived from totals.
+    console.log('\nClassifying matches (querying Wikidata by iNat name)…');
+    const allByNameCache = new Map();
+    const seen = new Set(); // dedup by (qid, iucnQid) — a taxon may carry multiple P141
+    for await (const row of fetchWdTaxaByNames(names, {
+        onBatch: (done, total) =>
+            process.stdout.write(`  ${done.toLocaleString()} / ${total.toLocaleString()} names queried\r`),
+    })) {
+        const key = `${row.qid}|${row.iucnQid ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const code = row.iucnQid ? IUCN_QID_TO_CODE[row.iucnQid] : NO_STATUS;
+        const g = code ? groups[code] : undefined; // unknown IUCN QID → outside the table
+        if (!g) continue;
+
+        const name = row.taxonName;
+        if (taxaDb.get(name)) {
+            g.match++;
+        } else {
+            if (!allByNameCache.has(name)) allByNameCache.set(name, taxaDb.getAll(name));
+            if (allByNameCache.get(name).length >= 2) g.ambig++;
+            // else: impossible — name came from the iNat DB, so getAll() is never empty
         }
-        const names = [];
-        for (const b of rows) {
-            if (!b.item || seenNoStatus.has(b.item)) continue;
-            seenNoStatus.add(b.item);
-            names.push(b.taxonName ?? '');
-        }
-        classifyInto(g, names, taxaDb, allByNameCache);
-        console.log(` ${rows.length} rows, ${seenNoStatus.size.toLocaleString()} unique so far`);
-        if (rows.length < PAGE_SIZE) {
-            if (rows.length > 0) {
-                partial = true;
-                console.log(`Warning: last page returned only ${rows.length.toLocaleString()} rows (< ${PAGE_SIZE.toLocaleString()}) — possible Wikidata truncation, results may be incomplete.`);
-            }
-            break;
-        }
-        offset += PAGE_SIZE;
-        await new Promise(r => setTimeout(r, 2000));
     }
-    if (partial) console.log(`Warning: no-IUCN-status group is incomplete (stopped at offset ${offset.toLocaleString()}).`);
+    console.log(''); // finish the \r progress line
+
+    // Derive no-match: total minus the iNat-name matches/ambiguities.
+    for (const code of IUCN_ORDER) {
+        const g = groups[code];
+        g.none = Math.max(0, g.total - g.match - g.ambig);
+    }
 
     const col = (n, w) => n.toLocaleString().padStart(w);
     const W = [16, 8, 8, 8, 10];
@@ -106,9 +76,8 @@ async function runStats() {
     for (const code of IUCN_ORDER) {
         const g = groups[code];
         if (!g || g.total === 0) continue;
-        const suffix = code === '(no IUCN status)' && partial ? ' (incomplete)' : '';
         console.log(
-            (code + suffix).padEnd(W[0] + suffix.length) + '|' +
+            code.padEnd(W[0]) + '|' +
             col(g.total, W[1]) + ' |' +
             col(g.match, W[2]) + ' |' +
             col(g.ambig, W[3]) + ' |' +

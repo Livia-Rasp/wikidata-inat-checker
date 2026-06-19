@@ -5,7 +5,7 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, compareAncestorTrees, fetchWdAncestorChains } from './utils.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames } from './utils.js';
 import { chunk } from './generateWikitext.js';
 
 const CACHE_FILE = 'cache-links.json';
@@ -20,27 +20,30 @@ const autoMode = args.auto === true;
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
-    // 1. Fetch Wikidata taxa that have a scientific name but no iNat ID
-    console.log(`Querying Wikidata for taxa without P3151 (limit ${limit})...`);
-    const missingBindings = await sparql(`SELECT ?item ?taxonName
-WHERE {
-  ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P225 ?taxonName .
-${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER NOT EXISTS { ?item wdt:P3151 ?any . }
-} LIMIT ${limit}`);
 
-    const candidates = missingBindings.map(b => ({
-        wdUri: b.item.value,
-        qid: qidFromUri(b.item.value),
-        taxonName: b.taxonName.value,
-    }));
-    console.log(`Found ${candidates.length} taxa without iNat links.`);
-
+    // Load the local iNat taxa DB first — its names drive the Wikidata query.
+    const taxaDb = await loadTaxaDb();
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
-    const uncached = candidates.filter(c => !cache[c.qid]);
-    if (uncached.length < candidates.length)
-        console.log(`Cache: skipping ${candidates.length - uncached.length} already-checked entries, scanning ${uncached.length}.`);
+
+    // 1. Find Wikidata taxa without P3151 whose name matches an iNat name, by querying
+    //    Wikidata *by* iNat name (bounded VALUES POST batches). This avoids scanning the
+    //    full ~3M no-P3151 set, which WDQS cannot do. --limit caps collected candidates
+    //    (real iNat-name matches), not raw taxa scanned.
+    console.log(`Querying Wikidata by iNat name for taxa without P3151 (limit ${limit})...`);
+    const uncached = [];
+    const seenQids = new Set();
+    let cachedSkipped = 0;
+    for await (const row of fetchWdTaxaByNames(taxaDb.allNames(), { iucnQid })) {
+        if (seenQids.has(row.qid)) continue;
+        seenQids.add(row.qid);
+        if (cache[row.qid]) { cachedSkipped++; continue; }
+        uncached.push({ wdUri: row.wdUri, qid: row.qid, taxonName: row.taxonName });
+        if (uncached.length >= limit) break;
+    }
+    if (cachedSkipped > 0)
+        console.log(`Cache: skipped ${cachedSkipped} already-checked entries.`);
+    console.log(`Collected ${uncached.length} candidate taxa without iNat links.`);
 
     // 2. Look up taxon names in local iNat taxa database
     if (uncached.length === 0) {
@@ -49,7 +52,6 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER NOT EXISTS { ?ite
         await generateAmbiguousHTML([]);
         return;
     }
-    const taxaDb = await loadTaxaDb();
     const inatResults = new Map(uncached.map(c => [c.taxonName, taxaDb.get(c.taxonName) ?? null]));
     console.log(`Matched ${[...inatResults.values()].filter(Boolean).length} of ${uncached.length} names in local taxa database.`);
 

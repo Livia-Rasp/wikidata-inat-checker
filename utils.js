@@ -70,26 +70,13 @@ export async function sparql(query, retries = 3) {
 }
 
 /**
- * Like sparql() but requests TSV — avoids JSON escaping bugs on large result sets.
- * Returns plain objects: { [varName]: stringValue | undefined }.
- * URIs come back as the full URI string; literals with surrounding quotes stripped.
- * @param {string} query
- * @param {number} [retries]
- * @returns {Promise<object[]>}
+ * Parse a SPARQL TSV response body into plain row objects.
+ * URIs come back as the full URI string; literals have surrounding quotes stripped.
+ * @param {string} text
+ * @returns {object[]}
  */
-export async function sparqlTSV(query, retries = 3) {
-    // Raw endpoint URL without format= — wbk.sparqlQuery() adds format=json which
-    // overrides the Accept header. Accept header only works without a format= param.
-    const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separated-values' } });
-    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
-        const delay = res.status === 429 ? 30000 : (4 - retries) * 3000;
-        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        return sparqlTSV(query, retries - 1);
-    }
-    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
-    const lines = (await res.text()).replace(/^﻿/, '').split(/\r?\n/);
+function parseSparqlTSV(text) {
+    const lines = text.replace(/^﻿/, '').split(/\r?\n/);
     if (lines.length < 2) return [];
     const headers = lines[0].split('\t').map(h => h.replace(/^\?/, ''));
     const rows = [];
@@ -112,6 +99,129 @@ export async function sparqlTSV(query, retries = 3) {
         rows.push(row);
     }
     return rows;
+}
+
+/** Backoff delay (ms) for a retryable SPARQL HTTP status. */
+function sparqlRetryDelay(status, retries) {
+    return status === 429 ? 30000 : (4 - retries) * 3000;
+}
+
+/**
+ * Like sparql() but requests TSV — avoids JSON escaping bugs on large result sets.
+ * Returns plain objects: { [varName]: stringValue | undefined }.
+ * @param {string} query
+ * @param {number} [retries]
+ * @returns {Promise<object[]>}
+ */
+export async function sparqlTSV(query, retries = 3) {
+    // Raw endpoint URL without format= — wbk.sparqlQuery() adds format=json which
+    // overrides the Accept header. Accept header only works without a format= param.
+    const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separated-values' } });
+    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
+        const delay = sparqlRetryDelay(res.status, retries);
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparqlTSV(query, retries - 1);
+    }
+    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    return parseSparqlTSV(await res.text());
+}
+
+/**
+ * POST variant of sparqlTSV — required for queries too long for a GET URL
+ * (e.g. large VALUES lists). Same TSV parsing and backoff behaviour.
+ * @param {string} query
+ * @param {number} [retries]
+ * @returns {Promise<object[]>}
+ */
+export async function sparqlPost(query, retries = 3) {
+    const res = await fetch(SPARQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+            ...HEADERS,
+            'Accept': 'text/tab-separated-values',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `query=${encodeURIComponent(query)}`,
+    });
+    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
+        const delay = sparqlRetryDelay(res.status, retries);
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparqlPost(query, retries - 1);
+    }
+    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    return parseSparqlTSV(await res.text());
+}
+
+const WD_API_ENDPOINT = 'https://www.wikidata.org/w/api.php';
+
+/**
+ * Exact result count from Wikidata's CirrusSearch backend (Elasticsearch).
+ * Handles large filtered sets that WDQS/Blazegraph times out on.
+ * @param {string} srsearch e.g. `haswbstatement:P31=Q16521 -haswbstatement:P3151`
+ * @param {number} [retries]
+ * @returns {Promise<number>}
+ */
+export async function cirrusCount(srsearch, retries = 3) {
+    const params = new URLSearchParams({
+        action: 'query', list: 'search', srsearch,
+        srnamespace: '0', srlimit: '1', srinfo: 'totalhits', srprop: '', format: 'json',
+    });
+    const res = await fetch(`${WD_API_ENDPOINT}?${params}`, { headers: HEADERS });
+    if (res.status === 429 && retries > 0) {
+        console.warn('CirrusSearch HTTP 429, retrying in 30s...');
+        await new Promise(r => setTimeout(r, 30000));
+        return cirrusCount(srsearch, retries - 1);
+    }
+    if (!res.ok) throw new Error(`CirrusSearch HTTP ${res.status}`);
+    const data = await res.json();
+    return data.query.searchinfo.totalhits;
+}
+
+/** Escape a string for use inside a SPARQL "double-quoted" literal. */
+function escapeSparqlString(s) {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+}
+
+/**
+ * Enumerate Wikidata taxa (P31=Q16521) without P3151 whose P225 name matches one
+ * of `names`, by querying Wikidata *by name* in bounded VALUES POST batches.
+ * This sidesteps WDQS's inability to scan the full ~3M no-P3151 set: each batch is
+ * an indexed P225 lookup. Yields one row per matching item.
+ *
+ * P141 is fetched via OPTIONAL and `iucnQid` is filtered in JS — adding
+ * `?item wdt:P141 wd:<qid>` to the query makes WDQS pick a bad plan and time out.
+ * @param {string[]} names
+ * @param {{ sparqlPostFn?: (q: string) => Promise<object[]>, batchSize?: number, iucnQid?: string | null, onBatch?: (done: number, total: number) => void }} [opts]
+ * @returns {AsyncGenerator<{ wdUri: string, qid: string, taxonName: string, iucnQid: string | null }>}
+ */
+export async function* fetchWdTaxaByNames(names, { sparqlPostFn = sparqlPost, batchSize = 10000, iucnQid = null, onBatch } = {}) {
+    for (let i = 0; i < names.length; i += batchSize) {
+        const batch = names.slice(i, i + batchSize);
+        const vals = batch.map(n => `"${escapeSparqlString(n)}"`).join(' ');
+        const rows = await sparqlPostFn(`SELECT ?item ?name ?iucn WHERE {
+  VALUES ?name { ${vals} }
+  ?item wdt:P31 wd:Q16521 .
+  ?item wdt:P225 ?name .
+  FILTER NOT EXISTS { ?item wdt:P3151 ?x . }
+  OPTIONAL { ?item wdt:P141 ?iucn . }
+}`);
+        for (const r of rows) {
+            if (!r.item) continue;
+            const rowIucn = r.iucn ? qidFromUri(r.iucn) : null;
+            if (iucnQid && rowIucn !== iucnQid) continue;
+            yield {
+                wdUri: r.item,
+                qid: qidFromUri(r.item),
+                taxonName: r.name ?? '',
+                iucnQid: rowIucn,
+            };
+        }
+        if (onBatch) onBatch(Math.min(i + batchSize, names.length), names.length);
+    }
 }
 
 /**
@@ -190,6 +300,11 @@ export const IUCN_STATUS_QIDS = {
     DD: 'Q3245245',
     NE: 'Q3350324',
 };
+
+/** Reverse of IUCN_STATUS_QIDS: Wikidata QID → IUCN short code, for bucketing. */
+export const IUCN_QID_TO_CODE = Object.fromEntries(
+    Object.entries(IUCN_STATUS_QIDS).map(([code, qid]) => [qid, code])
+);
 
 /**
  * Parse --iucn <code> from parsed args. Exits with an error message if the code is unknown.
