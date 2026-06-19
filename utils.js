@@ -190,3 +190,68 @@ export const IUCN_STATUS_QIDS = {
     DD: 'Q3245245',
     NE: 'Q3350324',
 };
+
+/**
+ * Parse --iucn <code> from parsed args. Exits with an error message if the code is unknown.
+ * Returns { iucnArg: string|null, iucnQid: string|null }.
+ * @param {Record<string, string | true>} args
+ * @returns {{ iucnArg: string | null, iucnQid: string | null }}
+ */
+export function parseIucnArg(args) {
+    const iucnArg = typeof args.iucn === 'string' ? args.iucn.toUpperCase() : null;
+    const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
+    if (iucnArg && !iucnQid) {
+        console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
+        process.exit(1);
+    }
+    return { iucnArg, iucnQid };
+}
+
+/**
+ * Fetch the full Wikidata ancestor chain for each item in `items` via wdt:P171+.
+ * Returns a Map<qid, {name, rankQid}[]> with chains in kingdom-first order.
+ * @param {{ qid: string }[]} items
+ * @param {(query: string) => Promise<object[]>} sparqlFn
+ * @param {(uri: string) => string} qidFromUriFn
+ * @param {(arr: any[], size: number) => any[][]} chunkFn
+ * @returns {Promise<Map<string, {name: string, rankQid: string|null}[]>>}
+ */
+export async function fetchWdAncestorChains(items, sparqlFn, qidFromUriFn, chunkFn) {
+    const treeMap = new Map();
+    for (const batch of chunkFn(items, 50)) {
+        const vals = batch.map(m => `wd:${m.qid}`).join(' ');
+        const bindings = await sparqlFn(`SELECT ?item ?directParent ?ancestor ?ancestorName ?ancestorRank ?ancestorParent WHERE {
+  VALUES ?item { ${vals} }
+  OPTIONAL {
+    ?item wdt:P171 ?directParent .
+    ?item wdt:P171+ ?ancestor .
+    ?ancestor wdt:P225 ?ancestorName .
+    OPTIONAL { ?ancestor wdt:P105 ?ancestorRank . }
+    OPTIONAL { ?ancestor wdt:P171 ?ancestorParent . }
+  }
+}`);
+        const byItem = new Map();
+        for (const b of bindings) {
+            const item = b.item.value;
+            if (!byItem.has(item)) byItem.set(item, { directParent: null, ancestors: new Map() });
+            const d = byItem.get(item);
+            if (b.directParent && !d.directParent) d.directParent = b.directParent.value;
+            if (b.ancestor) d.ancestors.set(b.ancestor.value, {
+                name:    b.ancestorName?.value ?? '',
+                rankQid: b.ancestorRank?.value?.split('/').pop() ?? null,
+                parent:  b.ancestorParent?.value ?? null,
+            });
+        }
+        for (const [itemUri, { directParent, ancestors }] of byItem) {
+            const chain = [];
+            let cur = directParent;
+            while (cur && ancestors.has(cur)) {
+                const a = ancestors.get(cur);
+                chain.push({ name: a.name, rankQid: a.rankQid });
+                cur = a.parent;
+            }
+            treeMap.set(qidFromUriFn(itemUri), chain.reverse());
+        }
+    }
+    return treeMap;
+}
