@@ -42,11 +42,11 @@ Five entry scripts (four tools), each wiring together shared modules; data flows
 Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
 
 - **Module wiring** — per-tool data-flow diagrams (which module calls what)
-- **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()`/`allNames()`, stateofmatter filter (`getInatTaxaDb.js`)
+- **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()`/`allNames()`/`allInatIds()`, stateofmatter filter (`getInatTaxaDb.js`)
 - **zh-hans/zh-hant normalization** — why `zh-CN`/`zh-TW` are remapped (`getInatNames.js`)
 - **Ancestor traversal depth** — why the cap is 20 rounds; Lepidoptera unranked clades (`generateWikitext.js`)
 - **Commons Taxonavigation templates** — wrappers, suffixed families, Fungorum, IUCN categories, placement rules (`generateWikitext.js`)
-- **SPARQL & CirrusSearch** — TSV format, why WDQS can't scan the ~3 M no-P3151 set, the query-by-iNat-name inversion (`utils.js`, `checkLinksStats.js`, `checkLinks.js`)
+- **SPARQL & CirrusSearch** — TSV format, why WDQS can't scan the big filtered sets, the query-by-value inversion (by name for links, by iNat ID for images) (`utils.js`, `checkLinks.js`, `checkLinksStats.js`, `checkImages.js`)
 - **Taxonomy tree comparison & `--auto` filter** — `compareAncestorTrees()`, Noctuidae/Erebidae disagreement (`utils.js`, `checkLinks.js`)
 - **Wikidata QID reference** — rank QIDs, IUCN status/category QIDs, `{{IUCN}}` logic, the S248 source item
 

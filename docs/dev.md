@@ -9,10 +9,13 @@ Each entry script wires shared modules together; all data flows in memory.
 ### Image checker (`checkImages.js`)
 ```
 checkImages.js
-  └─ SPARQL → Wikidata: taxa with P3151 (iNat ID) but no P18 (image)
-       └─ getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
-       └─ generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
-       └─ generateHTML.js: writes drafts.html
+  └─ getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
+  └─ utils.fetchWdTaxaByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
+       → taxa with P3151 = a local iNat ID but no P18 (IUCN via OPTIONAL, JS-filtered)
+       → --limit caps collected candidates; cached ids skipped to reach new taxa
+  └─ getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
+  └─ generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
+  └─ generateHTML.js: writes drafts.html
 ```
 
 ### Vernacular names checker (`checkNames.js`)
@@ -154,9 +157,9 @@ const res = await fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separa
 
 TSV parsing: header row has `?varName` columns; URI cells are `<http://…>`; literal cells are `"value"`. Strip BOM (`﻿`) from the first line.
 
-### Large-dataset enumeration (the no-P3151 set is ~3 M)
+### Large-dataset enumeration (WDQS can't scan these sets)
 
-The set of taxa with `P225` and no `P3151` is **~2.94 M items**. WDQS/Blazegraph cannot scan it: even `SELECT (COUNT(*) …)` times out (65 s), as does a rank-restricted (`species` only) `ORDER BY`/keyset query. `LIMIT/OFFSET` re-scans from row 0 each page, so it dies at depth (429/504) and silently truncates. **Do not try to page the full set through WDQS.**
+Two filtered sets are too big for WDQS to scan: taxa with `P225` and no `P3151` (**~2.94 M**, the links/stats target) and taxa with `P3151` and no `P18` (**~619 K**, the images target). WDQS/Blazegraph times out even on `SELECT (COUNT(*) …)` for either (65 s), as it does on a rank-restricted (`species` only) `ORDER BY`/keyset query. `LIMIT/OFFSET` re-scans from row 0 each page, so it dies at depth (429/504) and silently truncates. **Do not try to page these sets through WDQS.**
 
 **WDQS approaches that don't work** (all measured against the live endpoint):
 - `LIMIT/OFFSET` to cover the whole set → 429/504 at high offset; pages overlap/skip without `ORDER BY`; a 200 can return a truncated body
@@ -167,9 +170,13 @@ The set of taxa with `P225` and no `P3151` is **~2.94 M items**. WDQS/Blazegraph
 
 **What works — two complementary backends:**
 1. **CirrusSearch (`cirrusCount()` in `utils.js`)** for exact counts. The MediaWiki search API (`list=search`, `haswbstatement:`/`-haswbstatement:`) is Elasticsearch-backed: it returns exact `totalhits` instantly and its negation partitions cleanly (WITH + WITHOUT a property sum to the total). Include `haswbstatement:P31=Q16521` to match "instance of taxon". It caps any single query at 10 000 results, so it is used for **counting**, not enumeration.
-2. **Query Wikidata BY iNat name (`fetchWdTaxaByNames()` in `utils.js`)** for enumeration. We hold the complete iNat name set locally (`taxa.db`, ~1.4 M names). Querying `VALUES ?name { … } ?item wdt:P225 ?name` in bounded batches is an indexed lookup that returns in seconds (~10 k names/batch ≈ 9 s), so the full set finishes in ~20 min. Every WD taxon name either is an iNat name (→ match/ambig) or isn't (→ no-match), so this captures the entire match population; no-match is derived as `total − match − ambig`. `checkLinksStats.js` combines (1) for totals and (2) for matches; `checkLinks.js` uses (2) directly, with `--limit` now capping collected matches.
+2. **Query Wikidata BY value (`fetchWdTaxaByValues()` in `utils.js`)** for enumeration — the "flip". We hold a complete local key set in `taxa.db`, so instead of scanning Wikidata we probe it with `VALUES ?value { … } ?item wdt:<valueProperty> ?value . FILTER NOT EXISTS {<absentProperty>}` in bounded batches (an indexed lookup, ~10 k values/batch in seconds; full pass in minutes). Two wrappers:
+   - `fetchWdTaxaByNames()` — by P225 name, absent P3151 (~1.4 M names). Used by `checkLinks.js` (collect matches up to `--limit`) and `checkLinksStats.js` (full pass; no-match = `total − match − ambig`).
+   - `fetchWdTaxaByInatIds()` — by P3151 iNat ID, absent P18 (~1.4 M ids). Used by `checkImages.js`, skipping cached ids until `--limit` new candidates are collected.
 
-**POST vs GET:** large `VALUES` lists exceed the GET URL length limit, so `fetchWdTaxaByNames()` uses `sparqlPost()` (form-encoded `query=` body). `sparqlPost()` shares TSV parsing and 429/502/503/504 backoff with `sparqlTSV()`.
+   Coverage note: the flip only reaches values present in `taxa.db` (active iNat taxa). For images this means WD items whose P3151 points to an inactive/merged iNat taxon are skipped — acceptable, as they have no current iNat photo to source.
+
+**POST vs GET:** large `VALUES` lists exceed the GET URL length limit, so `fetchWdTaxaByValues()` uses `sparqlPost()` (form-encoded `query=` body). `sparqlPost()` shares TSV parsing and 429/502/503/504 backoff with `sparqlTSV()`. P141 is fetched via `OPTIONAL` and the `iucnQid` filter applied in JS — adding `?item wdt:P141 wd:<qid>` to a large `VALUES` query makes WDQS pick a bad plan and time out.
 
 ### CirrusSearch (MediaWiki search API) cheatsheet
 

@@ -4,7 +4,8 @@ import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, parseArgs, parseIucnArg } from './utils.js';
+import { loadTaxaDb } from './getInatTaxaDb.js';
+import { fetchWdTaxaByInatIds, parseArgs, parseIucnArg } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
@@ -17,32 +18,29 @@ const { iucnArg, iucnQid } = parseIucnArg(args);
 /** Queries Wikidata for taxa without P18, checks iNat for CC-licensed photos, writes drafts.html. */
 async function run(limit) {
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
-    const sparql = `SELECT ?item ?inatID
-WHERE
-{
-  ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P3151 ?inatID .
-${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}  FILTER (
-     !EXISTS {
-     ?item p:P18 ?statement1.
-       }
-    )
-} LIMIT ${limit}`;
 
-    const response = await fetch(wbk.sparqlQuery(sparql), { headers: HEADERS });
-    const jsonRes = await response.json();
-
-    const inatToWD = new Map();
-    for (const binding of jsonRes.results.bindings) {
-        inatToWD.set(binding.inatID.value, binding.item.value);
-    }
-    console.log(`Found ${inatToWD.size} taxa without images.`);
-
+    // Load the local iNat taxa DB first — its IDs drive the Wikidata query.
+    const taxaDb = await loadTaxaDb();
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
-    const uncached = new Map([...inatToWD].filter(([id]) => !cache[id]));
-    if (uncached.size < inatToWD.size)
-        console.log(`Cache: skipping ${inatToWD.size - uncached.size} already-checked entries, scanning ${uncached.size}.`);
+
+    // Find Wikidata taxa with P3151 but no P18 by querying Wikidata *by iNat ID*
+    // (bounded VALUES POST batches). This avoids scanning the full ~619k no-P18 set,
+    // which WDQS cannot do, and lets us skip cached ids to reach genuinely new taxa.
+    // --limit caps collected uncached candidates, not raw taxa scanned.
+    console.log(`Querying Wikidata by iNat ID for taxa without P18 (limit ${limit})...`);
+    const uncached = new Map(); // iNat ID → Wikidata URI
+    const seenIds = new Set();
+    let cachedSkipped = 0;
+    for await (const row of fetchWdTaxaByInatIds(taxaDb.allInatIds(), { iucnQid })) {
+        if (seenIds.has(row.inatId)) continue;
+        seenIds.add(row.inatId);
+        if (cache[row.inatId]) { cachedSkipped++; continue; }
+        uncached.set(row.inatId, row.wdUri);
+        if (uncached.size >= limit) break;
+    }
+    if (cachedSkipped > 0)
+        console.log(`Cache: skipped ${cachedSkipped} already-checked entries.`);
 
     console.log(`Checking ${uncached.size} taxa against iNat for CC0 photos...`);
     const { available, inatTaxonIds } = await processInatIds(uncached);
