@@ -38,7 +38,7 @@ By default, only taxa with **no** vernacular names on Wikidata (P1843) yet are s
 
 ## Typical workflow
 
-1. Run `npm run names -- 500` to generate `names.html`.
+1. Run `npm run names -- --limit 500` to generate `names.html`.
 2. Open `names.html` in a browser.
 3. Review rows and check off items you want to import. An aggregate QuickStatements field appears above the table and accumulates all checked rows — click it to copy everything in one go.
 4. Paste into [QuickStatements](https://quickstatements.toolforge.org/) and run.

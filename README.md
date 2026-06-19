@@ -24,8 +24,8 @@ npm install
 All tools accept an optional taxon limit as the first argument and an IUCN status filter (e.g. `CR`, `EN`, `VU`) as the second:
 
 ```sh
-npm run images -- 500 CR   # 500 Critically Endangered taxa
-npm run links -- 1000 EN   # 1000 Endangered taxa
+npm run images -- --limit 500 --iucn CR   # 500 Critically Endangered taxa
+npm run links -- --limit 1000 --iucn EN   # 1000 Endangered taxa
 ```
 
 ## License

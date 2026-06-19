@@ -97,7 +97,7 @@ TOTAL           | 380,120 |  92,815 |     525 |   286,780
 
 ## Typical workflow
 
-1. Run `npm run links -- 1000` to generate `links.html` and `links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
+1. Run `npm run links -- --limit 1000` to generate `links.html` and `links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
 2. Open `links.html` in a browser. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent. Check rows you want to import, copy the aggregate field, and paste into [QuickStatements](https://quickstatements.toolforge.org/).
 3. Open `links-ambiguous.html`. For each group, compare the WD tree against the iNat candidate trees to identify the correct match (if any), then click its QuickStatements cell to copy.
 4. If a conflict table is present in `links.html`, review `inat-links-conflicts.json` and investigate each case before acting.
