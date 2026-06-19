@@ -114,6 +114,30 @@ export async function sparqlTSV(query, retries = 3) {
     return rows;
 }
 
+/**
+ * Parse --key value and --flag args from process.argv.
+ * Returns { key: 'value' } for --key value pairs and { key: true } for bare --flag.
+ * Non-flag tokens (no leading --) are ignored.
+ * @param {string[]} [argv]
+ * @returns {Record<string, string | true>}
+ */
+export function parseArgs(argv = process.argv.slice(2)) {
+    const result = {};
+    for (let i = 0; i < argv.length; i++) {
+        const tok = argv[i];
+        if (!tok.startsWith('--')) continue;
+        const key = tok.slice(2);
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith('--')) {
+            result[key] = next;
+            i++;
+        } else {
+            result[key] = true;
+        }
+    }
+    return result;
+}
+
 /** IUCN Red List P1813 short codes → Wikidata QIDs, for SPARQL P141 filtering. */
 export const IUCN_STATUS_QIDS = {
     EX: 'Q237350',

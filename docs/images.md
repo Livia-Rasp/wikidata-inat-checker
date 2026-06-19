@@ -16,12 +16,12 @@ Results are cached locally in `cache-images.json` so re-runs skip taxa already c
 ## Usage
 
 ```sh
-npm run images            # default: 5000 taxa
-npm run images -- 500     # custom limit
-npm run images -- 500 VU  # limit + IUCN status filter (VU, EN, CR, NT, DD, EX, EW, LC, NE)
+npm run images                         # default: 5000 taxa
+npm run images -- --limit 500          # custom limit
+npm run images -- --limit 500 --iucn VU  # limit + IUCN status filter (VU, EN, CR, NT, DD, EX, EW, LC, NE)
 ```
 
-The first argument is passed to the SPARQL `LIMIT` clause, controlling how many image-less taxa are fetched from Wikidata. The optional second argument filters by IUCN conservation status (P141), which is useful for prioritising threatened species. Note the `--` separator — it's required so npm forwards the values to the script rather than interpreting them itself.
+`--limit` is passed to the SPARQL `LIMIT` clause, controlling how many image-less taxa are fetched from Wikidata. `--iucn` filters by IUCN conservation status (P141), which is useful for prioritising threatened species. Note the `--` separator after `npm run images` — it's required so npm forwards the flags to the script rather than interpreting them itself.
 
 | File | Description |
 |---|---|

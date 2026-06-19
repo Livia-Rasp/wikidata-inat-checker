@@ -14,14 +14,14 @@ No cache — results reflect live Wikidata and iNat state at the time of the run
 ## Usage
 
 ```sh
-node checkArea.js <lat> <lng> <radius_km>
-npm run area -- <lat> <lng> <radius_km>
+node checkArea.js --lat <lat> --lng <lng> --radius <km>
+npm run area -- --lat <lat> --lng <lng> --radius <km>
 ```
 
 Example (10 km around Munich city centre):
 
 ```sh
-npm run area -- 48.147 11.589 10
+npm run area -- --lat 48.147 --lng 11.589 --radius 10
 ```
 
 ## area.html layout

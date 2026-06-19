@@ -6,20 +6,21 @@ import { fetchEntities, chunk } from './generateWikitext.js';
 import { fetchInatNames } from './getInatNames.js';
 import { generateNamesHTML } from './generateNamesHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
+import { HEADERS, wbk, qidFromUri, IUCN_STATUS_QIDS, parseArgs } from './utils.js';
 
 const CACHE_FILE = 'cache-names.json';
 
 const DEFAULT_LIMIT = 5000;
-const limitArg = Number.parseInt(process.argv[2], 10);
-const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-const iucnArg = process.argv[3]?.startsWith('--') ? undefined : process.argv[3]?.toUpperCase();
+const args = parseArgs();
+const limitVal = Number.parseInt(args.limit, 10);
+const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const iucnArg = typeof args.iucn === 'string' ? args.iucn.toUpperCase() : null;
 const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
 if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
     process.exit(1);
 }
-const showAll = process.argv.includes('--all');
+const showAll = args.all === true;
 
 /** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {

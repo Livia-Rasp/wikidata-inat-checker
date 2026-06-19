@@ -19,10 +19,10 @@ After the initial download and index build (~20 seconds), name lookups and iNat 
 ## Usage
 
 ```sh
-npm run links             # default: 200 taxa
-npm run links -- 1000     # custom limit — fast even for large numbers
-npm run links -- 1000 EN  # limit + IUCN status filter
-npm run linkStats         # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
+npm run links                              # default: 200 taxa
+npm run links -- --limit 1000             # custom limit — fast even for large numbers
+npm run links -- --limit 1000 --iucn EN   # limit + IUCN status filter
+npm run linkStats                          # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
 ```
 
 ## links.html columns

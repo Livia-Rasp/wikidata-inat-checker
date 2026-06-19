@@ -5,27 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-node checkImages.js 500       # image checker — custom limit
-node checkImages.js 500 VU    # optional second arg: filter by IUCN status (VU, CR, EN, NT, DD, EX, EW, LC, NE)
-npm run images -- 500         # same via npm (-- required to forward args)
-npm run images -- 500 VU      # same with IUCN filter
+node checkImages.js --limit 500 --iucn VU   # image checker (--limit, --iucn optional)
+npm run images -- --limit 500 --iucn VU     # same via npm (-- required to forward flags)
 
-node checkNames.js 500        # vernacular names checker — custom limit (zero-P1843 taxa only by default)
-node checkNames.js 500 CR     # with IUCN filter
-node checkNames.js 500 --all  # include taxa that already have some P1843
-npm run names -- 500          # same via npm
-npm run names -- 500 CR       # same with IUCN filter
-npm run names -- 500 --all    # same with --all flag
+node checkNames.js --limit 500 --iucn CR    # vernacular names checker (zero-P1843 taxa only by default)
+node checkNames.js --limit 500 --all        # include taxa that already have some P1843
+npm run names -- --limit 500 --iucn CR      # same via npm
+npm run names -- --limit 500 --all          # same with --all flag
 
-node checkLinks.js 200        # iNat links checker — custom limit
-node checkLinks.js 200 EN     # with IUCN filter
-npm run links -- 200          # same via npm
-npm run links -- 200 EN       # same with IUCN filter
-node checkLinksStats.js       # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
-npm run linkStats             # same via npm
+node checkLinks.js --limit 200 --iucn EN    # iNat links checker (--limit, --iucn optional)
+npm run links -- --limit 200 --iucn EN      # same via npm
+node checkLinksStats.js                     # stats mode: fetch ALL taxa without P3151, print IUCN breakdown (no HTML output)
+npm run linkStats                           # same via npm
 
-node checkArea.js 48.147 11.589 10   # area checker — lat lng radius_km
-npm run area -- 48.147 11.589 10     # same via npm
+node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
+npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
 ```
 
 No build step, no tests. Outputs are `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `area.html`, and `inat-links-conflicts.json` (all gitignored).

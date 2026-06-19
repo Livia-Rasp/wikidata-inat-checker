@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // @ts-check
-import { HEADERS, wbk, createRateLimiter, qidFromUri } from './utils.js';
+import { HEADERS, wbk, createRateLimiter, qidFromUri, parseArgs } from './utils.js';
 import { chunk } from './generateWikitext.js';
 import { generateAreaHTML } from './generateAreaHTML.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
-const lat    = parseFloat(process.argv[2]);
-const lng    = parseFloat(process.argv[3]);
-const radius = parseFloat(process.argv[4]);
+const args = parseArgs();
+const lat    = parseFloat(args.lat);
+const lng    = parseFloat(args.lng);
+const radius = parseFloat(args.radius);
 
 if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) {
-    console.error('Usage: node checkArea.js <lat> <lng> <radius_km>');
-    console.error('Example: node checkArea.js 48.147 11.589 10');
+    console.error('Usage: node checkArea.js --lat <lat> --lng <lng> --radius <km>');
+    console.error('Example: node checkArea.js --lat 48.147 --lng 11.589 --radius 10');
     process.exit(1);
 }
 

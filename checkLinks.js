@@ -5,15 +5,16 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, IUCN_STATUS_QIDS } from './utils.js';
+import { sparql, qidFromUri, IUCN_STATUS_QIDS, parseArgs } from './utils.js';
 import { chunk } from './generateWikitext.js';
 
 const CACHE_FILE = 'cache-links.json';
 
 const DEFAULT_LIMIT = 200;
-const limitArg = Number.parseInt(process.argv[2], 10);
-const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-const iucnArg = process.argv[3]?.toUpperCase();
+const args = parseArgs();
+const limitVal = Number.parseInt(args.limit, 10);
+const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const iucnArg = typeof args.iucn === 'string' ? args.iucn.toUpperCase() : null;
 const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
 if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);

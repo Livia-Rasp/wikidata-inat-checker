@@ -4,14 +4,15 @@ import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { HEADERS, wbk, IUCN_STATUS_QIDS } from './utils.js';
+import { HEADERS, wbk, IUCN_STATUS_QIDS, parseArgs } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
 const DEFAULT_LIMIT = 5000;
-const limitArg = Number.parseInt(process.argv[2], 10);
-const limit = Number.isFinite(limitArg) && limitArg > 0 ? limitArg : DEFAULT_LIMIT;
-const iucnArg = process.argv[3]?.toUpperCase();
+const args = parseArgs();
+const limitVal = Number.parseInt(args.limit, 10);
+const limit = Number.isFinite(limitVal) && limitVal > 0 ? limitVal : DEFAULT_LIMIT;
+const iucnArg = typeof args.iucn === 'string' ? args.iucn.toUpperCase() : null;
 const iucnQid = iucnArg ? IUCN_STATUS_QIDS[iucnArg] : null;
 if (iucnArg && !iucnQid) {
     console.error(`Unknown IUCN status "${iucnArg}". Valid codes: ${Object.keys(IUCN_STATUS_QIDS).join(', ')}`);
