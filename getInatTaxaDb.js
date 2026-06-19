@@ -82,7 +82,7 @@ function buildDb() {
 /**
  * Returns a read-only handle to the local iNat taxa SQLite index, downloading and building it if needed.
  * undefined from .get() means not found or a homonym (2+ active taxa share the same name).
- * @returns {Promise<{ get(name: string): TaxonEntry | undefined, getAll(name: string): TaxonEntry[], getAncestors(taxonId: string): {name: string, rank: string}[], allNames(): string[] }>}
+ * @returns {Promise<{ get(name: string): TaxonEntry | undefined, getAll(name: string): TaxonEntry[], getAncestors(taxonId: string): {name: string, rank: string}[], allNames(): string[], allInatIds(): string[] }>}
  */
 export async function loadTaxaDb() {
     if (tsvIsStale()) await downloadTaxa();
@@ -94,6 +94,7 @@ export async function loadTaxaDb() {
     const stmtById      = db.prepare('SELECT name, rank FROM taxa WHERE taxon_id = ?');
     const stmtAnc       = db.prepare('SELECT ancestry FROM taxa WHERE taxon_id = ?');
     const stmtAllNames  = db.prepare('SELECT DISTINCT name FROM taxa');
+    const stmtAllIds    = db.prepare('SELECT taxon_id FROM taxa');
 
     return {
         get(name) {
@@ -114,6 +115,9 @@ export async function loadTaxaDb() {
         },
         allNames() {
             return stmtAllNames.pluck().all();
+        },
+        allInatIds() {
+            return stmtAllIds.pluck().all();
         }
     };
 }

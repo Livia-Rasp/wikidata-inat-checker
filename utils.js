@@ -187,26 +187,27 @@ function escapeSparqlString(s) {
 }
 
 /**
- * Enumerate Wikidata taxa (P31=Q16521) without P3151 whose P225 name matches one
- * of `names`, by querying Wikidata *by name* in bounded VALUES POST batches.
- * This sidesteps WDQS's inability to scan the full ~3M no-P3151 set: each batch is
- * an indexed P225 lookup. Yields one row per matching item.
+ * Enumerate Wikidata taxa (P31=Q16521) that carry one of `values` on
+ * `valueProperty` but lack `absentProperty`, by querying Wikidata *by value* in
+ * bounded VALUES POST batches. This sidesteps WDQS's inability to scan large
+ * (millions of rows) filtered sets: each batch is an indexed property lookup.
+ * Yields one row per matching item, exposing the matched value as `valueKey`.
  *
  * P141 is fetched via OPTIONAL and `iucnQid` is filtered in JS — adding
  * `?item wdt:P141 wd:<qid>` to the query makes WDQS pick a bad plan and time out.
- * @param {string[]} names
- * @param {{ sparqlPostFn?: (q: string) => Promise<object[]>, batchSize?: number, iucnQid?: string | null, onBatch?: (done: number, total: number) => void }} [opts]
- * @returns {AsyncGenerator<{ wdUri: string, qid: string, taxonName: string, iucnQid: string | null }>}
+ * @param {string[]} values
+ * @param {{ valueProperty: string, absentProperty: string, valueKey: string, sparqlPostFn?: (q: string) => Promise<object[]>, batchSize?: number, iucnQid?: string | null, onBatch?: (done: number, total: number) => void }} opts
+ * @returns {AsyncGenerator<{ wdUri: string, qid: string, iucnQid: string | null, [k: string]: string | null }>}
  */
-export async function* fetchWdTaxaByNames(names, { sparqlPostFn = sparqlPost, batchSize = 10000, iucnQid = null, onBatch } = {}) {
-    for (let i = 0; i < names.length; i += batchSize) {
-        const batch = names.slice(i, i + batchSize);
-        const vals = batch.map(n => `"${escapeSparqlString(n)}"`).join(' ');
-        const rows = await sparqlPostFn(`SELECT ?item ?name ?iucn WHERE {
-  VALUES ?name { ${vals} }
+export async function* fetchWdTaxaByValues(values, { valueProperty, absentProperty, valueKey, sparqlPostFn = sparqlPost, batchSize = 10000, iucnQid = null, onBatch }) {
+    for (let i = 0; i < values.length; i += batchSize) {
+        const batch = values.slice(i, i + batchSize);
+        const vals = batch.map(v => `"${escapeSparqlString(v)}"`).join(' ');
+        const rows = await sparqlPostFn(`SELECT ?item ?value ?iucn WHERE {
+  VALUES ?value { ${vals} }
   ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P225 ?name .
-  FILTER NOT EXISTS { ?item wdt:P3151 ?x . }
+  ?item wdt:${valueProperty} ?value .
+  FILTER NOT EXISTS { ?item wdt:${absentProperty} ?x . }
   OPTIONAL { ?item wdt:P141 ?iucn . }
 }`);
         for (const r of rows) {
@@ -216,12 +217,32 @@ export async function* fetchWdTaxaByNames(names, { sparqlPostFn = sparqlPost, ba
             yield {
                 wdUri: r.item,
                 qid: qidFromUri(r.item),
-                taxonName: r.name ?? '',
+                [valueKey]: r.value ?? '',
                 iucnQid: rowIucn,
             };
         }
-        if (onBatch) onBatch(Math.min(i + batchSize, names.length), names.length);
+        if (onBatch) onBatch(Math.min(i + batchSize, values.length), values.length);
     }
+}
+
+/**
+ * Wikidata taxa without P3151 whose P225 name is one of `names`. Thin wrapper over
+ * {@link fetchWdTaxaByValues}; yields `{ wdUri, qid, taxonName, iucnQid }`.
+ * @param {string[]} names
+ * @param {{ sparqlPostFn?: (q: string) => Promise<object[]>, batchSize?: number, iucnQid?: string | null, onBatch?: (done: number, total: number) => void }} [opts]
+ */
+export function fetchWdTaxaByNames(names, opts = {}) {
+    return fetchWdTaxaByValues(names, { ...opts, valueProperty: 'P225', absentProperty: 'P3151', valueKey: 'taxonName' });
+}
+
+/**
+ * Wikidata taxa without P18 whose P3151 iNat ID is one of `ids`. Thin wrapper over
+ * {@link fetchWdTaxaByValues}; yields `{ wdUri, qid, inatId, iucnQid }`.
+ * @param {string[]} ids
+ * @param {{ sparqlPostFn?: (q: string) => Promise<object[]>, batchSize?: number, iucnQid?: string | null, onBatch?: (done: number, total: number) => void }} [opts]
+ */
+export function fetchWdTaxaByInatIds(ids, opts = {}) {
+    return fetchWdTaxaByValues(ids, { ...opts, valueProperty: 'P3151', absentProperty: 'P18', valueKey: 'inatId' });
 }
 
 /**
