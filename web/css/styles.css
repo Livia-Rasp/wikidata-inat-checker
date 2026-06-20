@@ -68,3 +68,20 @@ tr.hide-done { display: none; }
   margin-top: auto;
 }
 .card .upload:hover { background: #25a; }
+.card .upload.disabled { background: #bbb; cursor: default; pointer-events: none; }
+
+/* "Mark as uploaded" + badge (§7.2) */
+.card .mark {
+  display: flex; align-items: center; gap: 0.4em;
+  padding: 0.35em 0.6em; font-size: 0.78em; color: #555; cursor: pointer;
+  border-top: 1px solid #eee;
+}
+.card .thumb { position: relative; }
+.card .badge {
+  display: none; position: absolute; top: 0.4em; left: 0.4em;
+  background: #2a2; color: #fff; font-size: 0.7em; font-weight: bold;
+  padding: 0.15em 0.45em; border-radius: 3px; text-transform: uppercase;
+}
+.card.uploaded .badge { display: inline-block; }
+.card.uploaded { border-color: #2a2; }
+.card.uploaded img { opacity: 0.6; }

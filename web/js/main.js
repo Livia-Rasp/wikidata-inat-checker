@@ -3,6 +3,8 @@
 // the iNat taxon, and the Commons category, shows the draft Wikitext (click to copy),
 // and opens the per-taxon photo gallery in a new tab.
 
+import { uploaded } from './cache.js';
+
 const $ = (id) => document.getElementById(id);
 const INAT_OBS = (id) =>
     `https://www.inaturalist.org/observations?taxon_id=${id}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`;
@@ -82,6 +84,25 @@ function restoreState() {
     });
     if (hidingDone) $('hide-done').textContent = 'Show done';
 }
+
+// ---- uploaded-files backfill list: download button + count (§7.2) ----
+function refreshUploadedCount() {
+    const n = uploaded.count();
+    $('uploaded-count').textContent = n ? `${n} marked uploaded` : '';
+}
+
+function downloadUploaded() {
+    const blob = new Blob([JSON.stringify(uploaded.exportObject(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'uploaded-files.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+$('download-uploaded').addEventListener('click', downloadUploaded);
+refreshUploadedCount();
+window.addEventListener('focus', refreshUploadedCount); // refresh after marking in a gallery tab
 
 async function load() {
     try {
