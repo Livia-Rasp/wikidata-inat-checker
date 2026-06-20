@@ -3,6 +3,7 @@
 import { processInatIds } from './getFromInat.js';
 import { generateDraftWikitext } from './generateWikitext.js';
 import { generateDraftsHTML } from './generateHTML.js';
+import { generateImagesJson } from './generateImagesJson.js';
 import { loadCache, saveCache } from './cache.js';
 import { loadTaxaDb } from './getInatTaxaDb.js';
 import { fetchWdTaxaByInatIds, parseArgs, parseIucnArg, parseLimit } from './utils.js';
@@ -48,6 +49,7 @@ async function run(limit) {
     console.log("Draft Wikitext generation complete.");
 
     await generateDraftsHTML(drafts, inatTaxonIds);
+    generateImagesJson(drafts, inatTaxonIds);
     console.log("HTML export complete.");
 
     for (const id of uncached.keys()) cache[id] = today;

@@ -2,6 +2,8 @@
 
 Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Commons-compatible licenses for Wikidata taxon items that do not yet have an image. Useful for sourcing candidate photos to upload to Commons and then add to the corresponding Wikidata entry.
 
+> The checker also exports `web/data/taxa.json`, consumed by the assisted **iNat → Commons upload app** (`npm run web`) — pick a photo and open a pre-filled Commons upload form. See [docs/commons-upload.md](commons-upload.md).
+
 ## How it works
 
 1. On first run, downloads the iNaturalist open-data taxa dump and builds the local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~180 MB download, shared with the links/names checkers). It then finds Wikidata taxon items that have an iNaturalist taxon ID (P3151) but no image (P18) by querying Wikidata **by iNat ID** — feeding the local iNat IDs to Wikidata in bounded `VALUES` POST batches. This avoids scanning the ~619 K no-image set directly (which WDQS times out on) and lets re-runs skip cached entries to reach genuinely new taxa. See [docs/dev.md](dev.md#large-dataset-enumeration-wdqs-cant-scan-these-sets).

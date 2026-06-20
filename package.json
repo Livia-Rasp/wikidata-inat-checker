@@ -19,7 +19,8 @@
     "names": "node checkNames.js",
     "links": "node checkLinks.js",
     "linkStats": "node checkLinksStats.js",
-    "area": "node checkArea.js"
+    "area": "node checkArea.js",
+    "web": "node web/serve.js"
   },
   "keywords": [
     "wikidata",

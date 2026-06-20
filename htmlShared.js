@@ -61,6 +61,32 @@ export function renderTreePair(wdChain, inatChain) {
     }).join('') + '</table>';
 }
 
+/**
+ * Derives the taxon name from a Commons category Wikitext draft, matching the convention
+ * used by generateWikitext.js. {{Taxonavigation}} uses positional pipes
+ * (Species|name|, Genus|name|, …); {{Coleoptera}}/{{Lepidoptera}} use named params
+ * (|genus=X |species=Y with the epithet only). Returns null if no name can be found.
+ * @param {string} wikitext
+ * @returns {string|null}
+ */
+export function extractTaxonName(wikitext) {
+    const taxonMatches = [...wikitext.matchAll(/(?:Species|Genus|Familia|Ordo|Classis|Subclassis)\|([^|}\n]+)\|/g)];
+    let taxonName = taxonMatches.length > 0 ? taxonMatches[taxonMatches.length - 1][1].trim() : null;
+    if (!taxonName) {
+        const genusMatch   = wikitext.match(/\|genus=([^\n|]+)/);
+        const speciesMatch = wikitext.match(/\|species=([^\n|]+)/);
+        if (genusMatch) {
+            taxonName = speciesMatch
+                ? `${genusMatch[1].trim()} ${speciesMatch[1].trim()}`
+                : genusMatch[1].trim();
+        } else {
+            const familiaMatch = wikitext.match(/\|familia=([^\n|]+)/);
+            if (familiaMatch) taxonName = familiaMatch[1].trim();
+        }
+    }
+    return taxonName;
+}
+
 // Client-side clipboard helper embedded in every report: copies a <pre>'s text and
 // briefly flashes its sibling "Copied!" hint. Falls back to execCommand on old browsers.
 export const COPY_SCRIPT = `    function copy(el) {
