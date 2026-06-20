@@ -368,3 +368,242 @@ Special:Upload
 - addon button — <https://github.com/lubianat/addon_inat2wiki/blob/master/content.js>
 - Commons copy-upload allowlist — <https://commons.wikimedia.org/wiki/MediaWiki:Copyupload-allowed-domains>
 - Upload tools overview — <https://commons.wikimedia.org/wiki/Commons:Upload_tools>
+
+---
+
+## 7. Next iteration — richer file descriptions (working spec)
+
+**Status: collecting specifications, not yet implemented.** The initial file description is
+a thin stub (§1); this section is the running spec for making it good, comprehensive, but
+not overloaded. Items are confirmed as decided unless marked OPEN.
+
+### 7.1 Tracking category
+
+- **Remove** `[[Category:Media uploaded with wikidata-inat-checker]]` from the generated
+  description **for now** — the tool is not public or publicly known yet.
+- **Re-add** it after the tool is published.
+- Keep `[[Category:<Taxon>]]`.
+
+### 7.2 Uploaded-files backfill list
+
+Purpose: because the tracking category is removed pre-publication (§7.1), files uploaded
+before publication won't carry it. To backfill the category onto those files later, keep a
+local record of what was uploaded.
+
+- **Confirmation model:** a **"Mark as uploaded" checkbox** on each photo card. The user
+  ticks it manually *after* completing the upload on Commons. (The static app cannot detect
+  whether an upload actually succeeded — clicking "Upload to Commons" only opens a new tab,
+  with no callback — so confirmation must be manual.)
+  - Related: uploads can also **fail because the same image is already on Commons** under a
+    different name (Commons rejects byte-identical duplicates). In that case the user simply
+    leaves the box unticked.
+- **Recorded data:** only the **`destFile`** (the Commons filename) per entry — that's all
+  the backfill step needs.
+- **Storage:** `localStorage`, plus a **Download button on the main page** that exports the
+  list as **JSON**.
+- **Scope:** purely a backfill record. It does **not** drive a "hide / already done" filter
+  in the gallery.
+
+- **Download JSON shape:** wrapped object, e.g.
+  `{ "exported": "<ISO date>", "uploaded": ["Genus species - Author - 123.jpg", …] }`.
+- **Visual marker:** a ticked card shows a subtle **"uploaded" badge** (card stays
+  visible — not hidden, per the scope above).
+
+### 7.3 Description content
+
+The `|description=` field of `{{Information}}` should read, wrapped in the `{{en|…}}`
+language template:
+
+```
+{{en|<Common English Name> (''Scientific Name'') in <County>, <State>, <Country>}}
+```
+
+and, when no English common name is available:
+
+```
+{{en|''Scientific Name'' in <County>, <State>, <Country>}}
+```
+
+Confirmed:
+- Scientific name in italics (`''…''`).
+- **No date** and **no "(iNaturalist)"** in the description — redundant with the `date`
+  field and the `{{iNaturalist}}` / source templates.
+- Must work for **all countries**; the three location levels may differ in meaning/presence
+  between countries — **finetune later**.
+
+**Data sourcing (researched against the live iNat API, 2026-06):**
+
+- **English common name:** request the observations query with `locale=en`; then
+  `taxon.preferred_common_name` is the English name (verified: "Monarch", "Socotran desert
+  rose"). Omit the common-name part when it's absent.
+- **Location (County / State / Country):** *not* reliably in `place_guess` — that field is
+  free text and is sometimes just a street address (e.g. "7 Monowai Crescent, North Beach").
+  The structured source is the observation's `place_ids`, resolved via `/v1/places/{ids}`,
+  which return `admin_level`:
+  - `0` = Country, `10` = State/region, `20` = County/district (verified for Yemen and NZ).
+  - Build the location from the admin-level 0/10/20 places; join only the levels present.
+  - Implementation note: each observation lists many `place_ids` (most non-administrative).
+    Collect the **unique** ids across the whole gallery and **batch-resolve** them via
+    `/v1/places` (chunked) — one extra, shared lookup step, not one call per photo.
+
+Resolved decisions:
+1. **Names come from the observation's *identified* taxon** — both the scientific name
+   (`observation.taxon.name`) and the English common name
+   (`observation.taxon.preferred_common_name`, via `locale=en`). When that taxon is more
+   specific than our target (e.g. a **subspecies**), use its precise scientific name (the
+   trinomial), not the rolled-up target. Consequence: the description may name a subspecies
+   while `wpDestFile` and `[[Category:<Taxon>]]` still use the target `taxonName` — accepted
+   (see note below).
+2. **Location fallback:** join the admin levels that are present (→ "County, State, Country",
+   or "State, Country", or just "Country"); if **none** resolve, **drop the " in …" clause
+   entirely** (do not fall back to `place_guess`).
+3. **Obscured / non-open geoprivacy:** **include** the coarse textual admin location anyway
+   (Country/State/County are not sensitive). Only the precise `{{Location}}` template stays
+   gated to open geoprivacy.
+
+Notes / possible later finetuning:
+- Filename (`wpDestFile`) and `[[Category:<Taxon>]]` currently use the target `taxonName`;
+  the description may use a more specific observation taxon. If that mismatch turns out to
+  matter, revisit whether the category/filename should follow the observation taxon too.
+- Subspecies scientific names are written as the raw italicised trinomial (e.g.
+  `''Adenium obesum socotranum''`); rank-aware formatting (e.g. `subsp.`) is a possible
+  later refinement.
+
+### 7.4 Date — wrap in `{{Taken on}}` with country
+
+The `|date=` field should use Commons' **`{{Taken on}}`** template, with the country added
+via its `location=` parameter so the file is categorised by date and country:
+
+```
+|date={{Taken on|<observed_on ISO date>|location=<Country>}}
+```
+
+When no country resolves, fall back to the plain form:
+
+```
+|date={{Taken on|<observed_on ISO date>}}
+```
+
+**Researched against the live Commons API (2026-06):**
+- There are **no separate per-country date templates** — it's a single `{{Taken on}}`
+  template with a `location=` parameter.
+- `{{Taken on|<date>}}` → `[[Category:Photographs taken on <date>]]`;
+  `{{Taken on|<date>|location=<X>}}` → `[[Category:<X> photographs taken on <date>]]`.
+- The template does **no validation**: whatever string is passed to `location=` becomes the
+  category prefix verbatim (`location=Freedonia` and `location=USA` both produce categories).
+  So `location=` **must** be a Commons-canonical country name, or it creates an orphan
+  category.
+- Canonical naming confirmed to exist for: `United States` (**not** "the United States"),
+  `France`, `New Zealand`, `Yemen`, `Russia`, `South Korea`, `United Kingdom`, etc.
+
+**Country source:** the admin-level-`0` place from the same `place_ids` → `/v1/places`
+resolution used for §7.3. Include it regardless of geoprivacy (country is coarse), per the
+§7.3 #3 decision.
+
+**iNat → Commons country-name mapping:** iNat's admin-level-0 English names mostly match the
+Commons category names (verified: Yemen, New Zealand, …). Divergent spellings/diacritics
+(e.g. Czechia vs Czech Republic, Türkiye vs Turkey, Côte d'Ivoire, …) need a small mapping
+table — part of the **"location params differ between countries → finetune later"** note.
+
+Notes:
+- `{{Taken on}}` also emits a `Taken on missing SDC inception` maintenance category because
+  `Special:Upload` can't set structured data — harmless and common; no action needed.
+- Keep the date as `observed_on` (date only) for now; time (`time_observed_at`) is a possible
+  later addition.
+- If `observed_on` is missing, omit the `{{Taken on}}` wrapper (leave `|date=` empty or
+  handle as an edge case) — to be finalised.
+
+### 7.5 Author category (best-effort) — IN SCOPE this session
+
+Some iNaturalist photographers have a dedicated **Commons author category** (e.g.
+`Category:Photographs by Donald Hobern`). When one exists for the photo's author, add it to
+the file. **Decided: implement now, using *both* discovery methods (union), with per-user
+caching.** Small payoff (few authors match today), but it makes the description noticeably
+better when it does, and grows over time.
+
+**Researched against live Commons + Wikidata (2026-06).** Two complementary ways to map an
+iNat author (we have `observation.user.id` / `login` / `name`) to a Commons category — both
+keyed on the **numeric iNat user ID**, which sidesteps the inconsistent category naming
+("Photographs by …" vs "Photos by …") by *discovering* the real title instead of building
+it:
+
+1. **Commons template** — author categories can contain `{{Inaturalist user|<id>}}`.
+   Discover via `insource:"Inaturalist user|<id>"` (namespace 14). Verified:
+   `4859 → Category:Photographs by Donald Hobern`. **Coverage: only ~4 category pages**
+   on all of Commons currently use this template.
+2. **Wikidata** — property **P12022 (iNaturalist user ID)** on a person item; take their
+   Commons category via **P373** (or Creator page P1472). **Coverage: ~107 items have
+   P12022, ~23 of those have a P373 Commons category.** (Note the two sources don't fully
+   overlap — Hobern was found via method 1 but his Wikidata item lacks P12022.)
+
+Both lookups are CORS-accessible from the browser (Commons API / WDQS), so they fit the
+static app.
+
+**Decided behaviour:**
+- Run **both** methods for each author and take the **union** of categories found (normally
+  0 or 1; add all distinct hits if more).
+- Look up per **unique author** (`observation.user.id`) — once per user, not per photo.
+- **Cache results per iNat user ID**, including **negative** results (user has no category),
+  so we never repeat the same lookup. Persist in `localStorage` (survives reloads/sessions).
+  Cache value: the resolved category title(s) or an explicit "none". Caveat: a cached
+  "none" won't pick up a category created later — acceptable; clearing the cache re-checks.
+- If a category is found, append it to the file's categories; otherwise add nothing.
+
+### 7.6 Geographic taxon categories — IN SCOPE this session
+
+Add Commons "**`<Taxon> of <Place>`**" categories when they exist (e.g. `Picidae of Texas`,
+`Birds of Texas`, `Musophagiformes of South Africa`). High value — these are exactly the
+geographic-taxon categories Commons curators want. **Decided: implement now, with caching.**
+
+**Researched against live Commons + iNat (2026-06):**
+
+- Naming is `<taxon> of <place>`. The taxon side uses **scientific names at higher ranks**
+  (`Picidae`, `Piciformes`) *and* **iconic-group vernaculars** (`Birds`, not `Aves`).
+  Verified existing for *Melanerpes carolinus* in Texas: `Picidae of Texas`,
+  `Piciformes of Texas`, `Birds of Texas`, plus `… of the United States` /
+  `Birds of North America`.
+- **Place naming differs from §7.4!** "of X" uses e.g. **`the United States`** (with "the"),
+  while the date category uses `United States` (without). States are bare (`Texas`). So the
+  place side needs its own naming, generated as variants and confirmed by existence.
+
+**Data sources:**
+- Taxon ancestry: `GET /v1/taxa/<id>?locale=en` returns `ancestors` (rank + `name` +
+  `preferred_common_name`) and `iconic_taxon_name`. The observation's taxon only carries
+  `ancestor_ids`, so this extra call is needed (once per unique taxon — cached).
+- Iconic-group vernacular: the ancestor whose `name == iconic_taxon_name` carries the
+  vernacular (Aves → "Birds"). A small override map may be needed where the iNat vernacular
+  doesn't match Commons (e.g. fish), but existence-checking makes mismatches harmless.
+- Places: the admin-level 0/10/20 names from the §7.3 `place_ids` → `/v1/places` resolution.
+
+**Algorithm:**
+1. Candidate taxa = ancestor scientific names (species, genus, family, order, class, …) +
+   the iconic vernacular group.
+2. Candidate places = each admin level (county, state, country); for the country also try
+   the `the <country>` variant.
+3. Build `<taxon> of <place>` for the cross product and **check existence** on Commons
+   (batched `titles=` queries, ≤50 per call).
+4. **Selection:** add the **single most specific** existing category — deepest place first,
+   then the deepest taxon within that place (this reproduces the real `Picidae of Texas`
+   choice). *(OPEN: single vs. one-per-place-level — see below.)*
+5. This is **in addition** to the species `[[Category:<Taxon>]]` (different category trees,
+   not parent/child).
+
+**Caching (decided):**
+- Cache `/v1/taxa/<id>` ancestor results per **taxon ID**.
+- Cache Commons **category existence** per candidate title (`"<taxon> of <place>" → bool`),
+  reused across taxa/places/sessions (`localStorage`). Negative results cached too (these
+  categories rarely change), same caveat as §7.5.
+
+**Selection — decided:** add only the **single most-specific** existing category (deepest
+place, then deepest taxon within it). Reproduces the real `Picidae of Texas` choice and
+avoids over-categorisation.
+
+OPEN (finetune later, shared with §7.3/§7.4):
+- iNat→Commons place-name mapping for "of X" (the `the <country>` and other quirks).
+
+### 7.7 Other `{{Information}}` fields — keep as-is
+
+`author`, `source`, `permission`, `other versions` stay as in the current
+`buildDescription` (§1). In particular **`source` keeps the raw photo URL**
+(`https://www.inaturalist.org/photos/<photo_id>`) and the separate `{{iNaturalist|<obs_id>}}`
+line below the Information block remains.
