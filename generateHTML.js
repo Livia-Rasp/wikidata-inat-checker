@@ -1,27 +1,12 @@
 // @ts-check
 import fs from 'fs';
 import { escapeHtml, qidFromUri } from './utils.js';
-import { COPY_SCRIPT } from './htmlShared.js';
+import { COPY_SCRIPT, extractTaxonName } from './htmlShared.js';
 
 function buildRow(uri, wikitext, inatTaxonIds) {
     const qid = qidFromUri(uri);
 
-    // {{Taxonavigation}} uses positional pipes: Species|name|, Genus|name|, etc.
-    // {{Coleoptera}}/{{Lepidoptera}} use named params: |genus=X |species=Y (epithet only).
-    const taxonMatches = [...wikitext.matchAll(/(?:Species|Genus|Familia|Ordo|Classis|Subclassis)\|([^|}\n]+)\|/g)];
-    let taxonName = taxonMatches.length > 0 ? taxonMatches[taxonMatches.length - 1][1].trim() : null;
-    if (!taxonName) {
-        const genusMatch   = wikitext.match(/\|genus=([^\n|]+)/);
-        const speciesMatch = wikitext.match(/\|species=([^\n|]+)/);
-        if (genusMatch) {
-            taxonName = speciesMatch
-                ? `${genusMatch[1].trim()} ${speciesMatch[1].trim()}`
-                : genusMatch[1].trim();
-        } else {
-            const familiaMatch = wikitext.match(/\|familia=([^\n|]+)/);
-            if (familiaMatch) taxonName = familiaMatch[1].trim();
-        }
-    }
+    const taxonName = extractTaxonName(wikitext);
     const commonsUrl = taxonName
         ? `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(taxonName).replace(/%20/g, '_')}&action=edit`
         : null;

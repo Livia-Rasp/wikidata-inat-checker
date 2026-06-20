@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photos</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <h1><span id="taxon-name"></span></h1>
+  <div id="taxon-links"></div>
+  <p>
+    Research-grade, Commons-compatibly-licensed photos. Click
+    <strong>Upload to Commons</strong> to open the upload form pre-filled — review and
+    submit it yourself.
+  </p>
+  <div id="controls">
+    <span>Sort:</span>
+    <span id="sort">
+      <button data-sort="votes">Most faved</button>
+      <button data-sort="created_at">Newest</button>
+    </span>
+    <span id="status" class="muted"></span>
+  </div>
+  <div id="grid"></div>
+  <script type="module" src="js/gallery.js"></script>
+</body>
+</html>

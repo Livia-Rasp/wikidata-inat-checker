@@ -20,12 +20,15 @@ npm run linkStats                           # same via npm
 
 node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
 npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
+
+npm run web                                 # serve the iNat→Commons upload app (web/), localhost:8080
 ```
 
 No build step, no tests. All outputs and caches are gitignored.
 
-- **Outputs:** `drafts.html` (images); `names.html`; `links.html` + `links-ambiguous.html` + `links-auto.qs` + `inat-links-conflicts.json` (links); `area.html`.
+- **Outputs:** `drafts.html` + `web/data/taxa.json` (images); `names.html`; `links.html` + `links-ambiguous.html` + `links-auto.qs` + `inat-links-conflicts.json` (links); `area.html`.
 - **Caches:** the image/names/links checkers each keep a cache file (`cache-images.json` / `cache-names.json` / `cache-links.json`) so re-runs skip already-checked taxa — delete it to force a full re-scan. The area checker has no cache.
+- **Upload app:** `checkImages.js` also exports `web/data/taxa.json`; `npm run web` serves the static `web/` app that browses those taxa, lists their CC-licensed iNat photos, and opens a pre-filled Commons upload form per photo. Design/details in [docs/commons-upload.md](docs/commons-upload.md).
 
 ## Architecture
 
@@ -38,6 +41,9 @@ Five entry scripts (four tools), each wiring together shared modules; data flows
 | iNat links | `checkLinks.js` | taxa with a name but no P3151, matched to iNat | [docs/links.md](docs/links.md) |
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [docs/links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
+| Upload app | `web/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
+
+The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that consumes `web/data/taxa.json` (exported by `checkImages.js` via `generateImagesJson.js`) and calls the iNaturalist API directly from the browser. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md).
 
 Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
 
