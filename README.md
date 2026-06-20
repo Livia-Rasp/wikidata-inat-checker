@@ -39,9 +39,25 @@ npm run web        # serve the web/ app at http://localhost:8080
 
 The app lists the image-less taxa, and for each one shows its research-grade,
 Commons-compatibly-licensed iNaturalist photos. Selecting a photo opens the Wikimedia
-Commons upload form **pre-filled** with the file URL, license, filename, and description —
-you review and submit it yourself (nothing is uploaded automatically). See
-[docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/README.md).
+Commons upload form **pre-filled** with the file URL, license, filename, and a detailed
+description — you review and submit it yourself (nothing is uploaded automatically).
+
+The generated file description aims to be comprehensive but not overloaded:
+
+- an `{{en|<English common name> (''Scientific name'') in County, State, Country}}`
+  description, taken from the observation's identified taxon and its location;
+- a `{{Taken on|<date>|location=<Country>}}` date (so the file is categorised by date and
+  country);
+- **geographic taxon categories** when they exist on Commons (e.g. `Picidae of Texas`,
+  `Odonata of Argentina`);
+- an **author category** when the photographer has one (discovered via Commons'
+  `{{Inaturalist user}}` template and Wikidata's iNaturalist-user-ID property).
+
+A **Mark as uploaded** checkbox on each photo records what you've uploaded (kept in your
+browser); the main page's **Download uploaded list** button exports that list as JSON. All
+the category/location lookups are cached locally so repeats are fast.
+
+See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/README.md).
 
 ## License
 

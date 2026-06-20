@@ -28,7 +28,7 @@ No build step, no tests. All outputs and caches are gitignored.
 
 - **Outputs:** `drafts.html` + `web/data/taxa.json` (images); `names.html`; `links.html` + `links-ambiguous.html` + `links-auto.qs` + `inat-links-conflicts.json` (links); `area.html`.
 - **Caches:** the image/names/links checkers each keep a cache file (`cache-images.json` / `cache-names.json` / `cache-links.json`) so re-runs skip already-checked taxa — delete it to force a full re-scan. The area checker has no cache.
-- **Upload app:** `checkImages.js` also exports `web/data/taxa.json`; `npm run web` serves the static `web/` app that browses those taxa, lists their CC-licensed iNat photos, and opens a pre-filled Commons upload form per photo. Design/details in [docs/commons-upload.md](docs/commons-upload.md).
+- **Upload app:** `checkImages.js` also exports `web/data/taxa.json`; `npm run web` serves the static `web/` app that browses those taxa, lists their CC-licensed iNat photos, and opens a pre-filled Commons upload form per photo. The generated file description is enriched (not a stub): an `{{en|<common> (''scientific'') in County, State, Country}}` description from the observation's identified taxon, a `{{Taken on|date|location=Country}}` date, and best-effort **geographic taxon categories** (`<Taxon> of <Place>`, e.g. `Picidae of Texas`) and **author categories** (via Commons `{{Inaturalist user}}` + Wikidata P12022). Users mark photos uploaded (a `localStorage` backfill list, downloadable as JSON). Design/details in [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md) (§7).
 
 ## Architecture
 
@@ -43,7 +43,9 @@ Five entry scripts (four tools), each wiring together shared modules; data flows
 | Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
 | Upload app | `web/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
 
-The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that consumes `web/data/taxa.json` (exported by `checkImages.js` via `generateImagesJson.js`) and calls the iNaturalist API directly from the browser. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md).
+The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that consumes `web/data/taxa.json` (exported by `checkImages.js` via `generateImagesJson.js`) and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/cache.js` persists every lookup and the uploaded-files list in `localStorage`. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
+
+Reusable, app-agnostic Commons/iNaturalist/Wikidata integration recipes (Special:Upload prefill, copy-upload allowlist, category-existence checks, `{{Taken on}}`, `<Taxon> of <Place>` and author categories, P12022) are collected in [docs/commons-integration.md](docs/commons-integration.md) — the reference for building further Commons-upload tools.
 
 Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
 

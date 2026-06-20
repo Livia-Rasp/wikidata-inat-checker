@@ -2,7 +2,10 @@
 
 The research notes, technical investigation, and design decisions behind the assisted
 iNat → Commons upload app. This is the **historic record** of how the feature was designed;
-for what the app does and how to use it, see [commons-upload.md](commons-upload.md).
+for what the app does and how to use it, see [commons-upload.md](commons-upload.md). The
+**reusable, app-agnostic building blocks** (Special:Upload prefill, Commons/iNat/Wikidata
+API recipes, category-discovery patterns) are factored out into
+[commons-integration.md](commons-integration.md) for future Commons-upload tools.
 
 **Implementation map:** `checkImages.js` → `generateImagesJson.js` exports
 `web/data/taxa.json` (the data contract). The static app: `web/index.html` + `web/js/main.js`
