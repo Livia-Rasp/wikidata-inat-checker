@@ -1,7 +1,7 @@
 // @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
-import { HEADERS, qidFromUri, chunk } from './utils.js';
+import { HEADERS, qidFromUri, chunk, IUCN_QID_TO_CODE } from './utils.js';
 
 const ENTITY_BATCH   = 50;
 const RANK_GENUS     = 'Q34740';
@@ -37,18 +37,7 @@ const IUCN_CATEGORIES = {
     'Q239509':  'IUCN Extinct In The Wild species',
 };
 
-// Maps P141 QIDs to the 2-letter status codes expected by {{IUCN}} param 1.
-const IUCN_STATUS_CODES = {
-    'Q219127':   'CR',
-    'Q96377276': 'EN',
-    'Q278113':   'VU',
-    'Q719675':   'NT',
-    'Q3245245':  'DD',
-    'Q237350':   'EX',
-    'Q239509':   'EW',
-    'Q211005':   'LC',
-    'Q3350324':  'NE',
-};
+// P141 QIDs → 2-letter status codes expected by {{IUCN}} param 1: IUCN_QID_TO_CODE (utils.js).
 
 /**
  * Fetches the author citation (e.g. "Linnaeus, 1758") for each item's NCBI taxon ID
@@ -296,7 +285,7 @@ function buildWikitext(itemData, chain, templates) {
     if (itemData.hasVernacularName) lines.push('{{VN}}');
     if (hasWikispecies) lines.push('{{Wikispecies}}');
     if (ncbi) lines.push(`* {{NCBI|${ncbi}|''${taxonName}''}}`);
-    const iucnCode = IUCN_STATUS_CODES[itemData.iucnStatus];
+    const iucnCode = IUCN_QID_TO_CODE[itemData.iucnStatus];
     if (iucnId && iucnCode) lines.push(`* {{IUCN|${iucnCode}|${iucnId}|${taxonName}|${authority ?? ''}}}`);
     if (eol)  lines.push(`* {{EOL|${eol}|''${taxonName}''}}`);
     const fungorumTemplate = rank === RANK_GENUS ? 'Fungorum genus' : 'Fungorum species';

@@ -5,6 +5,13 @@ import { generateAreaHTML } from './generateAreaHTML.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
+/** GET a JSON endpoint, throwing on a non-ok status (clearer than a JSON parse error). */
+async function getJson(url) {
+    const r = await fetch(url, { headers: HEADERS });
+    if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
+    return r.json();
+}
+
 const args = parseArgs();
 const lat    = parseFloat(args.lat);
 const lng    = parseFloat(args.lng);
@@ -34,7 +41,7 @@ async function run() {
             per_page: '500',
             page: String(page++),
         });
-        const data = await fetch(`${INAT_API}/observations/species_counts?${params}`, { headers: HEADERS }).then(r => r.json());
+        const data = await getJson(`${INAT_API}/observations/species_counts?${params}`);
         total = data.total_results;
         for (const r of data.results) {
             species.push({
@@ -94,7 +101,7 @@ async function run() {
             per_page: '60',
             order_by: 'votes',
         });
-        const data = await fetch(`${INAT_API}/observations?${params}`, { headers: HEADERS }).then(r => r.json());
+        const data = await getJson(`${INAT_API}/observations?${params}`);
         for (const obs of data.results ?? []) {
             const tid = String(obs.taxon?.id);
             if (!obsMap.has(tid)) obsMap.set(tid, []);
@@ -120,7 +127,7 @@ async function run() {
             order_by: 'observed_on',
             order: 'desc',
         });
-        const data = await fetch(`${INAT_API}/observations?${params}`, { headers: HEADERS }).then(r => r.json());
+        const data = await getJson(`${INAT_API}/observations?${params}`);
         for (const obs of data.results ?? []) {
             const tid = String(obs.taxon?.id);
             if (!latestDateMap.has(tid) && obs.observed_on)

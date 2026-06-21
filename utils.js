@@ -61,6 +61,28 @@ export function createRateLimiter(intervalMs = 1000) {
 
 const SPARQL_ENDPOINT = 'https://query.wikidata.org/sparql';
 
+/** WDQS statuses worth retrying: rate-limited (429) and transient gateway errors. */
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+
+/**
+ * Runs `doFetch` and retries on transient WDQS errors with backoff, returning the ok
+ * Response. Shared by sparql()/sparqlTSV()/sparqlPost() so they back off identically.
+ * @param {() => Promise<Response>} doFetch
+ * @param {number} retries
+ * @returns {Promise<Response>}
+ */
+async function sparqlFetchWithRetry(doFetch, retries) {
+    const res = await doFetch();
+    if (RETRYABLE_STATUS.has(res.status) && retries > 0) {
+        const delay = sparqlRetryDelay(res.status, retries);
+        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
+        await new Promise(r => setTimeout(r, delay));
+        return sparqlFetchWithRetry(doFetch, retries - 1);
+    }
+    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    return res;
+}
+
 /**
  * Executes a SPARQL query against Wikidata (JSON format) with exponential-backoff retry.
  * @param {string} query
@@ -68,14 +90,7 @@ const SPARQL_ENDPOINT = 'https://query.wikidata.org/sparql';
  * @returns {Promise<object[]>} SPARQL result bindings
  */
 export async function sparql(query, retries = 3) {
-    const res = await fetch(wbk.sparqlQuery(query), { headers: HEADERS });
-    if ((res.status === 502 || res.status === 503) && retries > 0) {
-        const delay = (4 - retries) * 3000;
-        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        return sparql(query, retries - 1);
-    }
-    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    const res = await sparqlFetchWithRetry(() => fetch(wbk.sparqlQuery(query), { headers: HEADERS }), retries);
     const text = await res.text();
     // Some Wikidata string values contain literal C0 control characters (invalid JSON).
     const cleaned = text.replace(/[\x00-\x1F\x7F]/g, '');
@@ -130,14 +145,9 @@ export async function sparqlTSV(query, retries = 3) {
     // Raw endpoint URL without format= — wbk.sparqlQuery() adds format=json which
     // overrides the Accept header. Accept header only works without a format= param.
     const url = `${SPARQL_ENDPOINT}?query=${encodeURIComponent(query)}`;
-    const res = await fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separated-values' } });
-    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
-        const delay = sparqlRetryDelay(res.status, retries);
-        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        return sparqlTSV(query, retries - 1);
-    }
-    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    const res = await sparqlFetchWithRetry(
+        () => fetch(url, { headers: { ...HEADERS, 'Accept': 'text/tab-separated-values' } }),
+        retries);
     return parseSparqlTSV(await res.text());
 }
 
@@ -149,7 +159,7 @@ export async function sparqlTSV(query, retries = 3) {
  * @returns {Promise<object[]>}
  */
 export async function sparqlPost(query, retries = 3) {
-    const res = await fetch(SPARQL_ENDPOINT, {
+    const res = await sparqlFetchWithRetry(() => fetch(SPARQL_ENDPOINT, {
         method: 'POST',
         headers: {
             ...HEADERS,
@@ -157,14 +167,7 @@ export async function sparqlPost(query, retries = 3) {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: `query=${encodeURIComponent(query)}`,
-    });
-    if ((res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) && retries > 0) {
-        const delay = sparqlRetryDelay(res.status, retries);
-        console.warn(`SPARQL HTTP ${res.status}, retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-        return sparqlPost(query, retries - 1);
-    }
-    if (!res.ok) throw new Error(`SPARQL HTTP ${res.status}`);
+    }), retries);
     return parseSparqlTSV(await res.text());
 }
 
