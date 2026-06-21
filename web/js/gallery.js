@@ -70,7 +70,7 @@ function card({ obs, photo }) {
     const el = document.createElement('div');
     el.className = 'card' + (isUp ? ' uploaded' : '');
     el.innerHTML = `
-      <a class="thumb" href="https://www.inaturalist.org/observations/${obs.id}" target="_blank">
+      <a class="thumb" href="https://www.inaturalist.org/photos/${photo.id}" target="_blank">
         <img loading="lazy" src="${thumb}" alt="">
         <span class="badge">uploaded</span>
       </a>
