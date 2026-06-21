@@ -50,7 +50,7 @@ produces wikitext like:
 |permission=
 |other versions=
 }}
-{{Location|33.7147|-96.4892|source:iNaturalist}}
+{{Location|33.7147|-96.4892|source:iNaturalist|prec=15}}
 
 {{iNaturalist|149781312}}
 
@@ -67,8 +67,10 @@ Where each piece comes from:
   uses whatever administrative levels resolve, and is dropped entirely if none do.
 - **Date** — `{{Taken on|<observed date>|location=<Country>}}`, so the file is categorised by
   both date and country. (Falls back to a plain `{{Taken on|<date>}}` when no country.)
-- **`{{Location}}`** — precise coordinates, included **only** when the observation's
-  geoprivacy is open (so obscured locations of sensitive taxa aren't leaked).
+- **`{{Location}}`** — the observation's public coordinates, with `prec=<metres>` carrying
+  the accuracy radius (`public_positional_accuracy`). Obscured records (threatened taxa, or a
+  user's own geoprivacy setting) return a randomized point with a large radius (e.g. ~29 km),
+  so `prec` records that the location is coarse rather than implying false precision.
 - **`{{iNaturalist}}` + `{{INaturalistreview}}`** — link the source observation and flag the
   file for the Commons license-review bot.
 - **Species category** — `[[Category:<Taxon>]]` for the taxon you're sourcing the image for.

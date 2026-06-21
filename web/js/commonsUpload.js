@@ -49,12 +49,19 @@ export function buildDescription({ observation, photo, taxonName, location = '',
         ? `{{Taken on|${date}${country ? `|location=${country}` : ''}}}`
         : '';
 
-    // {{Location}} only for open geoprivacy (don't leak obscured coordinates).
+    // {{Location}} from the observation's public coordinates. Obscured records
+    // (threatened taxa, or user-set geoprivacy) return a randomized point with large
+    // uncertainty; we still include it but pair it with `prec` — the {{Location}}
+    // accuracy radius in metres — so the imprecision is recorded, not implied. Use
+    // public_positional_accuracy (reflects obscuring, ~29 km for an obscured record)
+    // over positional_accuracy (the observer's private, pre-obscuring value).
     let locationTpl = '';
     const coords = observation.geojson?.coordinates;
-    if (coords && observation.taxon_geoprivacy === 'open') {
+    if (coords) {
         const [lon, lat] = coords;
-        locationTpl = `\n{{Location|${lat}|${lon}|source:iNaturalist}}`;
+        const acc = observation.public_positional_accuracy ?? observation.positional_accuracy;
+        const precParam = Number.isFinite(acc) ? `|prec=${Math.round(acc)}` : '';
+        locationTpl = `\n{{Location|${lat}|${lon}|source:iNaturalist${precParam}}}`;
     }
 
     const author = authorName(observation.user);

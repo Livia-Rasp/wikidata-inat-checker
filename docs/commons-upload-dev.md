@@ -68,7 +68,7 @@ From `get_commons_url()`:
 |permission=
 |other versions=
 }}
-{{Location|<lat>|<lon>|source:iNaturalist}}   ← only when taxon_geoprivacy == "open"
+{{Location|<lat>|<lon>|source:iNaturalist|prec=<accuracy_m>}}   ← whenever coords exist
 {{iNaturalist|<observation_id>}}
 {{INaturalistreview}}
 [[Category:Media uploaded with inat2wiki]]
@@ -80,8 +80,11 @@ Notes:
   against iNat after upload.
 - `author` links to the iNat user page; the display name falls back to `login_exact`
   when the user has no display name.
-- The `{{Location}}` line is **omitted** unless `taxon_geoprivacy == "open"` (don't leak
-  obscured coordinates of threatened taxa).
+- The `{{Location}}` line is included **whenever the observation has coordinates**, with
+  `prec=<metres>` set from `public_positional_accuracy` (the public accuracy radius, which
+  already reflects obscuring — ~29 km for an obscured record). Obscured coordinates aren't a
+  leak: iNat returns a randomized point for them, and `prec` records the coarse accuracy
+  rather than implying precision. `prec` is omitted only when no accuracy value is available.
 - Categories are minimal: a tracking category plus a bare `[[Category:<Taxon>]]`.
 
 ### License handling
@@ -163,8 +166,10 @@ Useful per-photo API fields (`/v1/observations`, each `photos[]` entry):
 - `id`, `url`, `license_code`, `original_dimensions` (`{width,height}`)
 - `attribution` — a ready-made credit string, e.g. `(c) Morten Ross, some rights reserved (CC BY)`
 
-Observation-level fields we need: `observed_on`, `place_guess`, `taxon_geoprivacy`,
-`geojson.coordinates` (`[lon, lat]`), `taxon.name`, `user.{id,login,login_exact,name}`.
+Observation-level fields we need: `observed_on`, `place_guess`,
+`geojson.coordinates` (`[lon, lat]`), `public_positional_accuracy` (accuracy radius in m,
+reflects obscuring; falls back to `positional_accuracy`), `taxon.name`,
+`user.{id,login,login_exact,name}`.
 
 ---
 
@@ -461,8 +466,9 @@ Resolved decisions:
    or "State, Country", or just "Country"); if **none** resolve, **drop the " in …" clause
    entirely** (do not fall back to `place_guess`).
 3. **Obscured / non-open geoprivacy:** **include** the coarse textual admin location anyway
-   (Country/State/County are not sensitive). Only the precise `{{Location}}` template stays
-   gated to open geoprivacy.
+   (Country/State/County are not sensitive). The `{{Location}}` template is also included for
+   obscured records — iNat returns a randomized point, not the true location — with
+   `prec=<public_positional_accuracy>` recording the coarse accuracy radius (~29 km).
 
 Notes / possible later finetuning:
 - Filename (`wpDestFile`) and `[[Category:<Taxon>]]` currently use the target `taxonName`;
