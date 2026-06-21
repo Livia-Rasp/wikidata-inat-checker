@@ -262,27 +262,38 @@ export function fetchWdTaxaByInatIds(ids, opts = {}) {
 }
 
 /**
- * Enumerate Wikidata taxa (P31=Q16521) with a P3151 iNat ID and a given IUCN status
- * (P141=iucnQid) but no P18, via one direct SPARQL query. With P141 as the selective
- * constraint the no-P18 set is small (a few thousand to ~30k rows), so WDQS answers it
- * in seconds — unlike the unfiltered no-P18 set (~619k) which it cannot scan, and which
- * is why {@link fetchWdTaxaByInatIds} inverts the query to enumerate by iNat ID instead.
- * Prefer this whenever an IUCN status is specified. Yields `{ wdUri, qid, inatId, iucnQid }`.
+ * Enumerate Wikidata taxa (P31=Q16521) that carry a value on `valueProperty` and a given
+ * IUCN status (P141=iucnQid) but lack `absentProperty`, via one direct SPARQL query. With
+ * P141 as the selective constraint the filtered set is small (a few thousand to ~30k rows),
+ * so WDQS answers it in seconds — unlike the unfiltered absent-property sets (hundreds of
+ * thousands to millions of rows) which it cannot scan, and which is why
+ * {@link fetchWdTaxaByValues} inverts the query to enumerate by value instead.
+ * Prefer this whenever an IUCN status is specified. Yields `{ wdUri, qid, [valueKey], iucnQid }`.
  * @param {string} iucnQid
- * @param {{ sparqlFn?: (q: string) => Promise<object[]> }} [opts]
- * @returns {AsyncGenerator<{ wdUri: string, qid: string, inatId: string, iucnQid: string }>}
+ * @param {{ valueProperty: string, absentProperty: string, valueKey: string, sparqlFn?: (q: string) => Promise<object[]> }} opts
+ * @returns {AsyncGenerator<{ wdUri: string, qid: string, iucnQid: string, [k: string]: string }>}
  */
-export async function* fetchWdTaxaByIucn(iucnQid, { sparqlFn = sparqlTSV } = {}) {
-    const rows = await sparqlFn(`SELECT ?item ?inatId WHERE {
+export async function* fetchWdTaxaByIucn(iucnQid, { valueProperty, absentProperty, valueKey, sparqlFn = sparqlTSV }) {
+    const rows = await sparqlFn(`SELECT ?item ?value WHERE {
   ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P3151 ?inatId .
+  ?item wdt:${valueProperty} ?value .
   ?item wdt:P141 wd:${iucnQid} .
-  FILTER NOT EXISTS { ?item wdt:P18 ?img . }
+  FILTER NOT EXISTS { ?item wdt:${absentProperty} ?x . }
 }`);
     for (const r of rows) {
-        if (!r.item || !r.inatId) continue;
-        yield { wdUri: r.item, qid: qidFromUri(r.item), inatId: r.inatId, iucnQid };
+        if (!r.item || !r.value) continue;
+        yield { wdUri: r.item, qid: qidFromUri(r.item), [valueKey]: r.value, iucnQid };
     }
+}
+
+/** {@link fetchWdTaxaByIucn} for the images target: P3151 present, P18 absent, an IUCN status. */
+export function fetchWdImagesByIucn(iucnQid, opts = {}) {
+    return fetchWdTaxaByIucn(iucnQid, { ...opts, valueProperty: 'P3151', absentProperty: 'P18', valueKey: 'inatId' });
+}
+
+/** {@link fetchWdTaxaByIucn} for the links target: P225 present, P3151 absent, an IUCN status. */
+export function fetchWdLinksByIucn(iucnQid, opts = {}) {
+    return fetchWdTaxaByIucn(iucnQid, { ...opts, valueProperty: 'P225', absentProperty: 'P3151', valueKey: 'taxonName' });
 }
 
 /**

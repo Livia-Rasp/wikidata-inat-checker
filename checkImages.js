@@ -6,7 +6,7 @@ import { generateDraftsHTML } from './generateHTML.js';
 import { generateImagesJson } from './generateImagesJson.js';
 import { loadCache, saveCache } from './cache.js';
 import { loadTaxaDb } from './getInatTaxaDb.js';
-import { fetchWdTaxaByInatIds, fetchWdTaxaByIucn, parseArgs, parseIucnArg, parseLimit } from './utils.js';
+import { fetchWdTaxaByInatIds, fetchWdImagesByIucn, parseArgs, parseIucnArg, parseLimit } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
@@ -33,7 +33,7 @@ async function run(limit) {
         ? `Querying Wikidata for ${iucnArg} taxa without P18 (limit ${limit})...`
         : `Querying Wikidata by iNat ID for taxa without P18 (limit ${limit})...`);
     const source = iucnQid
-        ? fetchWdTaxaByIucn(iucnQid)
+        ? fetchWdImagesByIucn(iucnQid)
         : fetchWdTaxaByInatIds(taxaDb.allInatIds());
     const uncached = new Map(); // iNat ID → Wikidata URI
     const seenIds = new Set();

@@ -5,7 +5,7 @@ import { loadTaxaDb } from './getInatTaxaDb.js';
 import { generateLinksHTML } from './generateLinksHTML.js';
 import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, chunk } from './utils.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk } from './utils.js';
 
 const CACHE_FILE = 'cache-links.json';
 
@@ -23,15 +23,21 @@ async function run() {
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
 
-    // 1. Find Wikidata taxa without P3151 whose name matches an iNat name, by querying
-    //    Wikidata *by* iNat name (bounded VALUES POST batches). This avoids scanning the
-    //    full ~3M no-P3151 set, which WDQS cannot do. --limit caps collected candidates
-    //    (real iNat-name matches), not raw taxa scanned.
-    console.log(`Querying Wikidata by iNat name for taxa without P3151 (limit ${limit})...`);
+    // 1. Find Wikidata taxa without P3151. With an IUCN status, query Wikidata directly
+    //    (P141 is selective, so the no-P3151 set is small and WDQS answers in seconds).
+    //    Without one, the full ~3M no-P3151 set can't be scanned by WDQS, so we invert and
+    //    enumerate *by iNat name* in bounded VALUES POST batches. Either way --limit caps
+    //    collected candidates (real iNat-name matches), not raw taxa scanned.
+    console.log(iucnQid
+        ? `Querying Wikidata for ${iucnArg} taxa without P3151 (limit ${limit})...`
+        : `Querying Wikidata by iNat name for taxa without P3151 (limit ${limit})...`);
+    const source = iucnQid
+        ? fetchWdLinksByIucn(iucnQid)
+        : fetchWdTaxaByNames(taxaDb.allNames());
     const uncached = [];
     const seenQids = new Set();
     let cachedSkipped = 0;
-    for await (const row of fetchWdTaxaByNames(taxaDb.allNames(), { iucnQid })) {
+    for await (const row of source) {
         if (seenQids.has(row.qid)) continue;
         seenQids.add(row.qid);
         if (cache[row.qid]) { cachedSkipped++; continue; }
