@@ -64,7 +64,7 @@ function card({ obs, photo }) {
     const observer = obs.user?.name?.trim() || obs.user?.login || 'unknown';
     const faves = obs.faves_count ?? 0;
     const lic = photo.license_code.toUpperCase();
-    const destFile = buildDestFile({ observation: obs, photo, taxonName });
+    const destFile = buildDestFile({ photo, taxonName });
     const isUp = uploaded.has(destFile);
 
     const el = document.createElement('div');

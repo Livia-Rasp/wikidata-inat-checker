@@ -40,7 +40,7 @@ import logic was originally adapted from kaldari's *iNaturalist2Commons*.
 https://commons.wikimedia.org/wiki/Special:Upload
   ?wpUploadFileURL=<original-resolution iNat photo URL>
   &wpSourceType=url
-  &wpDestFile=<Taxon - Author - photoID.jpeg>
+  &wpDestFile=<Taxon - photoID.jpeg>
   &wpLicense=<cc-by-4.0 | cc-by-sa-4.0 | Cc-zero>
   &wpUploadDescription=<URL-encoded wikitext>
 ```
@@ -51,7 +51,7 @@ https://commons.wikimedia.org/wiki/Special:Upload
 |---|---|
 | `wpSourceType` | `url` — tells the form to fetch from a remote URL (copy-upload) |
 | `wpUploadFileURL` | the full-resolution photo URL (see §2) |
-| `wpDestFile` | destination filename, e.g. `Taxon name - Author - <photoId>.jpeg` |
+| `wpDestFile` | destination filename, e.g. `Taxon name - <photoId>.jpeg` |
 | `wpLicense` | mapped license template name |
 | `wpUploadDescription` | the file page wikitext, URL-encoded |
 
@@ -335,9 +335,9 @@ initial implementation.
    photos (the only ones we upload) come exclusively from the allowlisted
    `inaturalist-open-data.s3.amazonaws.com`; the `photo_license` filter guarantees the host
    (§2). No fallback needed.
-5. ~~Filename collisions~~ — **decided: keep** the `Taxon - Author - <photoId>.<ext>`
-   scheme; the `photoId` makes it effectively unique, avoiding Commons' duplicate-name
-   rejection.
+5. ~~Filename collisions~~ — the `Taxon - <photoId>.<ext>` scheme; the `photoId` makes it
+   effectively unique, avoiding Commons' duplicate-name rejection. (The author name was
+   dropped from the filename; it still appears in the `{{Information}}` author field.)
 
 Also decided: frontend = **plain JS/HTML/CSS** (no build step); **no application
 backend** — static `web/` app + CLI JSON export + trivial static file server (§4.2).
@@ -357,7 +357,7 @@ cc0      → Cc-zero    (anything else → unsupported, no link)
 ```
 photoUrl   = apiUrl.replace("square", "original")
 ext        = photoUrl.split('.').pop()        // "jpg" | "jpeg" | ...
-destFile   = `${taxonName} - ${author} - ${photoId}.${ext}`
+destFile   = `${taxonName} - ${photoId}.${ext}`
 ```
 
 ### Prefill URL assembly
@@ -413,7 +413,7 @@ local record of what was uploaded.
   in the gallery.
 
 - **Download JSON shape:** wrapped object, e.g.
-  `{ "exported": "<ISO date>", "uploaded": ["Genus species - Author - 123.jpg", …] }`.
+  `{ "exported": "<ISO date>", "uploaded": ["Genus species - 123.jpg", …] }`.
 - **Visual marker:** a ticked card shows a subtle **"uploaded" badge** (card stays
   visible — not hidden, per the scope above).
 

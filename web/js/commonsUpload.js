@@ -87,10 +87,10 @@ export function buildDescription({ observation, photo, taxonName, location = '',
 ${categories}`;
 }
 
-/** The destination filename, `Taxon - Author - <photoId>.<ext>`. */
-export function buildDestFile({ observation, photo, taxonName }) {
+/** The destination filename, `Taxon - <photoId>.<ext>`. */
+export function buildDestFile({ photo, taxonName }) {
     const ext = photo.url.replace('square', 'original').split('.').pop().split('?')[0];
-    return `${taxonName} - ${authorName(observation.user)} - ${photo.id}.${ext}`;
+    return `${taxonName} - ${photo.id}.${ext}`;
 }
 
 /**
