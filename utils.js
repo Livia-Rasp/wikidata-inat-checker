@@ -259,6 +259,30 @@ export function fetchWdTaxaByInatIds(ids, opts = {}) {
 }
 
 /**
+ * Enumerate Wikidata taxa (P31=Q16521) with a P3151 iNat ID and a given IUCN status
+ * (P141=iucnQid) but no P18, via one direct SPARQL query. With P141 as the selective
+ * constraint the no-P18 set is small (a few thousand to ~30k rows), so WDQS answers it
+ * in seconds — unlike the unfiltered no-P18 set (~619k) which it cannot scan, and which
+ * is why {@link fetchWdTaxaByInatIds} inverts the query to enumerate by iNat ID instead.
+ * Prefer this whenever an IUCN status is specified. Yields `{ wdUri, qid, inatId, iucnQid }`.
+ * @param {string} iucnQid
+ * @param {{ sparqlFn?: (q: string) => Promise<object[]> }} [opts]
+ * @returns {AsyncGenerator<{ wdUri: string, qid: string, inatId: string, iucnQid: string }>}
+ */
+export async function* fetchWdTaxaByIucn(iucnQid, { sparqlFn = sparqlTSV } = {}) {
+    const rows = await sparqlFn(`SELECT ?item ?inatId WHERE {
+  ?item wdt:P31 wd:Q16521 .
+  ?item wdt:P3151 ?inatId .
+  ?item wdt:P141 wd:${iucnQid} .
+  FILTER NOT EXISTS { ?item wdt:P18 ?img . }
+}`);
+    for (const r of rows) {
+        if (!r.item || !r.inatId) continue;
+        yield { wdUri: r.item, qid: qidFromUri(r.item), inatId: r.inatId, iucnQid };
+    }
+}
+
+/**
  * Parse --key value and --flag args from process.argv.
  * Returns { key: 'value' } for --key value pairs and { key: true } for bare --flag.
  * Non-flag tokens (no leading --) are ignored.

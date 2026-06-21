@@ -6,7 +6,7 @@ import { generateDraftsHTML } from './generateHTML.js';
 import { generateImagesJson } from './generateImagesJson.js';
 import { loadCache, saveCache } from './cache.js';
 import { loadTaxaDb } from './getInatTaxaDb.js';
-import { fetchWdTaxaByInatIds, parseArgs, parseIucnArg, parseLimit } from './utils.js';
+import { fetchWdTaxaByInatIds, fetchWdTaxaByIucn, parseArgs, parseIucnArg, parseLimit } from './utils.js';
 
 const CACHE_FILE = 'cache-images.json';
 
@@ -23,15 +23,22 @@ async function run(limit) {
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
 
-    // Find Wikidata taxa with P3151 but no P18 by querying Wikidata *by iNat ID*
-    // (bounded VALUES POST batches). This avoids scanning the full ~619k no-P18 set,
-    // which WDQS cannot do, and lets us skip cached ids to reach genuinely new taxa.
-    // --limit caps collected uncached candidates, not raw taxa scanned.
-    console.log(`Querying Wikidata by iNat ID for taxa without P18 (limit ${limit})...`);
+    // Find Wikidata taxa with P3151 but no P18. With an IUCN status, query Wikidata
+    // directly (P141 is selective, so the no-P18 set is small and WDQS answers in
+    // seconds). Without one, the full no-P18 set (~619k) can't be scanned by WDQS, so
+    // we invert and enumerate *by iNat ID* in bounded VALUES POST batches. Either way
+    // we skip cached ids to reach genuinely new taxa; --limit caps collected uncached
+    // candidates, not raw taxa scanned.
+    console.log(iucnQid
+        ? `Querying Wikidata for ${iucnArg} taxa without P18 (limit ${limit})...`
+        : `Querying Wikidata by iNat ID for taxa without P18 (limit ${limit})...`);
+    const source = iucnQid
+        ? fetchWdTaxaByIucn(iucnQid)
+        : fetchWdTaxaByInatIds(taxaDb.allInatIds());
     const uncached = new Map(); // iNat ID → Wikidata URI
     const seenIds = new Set();
     let cachedSkipped = 0;
-    for await (const row of fetchWdTaxaByInatIds(taxaDb.allInatIds(), { iucnQid })) {
+    for await (const row of source) {
         if (seenIds.has(row.inatId)) continue;
         seenIds.add(row.inatId);
         if (cache[row.inatId]) { cachedSkipped++; continue; }
