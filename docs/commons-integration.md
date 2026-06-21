@@ -68,6 +68,15 @@ Be polite: iNat suggests ~1 req/s; batch and cache.
 - **Does a category exist?** `action=query&prop=info&titles=Category:A|Category:B…&origin=*`
   — a page with a `missing` key doesn't exist. Batch ≤50 titles per call. Watch the
   `query.normalized` map to tie responses back to requested titles.
+- **Soft redirects — existence is not enough.** Many categories exist *only* as a soft
+  redirect: a page whose wikitext is `{{Category redirect|<target>}}` (e.g. `Plants of Hawaii`
+  → `Flora of Hawaii`). `prop=info` reports such a page as existing (not `missing`), so a plain
+  existence check will file media into a deprecated redirect. `redirects=1` does **not** follow
+  it — soft redirects are template-based, not `#REDIRECT`. To detect+follow, fetch wikitext
+  (`prop=revisions&rvprop=content&rvslots=main`, same batching as existence) and look for the
+  template. It has **~16 aliases** (`Seecat`, `Cat redirect`, `Catredirect`, `Cat-red`,
+  `Redirect category`, `Catr`, `Ctr`, …) — normalise the template name (lowercase, strip
+  spaces/`_`/`-`) and match a small alias set. Follow the chain a few hops to a real category.
 - **Test what categories a template emits:** `action=parse` with `text=<wikitext>` **and
   `title=File:Example.jpg`**, `prop=categories`. The `title` matters: many Commons
   date/location templates only categorise inside the **File namespace**, so without a File
@@ -95,21 +104,30 @@ Be polite: iNat suggests ~1 req/s; batch and cache.
 
 ---
 
-## 5. Geographic taxon categories — `<Taxon> of <Place>`
+## 5. Geographic taxon categories — `<Taxon> of/in <Place>`
 
 Commons groups media by taxon-in-place, e.g. `Picidae of Texas`, `Odonata of Argentina`,
-`Birds of the United States`.
+`Birds of the United States`. Humans create these by hand, so naming is **inconsistent** —
+budget for several traps:
 
 - The **taxon** side uses **scientific names at higher ranks** (`Picidae`, `Piciformes`)
   **and iconic-group vernaculars** (`Birds`, not `Aves`).
+- **Kingdom vernacular drift:** plants use **`Flora of <Place>`** (with `Plants of <Place>`
+  a soft redirect — see §3); animals use **`Animals of <Place>`** (with `Fauna of <Place>`
+  often missing). Map the iconic taxon to **both** labels (`Plantae` → `Flora`, `Plants`;
+  `Animalia` → `Animals`, `Fauna`) and let existence + redirect-resolution pick the live one.
+- **Preposition drift:** most cats use **"of"**, but some branches use **"in"** — notably
+  family-level plant cats (`Fabaceae in Hawaii` exists; `Fabaceae of Hawaii` does not). Try
+  **both** prepositions per candidate.
 - The **place** naming **differs from §4**: "of X" uses **`the United States`** (with "the"),
   while states are bare (`Texas`). Generate place variants (bare + `the <country>`) and let
   existence-checks decide.
 - **Discovery algorithm:** candidate taxa = the taxon's ancestor scientific names + iconic
-  vernacular; candidate places = the resolved admin levels (+ "the" variant for country).
-  Build `<taxon> of <place>` for the cross product, existence-check (§3, batched), and select
-  the **most specific** that exists (deepest place, then deepest taxon) to avoid
-  over-categorising.
+  vernacular/Flora-Fauna labels; candidate places = the resolved admin levels (+ "the" variant
+  for country). Build `<taxon> {of,in} <place>` for the cross product, existence-check (§3,
+  batched) **and resolve soft redirects to their real target**, then select the **most
+  specific** that resolves to a real category (deepest place, then deepest taxon, then "of"
+  before "in") to avoid over-categorising and to never emit a redirect.
 
 ---
 

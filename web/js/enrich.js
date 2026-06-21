@@ -84,50 +84,117 @@ export async function getAncestry(taxonId) {
             ancestors,
             iconic: iconicAnc?.common || null, // e.g. "Birds"
             iconicRank: iconicAnc?.rank || null,
+            iconicName: t.iconic_taxon_name || null, // scientific, e.g. "Plantae" — for Flora/Fauna mapping
         };
         return ancestryCache.set(key, result);
     } catch { return null; }
 }
 
-// ---- Commons category existence (§7.6) ---------------------------------------------
+// ---- Commons category existence + soft-redirect resolution (§7.6) -------------------
+//
+// Commons categories are categorised inconsistently by hand, with two traps for an
+// automated "<Taxon> <prep> <Place>" guesser:
+//  - Soft redirects: many cats exist only as {{Category redirect|<target>}} (e.g.
+//    "Plants of Hawaii" → "Flora of Hawaii"). The page exists, so a plain existence check
+//    treats it as valid and files images into a deprecated redirect. We must detect the
+//    template and follow it to the real target.
+//  - Preposition drift: kingdom-level uses "Flora/Animals of <Place>", but family-level
+//    plant cats use "in" ("Fabaceae in Hawaii", with "...of Hawaii" missing). So we try
+//    both prepositions and let existence decide.
+//
+// catCache stores, per title (no "Category:" prefix): false = missing/unusable,
+// true = real category, "<target>" = soft redirect to that title.
 
-/** Check existence of category titles (names without the "Category:" prefix), cached + batched. */
-export async function categoryExists(names) {
+// {{Category redirect}} and its aliases, normalised (lowercased, spaces/_/- stripped).
+const REDIRECT_TEMPLATES = new Set([
+    'categoryredirect', 'seecat', 'catredirect', 'catredir', 'redirectcategory',
+    'catred', 'redirectcat', 'ctr', 'catr',
+]);
+
+/**
+ * If `wikitext` is a soft category redirect, return its target title (no "Category:"
+ * prefix), or "" if it redirects but the target is unparseable. Returns null if it is
+ * not a redirect at all.
+ */
+function softRedirectTarget(wikitext) {
+    const re = /\{\{\s*([^|}\n]+?)\s*(?:\|\s*([^|}\n]*))?[|}]/g;
+    let m;
+    while ((m = re.exec(wikitext))) {
+        const name = m[1].toLowerCase().replace(/[ _-]/g, '');
+        if (!REDIRECT_TEMPLATES.has(name)) continue;
+        const target = (m[2] || '').replace(/^\s*\d+\s*=\s*/, '').replace(/^:?\s*Category:/i, '').trim();
+        return target || '';
+    }
+    return null;
+}
+
+/** Populate catCache (existence + redirect target) for any not-yet-known titles, batched. */
+async function loadCatInfo(names) {
     const todo = [...new Set(names)].filter((n) => !catCache.has(n));
     for (const batch of chunk(todo, 45)) {
         try {
             const titles = batch.map((n) => 'Category:' + n).join('|');
-            const url = `${COMMONS}?${new URLSearchParams({ action: 'query', format: 'json', origin: '*', prop: 'info', titles })}`;
+            const url = `${COMMONS}?${new URLSearchParams({
+                action: 'query', format: 'json', origin: '*',
+                prop: 'revisions', rvprop: 'content', rvslots: 'main', titles,
+            })}`;
             const data = await getJSON(url);
-            const norm = data.query?.normalized || [];
-            const back = new Map(norm.map((x) => [x.to, x.from])); // normalized → requested
+            const back = new Map((data.query?.normalized || []).map((x) => [x.to, x.from]));
             const got = new Set();
             for (const p of Object.values(data.query?.pages || {})) {
                 const requested = (back.get(p.title) || p.title).replace(/^Category:/, '');
                 got.add(requested);
-                catCache.set(requested, !('missing' in p));
+                if ('missing' in p) { catCache.set(requested, false); continue; }
+                const text = p.revisions?.[0]?.slots?.main?.['*'] || '';
+                const target = softRedirectTarget(text);
+                // not a redirect → real cat (true); redirect with target → store target;
+                // redirect with no parseable target → unusable (false).
+                catCache.set(requested, target === null ? true : (target || false));
             }
             for (const n of batch) if (!got.has(n)) catCache.set(n, false);
-        } catch { /* retry next time */ }
+        } catch { /* leave uncached; retry next time */ }
     }
-    const out = {};
-    for (const n of new Set(names)) out[n] = catCache.get(n) === true;
-    return out;
+}
+
+/** Resolve a category title through any soft-redirect chain to a real category, or null. */
+async function resolveCategory(name, maxHops = 3) {
+    let cur = name;
+    for (let i = 0; i <= maxHops; i++) {
+        await loadCatInfo([cur]);
+        const v = catCache.get(cur);
+        if (v === true) return cur;             // real category
+        if (typeof v === 'string') { cur = v; continue; } // soft redirect → follow
+        return null;                            // missing/unusable
+    }
+    return null; // redirect chain too long — give up
 }
 
 // ---- geographic taxon category (§7.6) ---------------------------------------------
 
-/** Most-specific existing "<Taxon> of <Place>" category for a taxon + place hierarchy, or null. */
+// Iconic taxon (scientific) → Commons place-category labels, most-preferred first. Plants
+// use "Flora", animals "Animals" (with "Plants"/"Fauna" as fallbacks, often soft redirects).
+const ICONIC_LABELS = {
+    Plantae: ['Flora', 'Plants'],
+    Animalia: ['Animals', 'Fauna'],
+    Fungi: ['Fungi'],
+};
+
+/**
+ * Most-specific existing Commons "<Taxon> <of|in> <Place>" category for a taxon + place
+ * hierarchy, with soft redirects resolved to their real target. Returns null if none.
+ */
 export async function findGeoCategory(taxonId, hierarchy) {
     const anc = await getAncestry(taxonId);
     if (!anc) return null;
 
-    // Candidate taxa, deepest first.
+    // Candidate taxon labels, deepest first: scientific ancestry + iconic kingdom labels.
     const taxa = [];
     const push = (name, depth) => { if (name && depth != null) taxa.push({ name, depth }); };
     push(anc.self.name, RANK_DEPTH[anc.self.rank]);
     for (const a of anc.ancestors) push(a.name, RANK_DEPTH[a.rank]);
-    if (anc.iconic) push(anc.iconic, (RANK_DEPTH[anc.iconicRank] ?? RANK_DEPTH.class) - 0.1);
+    const iconicDepth = (RANK_DEPTH[anc.iconicRank] ?? RANK_DEPTH.class) - 0.1;
+    for (const label of ICONIC_LABELS[anc.iconicName] || (anc.iconic ? [anc.iconic] : []))
+        push(label, iconicDepth);
     taxa.sort((a, b) => b.depth - a.depth);
 
     // Candidate places, deepest first; country also tried with a leading "the".
@@ -137,17 +204,22 @@ export async function findGeoCategory(taxonId, hierarchy) {
     if (hierarchy.country) placeLevels.push([hierarchy.country, `the ${hierarchy.country}`]);
     if (placeLevels.length === 0) return null;
 
-    // Existence-check every candidate, then pick deepest place → deepest taxon.
+    const PREPS = ['of', 'in']; // "Flora of Hawaii" vs "Fabaceae in Hawaii"
+    const title = (t, prep, pl) => `${t} ${prep} ${pl}`;
+
+    // Warm the cache for every candidate in batches, then pick deepest place → deepest
+    // taxon → preferred preposition, resolving soft redirects to the real category.
     const all = [];
-    for (const variants of placeLevels) for (const pl of variants) for (const t of taxa) all.push(`${t.name} of ${pl}`);
-    const exists = await categoryExists(all);
+    for (const variants of placeLevels) for (const pl of variants) for (const t of taxa) for (const prep of PREPS) all.push(title(t.name, prep, pl));
+    await loadCatInfo(all);
 
     for (const variants of placeLevels)
         for (const pl of variants)
-            for (const t of taxa) {
-                const title = `${t.name} of ${pl}`;
-                if (exists[title]) return title;
-            }
+            for (const t of taxa)
+                for (const prep of PREPS) {
+                    const resolved = await resolveCategory(title(t.name, prep, pl));
+                    if (resolved) return resolved;
+                }
     return null;
 }
 

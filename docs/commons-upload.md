@@ -74,9 +74,12 @@ Where each piece comes from:
 - **`{{iNaturalist}}` + `{{INaturalistreview}}`** — link the source observation and flag the
   file for the Commons license-review bot.
 - **Species category** — `[[Category:<Taxon>]]` for the taxon you're sourcing the image for.
-- **Geographic taxon category** — the most specific existing `<Taxon> of <Place>` category on
-  Commons (e.g. `Picidae of Texas`, `Odonata of Argentina`), found by checking the taxon's
-  ancestry and iconic group against the location. Added only when such a category exists.
+- **Geographic taxon category** — the most specific existing taxon-in-place category on
+  Commons (e.g. `Picidae of Texas`, `Odonata of Argentina`, `Fabaceae in Hawaii`), found by
+  checking the taxon's ancestry and iconic group against the location. Both prepositions
+  (`of`/`in`) are tried, plants/animals map to `Flora`/`Animals`, and soft redirects (e.g.
+  `Plants of Hawaii` → `Flora of Hawaii`) are followed so images never land in a redirect.
+  Added only when a real category exists.
 - **Author category** — if the photographer has a Commons category, it's added too. It's
   discovered from the iNaturalist user ID via Commons' `{{Inaturalist user}}` template and
   Wikidata's *iNaturalist user ID* property (P12022) — so it currently matches only the

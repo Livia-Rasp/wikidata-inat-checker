@@ -610,6 +610,23 @@ avoids over-categorisation.
 OPEN (finetune later, shared with §7.3/§7.4):
 - iNat→Commons place-name mapping for "of X" (the `the <country>` and other quirks).
 
+**Refinement (2026-06, after live imports):** real Commons data exposed three failure modes,
+now handled in `enrich.js` (`softRedirectTarget`, `loadCatInfo`, `resolveCategory`, and
+`ICONIC_LABELS` / dual prepositions in `findGeoCategory`):
+- **Soft redirects.** `Plants of <Place>` is a `{{Category redirect|Flora of <Place>}}` soft
+  redirect (not `missing`, not `#REDIRECT`), so the old existence check filed images into the
+  deprecated redirect. We now fetch each candidate's wikitext, detect the redirect template
+  (≈16 aliases, normalised), and follow it to the real target — and never emit a redirect.
+- **Kingdom labels.** Plants categorise under **`Flora of <Place>`**, animals under
+  **`Animals of <Place>`**. The iconic taxon is mapped to both label forms
+  (`Plantae`→`Flora`/`Plants`, `Animalia`→`Animals`/`Fauna`) instead of only the iNat
+  vernacular ("Plants").
+- **Preposition drift.** Family-level plant cats use **"in"** (`Fabaceae in Hawaii` exists,
+  `Fabaceae of Hawaii` does not), so both `of` and `in` are tried (`of` preferred on ties).
+- Verified live (2026-06): *Acacia koa*→`Fabaceae in Hawaii`, *Branta sandvicensis*→
+  `Anseriformes of Hawaii`, plant in Yemen→`Flora of Yemen` (kingdom fallback, real, not the
+  `Plants of …` redirect).
+
 ### 7.7 Other `{{Information}}` fields — keep as-is
 
 `author`, `source`, `permission`, `other versions` stay as in the current
