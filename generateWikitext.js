@@ -1,9 +1,14 @@
 // @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
-import { HEADERS, qidFromUri, chunk, IUCN_QID_TO_CODE } from './utils.js';
+import { HEADERS, qidFromUri, chunk, IUCN_QID_TO_CODE, checkCommonsCategories, resolveCommonsCategory, saveCommonsCatCache } from './utils.js';
 
 const ENTITY_BATCH   = 50;
+// Max P171 rounds/levels to walk. Deep enough to reach the kingdom (Animalia/Plantae/…)
+// even for animals, whose Wikidata lineage runs ~35 cladistic levels deep — needed so
+// endemic categories can fall back to the "fauna"/"flora"/"fungi" group word. Shared deep
+// clades converge, so the extra rounds add negligible API cost.
+const MAX_ANCESTOR_DEPTH = 40;
 const RANK_GENUS     = 'Q34740';
 const RANK_FAMILY    = 'Q35409';
 const RANK_ORDER     = 'Q36602';
@@ -38,6 +43,112 @@ const IUCN_CATEGORIES = {
 };
 
 // P141 QIDs → 2-letter status codes expected by {{IUCN}} param 1: IUCN_QID_TO_CODE (utils.js).
+
+// Commons "Endemic <group> of <place>" categories (from P183 "endemic to"). The group word
+// is picked from the taxon's ancestry by scientific name (stable; no rank-QID dependency):
+// a specific class word when one exists, else the kingdom-level word, else "species".
+// Only monophyletic groups that exclude tetrapods — e.g. Sarcopterygii/Osteichthyes are
+// deliberately omitted because they cladistically contain all land vertebrates.
+const ENDEMIC_GROUP_BY_CLASS = {
+    Aves: 'birds', Mammalia: 'mammals', Amphibia: 'amphibians', Reptilia: 'reptiles',
+    Actinopterygii: 'fish', Chondrichthyes: 'fish', Petromyzontida: 'fish', Myxini: 'fish',
+};
+const ENDEMIC_GROUP_BY_KINGDOM = { Animalia: 'fauna', Plantae: 'flora', Fungi: 'fungi' };
+
+/**
+ * Ordered (most specific → general) "Endemic <group>" words for a taxon, derived from its
+ * ancestor chain's scientific names. Always ends with "species" as a final fallback so a
+ * regional "Endemic species of <place>" category can still match.
+ * @param {{name: string, rank: string}[]} chain
+ * @returns {string[]}
+ */
+function endemicGroupWords(chain) {
+    const words = [];
+    for (const { name } of chain) {
+        const w = ENDEMIC_GROUP_BY_CLASS[name];
+        if (w && !words.includes(w)) words.push(w);
+    }
+    // Kingdom-level general word. A matched animal class already proves "fauna" — important
+    // because the Animalia node sits beyond the walk for deep lineages (e.g. birds run
+    // through Dinosauria). Otherwise read the kingdom straight from the chain (plant/fungus/
+    // invertebrate lineages are shallow enough to reach Plantae/Fungi/Animalia).
+    const kingdomWord = words.length > 0 ? 'fauna'
+        : chain.map(a => ENDEMIC_GROUP_BY_KINGDOM[a.name]).find(Boolean);
+    if (kingdomWord && !words.includes(kingdomWord)) words.push(kingdomWord);
+    if (!words.includes('species')) words.push('species');
+    return words;
+}
+
+/**
+ * Candidate "Endemic <group> of <place>" titles for a taxon: every group word × place ×
+ * bare/"the <place>" form. Used to warm the Commons category-existence cache in one pass.
+ * @param {string[]} endemicTo - place QIDs
+ * @param {Map<string, string>} placeLabels - QID → English label
+ * @param {string[]} groupWords
+ * @returns {string[]}
+ */
+function endemicCandidateTitles(endemicTo, placeLabels, groupWords) {
+    const titles = [];
+    for (const placeQid of endemicTo) {
+        const place = placeLabels.get(placeQid);
+        if (!place) continue;
+        for (const word of groupWords)
+            for (const pl of [place, `the ${place}`])
+                titles.push(`Endemic ${word} of ${pl}`);
+    }
+    return titles;
+}
+
+/**
+ * Resolves the most-specific existing Commons "Endemic <group> of <place>" category per
+ * place the taxon is endemic to (P183), trying group words specific → general and the bare
+ * and "the <place>" forms, with soft redirects followed. Warm the cache first via
+ * checkCommonsCategories(endemicCandidateTitles(...)) so this is mostly cache hits.
+ * @param {string[]} endemicTo - place QIDs
+ * @param {Map<string, string>} placeLabels - QID → English label
+ * @param {string[]} groupWords
+ * @returns {Promise<string[]>}
+ */
+async function resolveEndemicCategories(endemicTo, placeLabels, groupWords) {
+    const cats = [];
+    for (const placeQid of endemicTo) {
+        const place = placeLabels.get(placeQid);
+        if (!place) continue;
+        let found = null;
+        for (const word of groupWords) {
+            for (const pl of [place, `the ${place}`]) {
+                found = await resolveCommonsCategory(`Endemic ${word} of ${pl}`);
+                if (found) break;
+            }
+            if (found) break;
+        }
+        if (found && !cats.includes(found)) cats.push(found);
+    }
+    return cats;
+}
+
+/**
+ * Fetches English labels for place QIDs via wbgetentities (props=labels).
+ * @param {string[]} qids
+ * @returns {Promise<Map<string, string>>} QID → English label
+ */
+async function fetchPlaceLabels(qids) {
+    const labels = new Map();
+    for (const batch of chunk(qids, ENTITY_BATCH)) {
+        const url = 'https://www.wikidata.org/w/api.php?' + new URLSearchParams({
+            action: 'wbgetentities', ids: batch.join('|'),
+            props: 'labels', languages: 'en', format: 'json', formatversion: '2',
+        });
+        const res = await fetch(url, { headers: HEADERS });
+        if (!res.ok) throw new Error(`Wikidata API HTTP ${res.status}`);
+        const data = await res.json();
+        for (const [qid, entity] of Object.entries(data.entities || {})) {
+            const label = entity.labels?.en?.value;
+            if (label) labels.set(qid, label);
+        }
+    }
+    return labels;
+}
 
 /**
  * Fetches the author citation (e.g. "Linnaeus, 1758") for each item's NCBI taxon ID
@@ -161,6 +272,7 @@ function parseEntity(entity) {
         fungorum:  claims.P1391?.[0],
         iucnStatus: claims.P141?.[0],
         iucnId:     claims.P627?.[0],
+        endemicTo:  claims.P183 ?? [], // place QIDs the taxon is endemic to (usually 1)
         hasWikispecies: !!entity.sitelinks?.specieswiki,
         hasVernacularName: (claims.P1843?.length ?? 0) > 0
     };
@@ -173,7 +285,7 @@ async function buildAncestorCache(itemQids) {
     const cache = {};
     let frontier = new Set(itemQids);
 
-    for (let depth = 0; depth < 20 && frontier.size > 0; depth++) {
+    for (let depth = 0; depth < MAX_ANCESTOR_DEPTH && frontier.size > 0; depth++) {
         const toFetch = [...frontier].filter(q => !cache[q]);
         if (toFetch.length === 0) break;
 
@@ -199,7 +311,7 @@ async function buildAncestorCache(itemQids) {
 function resolveAncestors(qid, cache) {
     const chain = []; // genus-first (closest to species)
     let current = cache[qid]?.parentQid;
-    for (let i = 0; i < 20 && current && cache[current]; i++) {
+    for (let i = 0; i < MAX_ANCESTOR_DEPTH && current && cache[current]; i++) {
         const data = cache[current];
         if (data.taxonName) chain.push({ name: data.taxonName, rank: data.rank });
         current = data.parentQid;
@@ -299,6 +411,7 @@ function buildWikitext(itemData, chain, templates) {
         const iucnCat = IUCN_CATEGORIES[itemData.iucnStatus];
         if (iucnCat) lines.push(`[[Category:${iucnCat}]]`);
     }
+    for (const cat of itemData.endemicCats ?? []) lines.push(`[[Category:${cat}]]`);
 
     return lines.join('\n');
 }
@@ -328,15 +441,35 @@ export async function generateDraftWikitext(available) {
         .map(qid => ({ ncbi: cache[qid].ncbi, taxonName: cache[qid].taxonName }));
     const authorities = ncbiItems.length > 0 ? await fetchNcbiAuthorities(ncbiItems) : new Map();
 
+    // Endemic ("endemic to", P183) Commons categories: resolve place labels, then warm the
+    // Commons category-existence cache for every candidate "Endemic <group> of <place>" title.
+    const placeQids = [...new Set(qids.flatMap(qid => cache[qid]?.endemicTo ?? []))];
+    const placeLabels = placeQids.length > 0 ? await fetchPlaceLabels(placeQids) : new Map();
+    const groupWordsByQid = new Map();
+    const warmTitles = [];
+    for (const qid of qids) {
+        const endemicTo = cache[qid]?.endemicTo;
+        if (!endemicTo?.length) continue;
+        const groupWords = endemicGroupWords(resolveAncestors(qid, cache));
+        groupWordsByQid.set(qid, groupWords);
+        warmTitles.push(...endemicCandidateTitles(endemicTo, placeLabels, groupWords));
+    }
+    if (warmTitles.length > 0) await checkCommonsCategories(warmTitles);
+
     const drafts = {};
     for (const qid of qids) {
         const itemData = cache[qid];
         if (!itemData) continue;
         const chain = resolveAncestors(qid, cache);
         const authority = authorities.get(itemData.ncbi) ?? '';
-        const wikitext = buildWikitext({ ...itemData, authority }, chain, templates);
+        const groupWords = groupWordsByQid.get(qid);
+        const endemicCats = groupWords
+            ? await resolveEndemicCategories(itemData.endemicTo, placeLabels, groupWords)
+            : [];
+        const wikitext = buildWikitext({ ...itemData, authority, endemicCats }, chain, templates);
         if (wikitext) drafts[uriByQid[qid]] = wikitext;
     }
 
+    saveCommonsCatCache();
     return drafts;
 }

@@ -129,6 +129,25 @@ budget for several traps:
   specific** that resolves to a real category (deepest place, then deepest taxon, then "of"
   before "in") to avoid over-categorising and to never emit a redirect.
 
+### Endemic variant — `Endemic <group> of <place>` (from P183)
+
+A taxon's Wikidata **P183 ("endemic to")** drives a parallel family of categories:
+`Endemic fauna of Tanzania`, `Endemic flora of Réunion`, `Endemic birds of Australia`. Same
+existence-checked, most-specific-first approach as above, with two domain specifics:
+
+- **Group word** from the taxon's ancestry (match by **scientific name**, not rank QID):
+  specific class words (`Aves→birds`, `Mammalia→mammals`, `Amphibia→amphibians`,
+  `Reptilia→reptiles`, ray-/cartilaginous-/jawless-fish classes→`fish`) → kingdom words
+  (`Animalia→fauna`, `Plantae→flora`, `Fungi→fungi`) → `species` as a last resort. **A matched
+  animal class implies `fauna` directly** — don't wait to see `Animalia` in the chain, because
+  for deep lineages (birds via `Dinosauria`) it sits beyond a sane ancestor-walk depth.
+  **Never map `Sarcopterygii`/`Osteichthyes` to `fish`** — cladistically they contain all
+  tetrapods, so they'd tag frogs and birds as fish.
+- **Place** = the P183 value's English label (or P373), tried bare and with a leading `the`.
+  A Wikidata label that differs from the Commons place name (e.g. `Taiwan Island` vs the
+  `Taiwan` used by `Endemic flora of Taiwan`) just yields no match — emit nothing rather than
+  guess. Resolving the place up its admin hierarchy (as in §5) would close some of these gaps.
+
 ---
 
 ## 6. Author (photographer) categories

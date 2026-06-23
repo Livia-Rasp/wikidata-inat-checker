@@ -82,7 +82,16 @@ iNaturalist sometimes stores the genus name itself as a vernacular name for a sp
 
 ## Taxonavigation ancestor traversal (`generateWikitext.js`)
 
-The wbgetentities ancestor walk is capped at 20 rounds. This is higher than one might expect: Lepidoptera sits roughly 15 levels above species rank due to many unranked intermediate clades in the Wikidata taxonomy, so a lower cap would silently truncate the taxonavigation block for butterflies and moths.
+The wbgetentities ancestor walk is capped at `MAX_ANCESTOR_DEPTH` (40) rounds, shared by `buildAncestorCache` and `resolveAncestors`. The taxonavigation block itself only needs ~15 levels (Lepidoptera sits roughly that far above species rank thanks to many unranked intermediate clades), but the **endemic** category resolution (below) needs to reach the kingdom for non-vertebrates, whose Wikidata lineage runs ~30 cladistic levels deep. The deep clades are highly shared across taxa, so once the per-batch frontier converges onto the tree-of-life backbone the extra rounds each fetch only a handful of entities — negligible API cost.
+
+## Endemic categories (`generateWikitext.js`)
+
+From P183 ("endemic to"), the draft adds Commons `Endemic <group> of <place>` categories. For each P183 place, candidate titles are generated most-specific → general and the first that actually exists on Commons (via `resolveCommonsCategory`, soft redirects followed) is emitted; nothing is emitted otherwise.
+
+- **Group word** comes from the ancestor chain's scientific names (matched by name, not rank QID, so it's immune to rank-QID merges): a specific class word from `ENDEMIC_GROUP_BY_CLASS` (`Aves→birds`, `Mammalia→mammals`, `Amphibia→amphibians`, `Reptilia→reptiles`, ray-/cartilaginous-/jawless-fish classes→`fish`), else the kingdom word from `ENDEMIC_GROUP_BY_KINGDOM` (`Animalia→fauna`, `Plantae→flora`, `Fungi→fungi`), then `species` as a final fallback. A matched animal class implies `fauna` directly — necessary because the `Animalia` node sits beyond the walk for deep lineages (birds run through `Dinosauria`). Note `Sarcopterygii`/`Osteichthyes` are deliberately **not** in the fish map: they cladistically contain all tetrapods, so they'd mislabel frogs/birds as "fish".
+- **Place** is the P183 value's English label, tried as both `… of <place>` and `… of the <place>`. A label that differs from the Commons place name (e.g. Q22502 "Taiwan Island" vs the "Taiwan" used by `Endemic flora of Taiwan`) simply yields no match — safe, never wrong.
+
+Commons existence results are cached in `cache-commons-cats.json` (`checkCommonsCategories`/`resolveCommonsCategory` in `utils.js`, ported from the browser-side `web/js/enrich.js` so `web/` stays self-contained), reused within and across runs.
 
 ## Commons Taxonavigation templates (`generateWikitext.js`)
 

@@ -111,6 +111,7 @@ inat-links-conflicts.json
 cache-images.json
 cache-names.json
 cache-links.json
+cache-commons-cats.json
 web/data/taxa.json
 
 # TernJS port file

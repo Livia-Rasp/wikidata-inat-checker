@@ -8,12 +8,12 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 
 1. On first run, downloads the iNaturalist open-data taxa dump and builds the local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~180 MB download, shared with the links/names checkers). It then finds Wikidata taxon items that have an iNaturalist taxon ID (P3151) but no image (P18) by querying Wikidata **by iNat ID** — feeding the local iNat IDs to Wikidata in bounded `VALUES` POST batches. This avoids scanning the ~619 K no-image set directly (which WDQS times out on) and lets re-runs skip cached entries to reach genuinely new taxa. (With `--iucn <code>` it instead runs one direct query filtered by P141 — that set is small enough for WDQS to answer in seconds, so the batched scan is skipped.) See [docs/dev.md](dev.md#large-dataset-enumeration-wdqs-cant-scan-these-sets).
 2. For each candidate taxon, asks iNat whether there is at least one research-grade observation whose photo is licensed CC0, CC BY, or CC BY-SA. All data is kept in memory.
-3. For each taxon with a hit, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, and taxonomy (class through genus) and generates a draft Commons category Wikitext.
+3. For each taxon with a hit, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, taxonomy (class through genus), and "endemic to" places (P183), then generates a draft Commons category Wikitext.
 4. Exports all drafts to `drafts.html` — a table with five columns: a done checkbox, a Wikidata item link, a filtered iNaturalist observations link, a Commons category edit link, and the draft Wikitext. Clicking the draft text copies it to the clipboard.
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 200 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
 
-Results are cached locally in `cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan.
+Results are cached locally in `cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan. A second cache, `cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
 
 ## Usage
 
@@ -51,10 +51,20 @@ Each draft contains:
 - NCBI / EOL / MycoBank / Index Fungorum identifier templates
 - an optional `{{IUCN}}` conservation-status line (see below)
 - the parent category link
+- optional **endemic** category link(s) (see below)
 
 **Taxonavigation.** Coleoptera and Lepidoptera taxa use the dedicated `{{Coleoptera|familia=…}}` / `{{Lepidoptera|familia=…}}` wrappers (named params for family through species plus authority; superfamily resolved automatically). All other taxa use `{{Taxonavigation|include=…}}` with the most specific matching Commons ancestor template — angiosperm families take the `(APG)` suffix (e.g. `include=Asparagaceae (APG)`), bird families `(IOC)`, fern families `(Smith)`; conifer families and higher groups (Mammalia, Reptilia, Agaricomycetes, …) use plain names. Only ranks below the `include=` level are listed manually, and rank-aware: species get `Genus|…|` + `Species|…|`, genus-rank items get `Genus|…|` only, family/order/class items use just their rank label. `authority=` is filled from NCBI (P685) where available. Full template rules: [docs/dev.md](dev.md#commons-taxonavigation-templates-generatewikitextjs).
 
 **IUCN.** When the item has both P627 (Red List ID) and P141 (status), a `{{IUCN|code|id|name|authority}}` line is added after NCBI — it auto-categorises the Commons page into the correct IUCN maintenance category. With P141 only (no P627), a manual `[[Category:IUCN X species]]` line is added instead.
+
+### Endemic
+
+When the item has P183 (**endemic to**), the draft adds the matching Commons `Endemic <group> of <place>` category — e.g. P183 = Tanzania on a frog yields `[[Category:Endemic fauna of Tanzania]]`. For each place the taxon is endemic to, candidate categories are tried most-specific → general and only emitted if they actually exist on Commons (soft redirects followed):
+
+- **group word**, by the taxon's ancestry: a specific class word (`birds`, `mammals`, `amphibians`, `reptiles`, `fish`) when one applies, else the kingdom word (`fauna` / `flora` / `fungi`), with `species` as a final fallback — so a bird endemic to Australia gets `Endemic birds of Australia`, while a frog with no `Endemic amphibians of …` category falls back to `Endemic fauna of …`;
+- **place**, from the P183 value's English label, trying both `… of <place>` and `… of the <place>`.
+
+Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons (e.g. the place's Wikidata label differs from the Commons place name, like "Taiwan Island" vs "Taiwan"). Existence results are cached in `cache-commons-cats.json`. Implementation: [docs/commons-integration.md](commons-integration.md) and [docs/dev.md](dev.md).
 
 ## Typical workflow
 
