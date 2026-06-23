@@ -66,6 +66,17 @@ When the item has P183 (**endemic to**), the draft adds the matching Commons `En
 
 Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons (e.g. the place's Wikidata label differs from the Commons place name, like "Taiwan Island" vs "Taiwan"). Existence results are cached in `cache-commons-cats.json`. Implementation: [docs/commons-integration.md](commons-integration.md) and [docs/dev.md](dev.md).
 
+## Generating a single category draft
+
+A draft's parent category link (e.g. `[[Category:Cornicandovia|australica]]`) sometimes points to a Commons category that doesn't exist yet — the genus/family page still has to be created. `draftCategory.js` generates a draft for any taxon **from just its Wikidata QID**, using the exact same schema as the image checker (Taxonavigation, ID templates, IUCN, endemic categories, parent category link):
+
+```sh
+node draftCategory.js Q14625955            # genus Cornicandovia
+npm run draft -- Q14625955 Q10459793       # multiple QIDs at once (-- forwards the args)
+```
+
+Each draft is printed to stdout under a `== Category:<name> ==` header. QIDs may be given bare (`Q14625955`), prefixed (`wd:Q14625955`), or as full entity URLs. It builds purely from Wikidata, so it works for any rank (genus, family, …) regardless of whether the taxon has iNat photos. A QID that isn't a taxon (or lacks a scientific name, P225) is reported on stderr and skipped. See [Draft Wikitext contents](#draft-wikitext-contents) for what the draft includes.
+
 ## Typical workflow
 
 1. Run `npm run images` to scan Wikidata and iNat.

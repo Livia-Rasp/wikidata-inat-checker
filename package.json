@@ -11,7 +11,8 @@
     "check-names": "checkNames.js",
     "check-links": "checkLinks.js",
     "check-links-stats": "checkLinksStats.js",
-    "check-area": "checkArea.js"
+    "check-area": "checkArea.js",
+    "draft-category": "draftCategory.js"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -20,6 +21,7 @@
     "links": "node checkLinks.js",
     "linkStats": "node checkLinksStats.js",
     "area": "node checkArea.js",
+    "draft": "node draftCategory.js",
     "web": "node web/serve.js"
   },
   "keywords": [

@@ -21,6 +21,9 @@ npm run linkStats                           # same via npm
 node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
 npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
 
+node draftCategory.js Q14625955            # print a Commons category draft for a taxon QID
+npm run draft -- Q14625955 Q10459793       # same via npm (accepts multiple QIDs)
+
 npm run web                                 # serve the iNat→Commons upload app (web/), localhost:8080
 ```
 
@@ -32,7 +35,7 @@ No build step, no tests. All outputs and caches are gitignored.
 
 ## Architecture
 
-Five entry scripts (four tools), each wiring together shared modules; data flows in memory. Shared building blocks: the local iNat taxa SQLite index (`getInatTaxaDb.js`) and the Wikidata SPARQL / CirrusSearch helpers (`utils.js`).
+Six entry scripts (five tools), each wiring together shared modules; data flows in memory. Shared building blocks: the local iNat taxa SQLite index (`getInatTaxaDb.js`) and the Wikidata SPARQL / CirrusSearch helpers (`utils.js`).
 
 | Tool | Entry | Finds | Docs |
 |---|---|---|---|
@@ -41,6 +44,7 @@ Five entry scripts (four tools), each wiring together shared modules; data flows
 | iNat links | `checkLinks.js` | taxa with a name but no P3151, matched to iNat | [docs/links.md](docs/links.md) |
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [docs/links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
+| Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `web/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
 
 The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that consumes `web/data/taxa.json` (exported by `checkImages.js` via `generateImagesJson.js`) and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/cache.js` persists every lookup and the uploaded-files list in `localStorage`. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
@@ -52,7 +56,7 @@ Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/d
 - **Module wiring** — per-tool data-flow diagrams (which module calls what)
 - **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()`/`allNames()`/`allInatIds()`, stateofmatter filter (`getInatTaxaDb.js`)
 - **zh-hans/zh-hant normalization** — why `zh-CN`/`zh-TW` are remapped (`getInatNames.js`)
-- **Ancestor traversal depth** — why the cap is 20 rounds; Lepidoptera unranked clades (`generateWikitext.js`)
+- **Ancestor traversal depth** — why the cap is `MAX_ANCESTOR_DEPTH` (40) rounds; reaching the kingdom for endemic categories (`generateWikitext.js`)
 - **Commons Taxonavigation templates** — wrappers, suffixed families, Fungorum, IUCN categories, placement rules (`generateWikitext.js`)
 - **SPARQL & CirrusSearch** — TSV format, why WDQS can't scan the big filtered sets, the query-by-value inversion (by name for links, by iNat ID for images) (`utils.js`, `checkLinks.js`, `checkLinksStats.js`, `checkImages.js`)
 - **Taxonomy tree comparison & `--auto` filter** — `compareAncestorTrees()`, Noctuidae/Erebidae disagreement (`utils.js`, `checkLinks.js`)
