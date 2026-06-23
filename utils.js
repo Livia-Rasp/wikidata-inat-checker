@@ -1,4 +1,5 @@
 // @ts-check
+import fs from 'fs';
 import WBK from 'wikibase-sdk';
 
 /** @type {Record<string, string>} */
@@ -194,6 +195,119 @@ export async function cirrusCount(srsearch, retries = 3) {
     if (!res.ok) throw new Error(`CirrusSearch HTTP ${res.status}`);
     const data = await res.json();
     return data.query.searchinfo.totalhits;
+}
+
+// ---- Commons category existence (cached, soft-redirect aware) ----------------------
+// Mirrors web/js/enrich.js (kept duplicated so web/ stays self-contained), but persists
+// to a JSON file so existence checks are reused across runs.
+
+const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+const COMMONS_CAT_CACHE_FILE = 'cache-commons-cats.json';
+
+// {{Category redirect}} and aliases, normalised (lowercased, spaces/_/- stripped).
+const REDIRECT_TEMPLATES = new Set([
+    'categoryredirect', 'seecat', 'catredirect', 'catredir', 'redirectcategory',
+    'catred', 'redirectcat', 'ctr', 'catr',
+]);
+
+/**
+ * Commons category title (no "Category:" prefix) → status: true = real category,
+ * "<target>" = soft redirect to that title, false = missing/unusable. Lazily loaded from
+ * disk; persist with saveCommonsCatCache().
+ * @type {Record<string, boolean | string> | null}
+ */
+let catCache = null;
+
+function ensureCatCache() {
+    if (catCache) return catCache;
+    try {
+        catCache = JSON.parse(fs.readFileSync(COMMONS_CAT_CACHE_FILE, 'utf8'));
+    } catch {
+        catCache = {};
+    }
+    return catCache;
+}
+
+/** Persist the Commons category-existence cache to disk. */
+export function saveCommonsCatCache() {
+    if (catCache) fs.writeFileSync(COMMONS_CAT_CACHE_FILE, JSON.stringify(catCache, null, 2), 'utf8');
+}
+
+/**
+ * If `wikitext` is a soft category redirect, return its target title (no "Category:"
+ * prefix), "" if it redirects but the target is unparseable, or null if it is not a redirect.
+ * @param {string} wikitext
+ * @returns {string | null}
+ */
+function softRedirectTarget(wikitext) {
+    const re = /\{\{\s*([^|}\n]+?)\s*(?:\|\s*([^|}\n]*))?[|}]/g;
+    let m;
+    while ((m = re.exec(wikitext))) {
+        const name = m[1].toLowerCase().replace(/[ _-]/g, '');
+        if (!REDIRECT_TEMPLATES.has(name)) continue;
+        const target = (m[2] || '').replace(/^\s*\d+\s*=\s*/, '').replace(/^:?\s*Category:/i, '').trim();
+        return target || '';
+    }
+    return null;
+}
+
+/**
+ * Populate the cat cache (existence + soft-redirect target) for any not-yet-known titles,
+ * batched (<=45 per request). Titles are bare category names (no "Category:" prefix).
+ * @param {string[]} names
+ */
+export async function checkCommonsCategories(names) {
+    const cache = ensureCatCache();
+    const todo = [...new Set(names)].filter((n) => !(n in cache));
+    for (const batch of chunk(todo, 45)) {
+        try {
+            const titles = batch.map((n) => 'Category:' + n).join('|');
+            const params = new URLSearchParams({
+                action: 'query', format: 'json',
+                prop: 'revisions', rvprop: 'content', rvslots: 'main', titles,
+            });
+            const res = await fetch(`${COMMONS_API}?${params}`, { headers: HEADERS });
+            if (!res.ok) throw new Error(`Commons API HTTP ${res.status}`);
+            const data = await res.json();
+            const back = new Map((data.query?.normalized || []).map((x) => [x.to, x.from]));
+            const got = new Set();
+            for (const p of Object.values(data.query?.pages || {})) {
+                const requested = (back.get(p.title) || p.title).replace(/^Category:/, '');
+                got.add(requested);
+                if ('missing' in p) { cache[requested] = false; continue; }
+                const text = p.revisions?.[0]?.slots?.main?.['*'] || '';
+                const target = softRedirectTarget(text);
+                // not a redirect → real cat (true); redirect with target → store target;
+                // redirect with no parseable target → unusable (false).
+                cache[requested] = target === null ? true : (target || false);
+            }
+            for (const n of batch) if (!got.has(n)) cache[n] = false;
+        } catch (e) {
+            console.warn(`Commons category check failed: ${e.message}`);
+            // leave uncached; a later run retries
+        }
+    }
+}
+
+/**
+ * Resolve a Commons category title through any soft-redirect chain to a real category, or
+ * null if it (or its redirect target) doesn't exist. Warm the cache for candidate titles
+ * with checkCommonsCategories() first to avoid one request per title.
+ * @param {string} name
+ * @param {number} [maxHops=3]
+ * @returns {Promise<string | null>}
+ */
+export async function resolveCommonsCategory(name, maxHops = 3) {
+    const cache = ensureCatCache();
+    let cur = name;
+    for (let i = 0; i <= maxHops; i++) {
+        await checkCommonsCategories([cur]);
+        const v = cache[cur];
+        if (v === true) return cur;                        // real category
+        if (typeof v === 'string') { cur = v; continue; }  // soft redirect → follow
+        return null;                                       // missing/unusable
+    }
+    return null; // redirect chain too long — give up
 }
 
 /** Escape a string for use inside a SPARQL "double-quoted" literal. */

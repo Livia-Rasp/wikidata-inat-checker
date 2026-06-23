@@ -27,7 +27,7 @@ npm run web                                 # serve the iNat→Commons upload ap
 No build step, no tests. All outputs and caches are gitignored.
 
 - **Outputs:** `drafts.html` + `web/data/taxa.json` (images); `names.html`; `links.html` + `links-ambiguous.html` + `links-auto.qs` + `inat-links-conflicts.json` (links); `area.html`.
-- **Caches:** the image/names/links checkers each keep a cache file (`cache-images.json` / `cache-names.json` / `cache-links.json`) so re-runs skip already-checked taxa — delete it to force a full re-scan. The area checker has no cache.
+- **Caches:** the image/names/links checkers each keep a cache file (`cache-images.json` / `cache-names.json` / `cache-links.json`) so re-runs skip already-checked taxa — delete it to force a full re-scan. The image checker also writes `cache-commons-cats.json` (Commons `Endemic <group> of <place>` category existence, reused across runs). The area checker has no cache.
 - **Upload app:** `checkImages.js` also exports `web/data/taxa.json`; `npm run web` serves the static `web/` app that browses those taxa, lists their CC-licensed iNat photos, and opens a pre-filled Commons upload form per photo. The generated file description is enriched (not a stub): an `{{en|<common> (''scientific'') in County, State, Country}}` description from the observation's identified taxon, a `{{Taken on|date|location=Country}}` date, and best-effort **geographic taxon categories** (`<Taxon> of <Place>`, e.g. `Picidae of Texas`) and **author categories** (via Commons `{{Inaturalist user}}` + Wikidata P12022). Users mark photos uploaded (a `localStorage` backfill list, downloadable as JSON). Design/details in [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md) (§7).
 
 ## Architecture
@@ -75,5 +75,6 @@ Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/d
 | P627 | IUCN Red List taxon ID |
 | P1843 | vernacular name (monolingualtext) |
 | P13177 | homonymous taxon |
+| P183 | endemic to (drives `Endemic <group> of <place>` Commons categories) |
 
 The specific QIDs (taxon ranks, IUCN statuses, source items) and how P141/P627 drive the `{{IUCN}}` template are in [`docs/dev.md`](docs/dev.md#wikidata-qid-reference).
