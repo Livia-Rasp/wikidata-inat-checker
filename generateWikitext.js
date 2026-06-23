@@ -80,29 +80,38 @@ function endemicGroupWords(chain) {
 }
 
 /**
- * Candidate "Endemic <group> of <place>" titles for a taxon: every group word × place ×
- * bare/"the <place>" form. Used to warm the Commons category-existence cache in one pass.
+ * Ordered "Endemic <group> of <place>" candidate titles for one place label: most-specific
+ * group first, each tried both bare and with a leading "the".
+ * @param {string} place
+ * @param {string[]} groupWords
+ * @returns {string[]}
+ */
+function endemicTitlesForPlace(place, groupWords) {
+    const titles = [];
+    for (const word of groupWords)
+        for (const pl of [place, `the ${place}`])
+            titles.push(`Endemic ${word} of ${pl}`);
+    return titles;
+}
+
+/**
+ * All candidate titles across the places a taxon is endemic to (P183) — used to warm the
+ * Commons category-existence cache in one batched pass.
  * @param {string[]} endemicTo - place QIDs
  * @param {Map<string, string>} placeLabels - QID → English label
  * @param {string[]} groupWords
  * @returns {string[]}
  */
 function endemicCandidateTitles(endemicTo, placeLabels, groupWords) {
-    const titles = [];
-    for (const placeQid of endemicTo) {
-        const place = placeLabels.get(placeQid);
-        if (!place) continue;
-        for (const word of groupWords)
-            for (const pl of [place, `the ${place}`])
-                titles.push(`Endemic ${word} of ${pl}`);
-    }
-    return titles;
+    return endemicTo.flatMap(qid => {
+        const place = placeLabels.get(qid);
+        return place ? endemicTitlesForPlace(place, groupWords) : [];
+    });
 }
 
 /**
  * Resolves the most-specific existing Commons "Endemic <group> of <place>" category per
- * place the taxon is endemic to (P183), trying group words specific → general and the bare
- * and "the <place>" forms, with soft redirects followed. Warm the cache first via
+ * place the taxon is endemic to, following soft redirects. Warm the cache first via
  * checkCommonsCategories(endemicCandidateTitles(...)) so this is mostly cache hits.
  * @param {string[]} endemicTo - place QIDs
  * @param {Map<string, string>} placeLabels - QID → English label
@@ -111,18 +120,16 @@ function endemicCandidateTitles(endemicTo, placeLabels, groupWords) {
  */
 async function resolveEndemicCategories(endemicTo, placeLabels, groupWords) {
     const cats = [];
-    for (const placeQid of endemicTo) {
-        const place = placeLabels.get(placeQid);
+    for (const qid of endemicTo) {
+        const place = placeLabels.get(qid);
         if (!place) continue;
-        let found = null;
-        for (const word of groupWords) {
-            for (const pl of [place, `the ${place}`]) {
-                found = await resolveCommonsCategory(`Endemic ${word} of ${pl}`);
-                if (found) break;
+        for (const title of endemicTitlesForPlace(place, groupWords)) {
+            const found = await resolveCommonsCategory(title);
+            if (found) {
+                if (!cats.includes(found)) cats.push(found);
+                break;
             }
-            if (found) break;
         }
-        if (found && !cats.includes(found)) cats.push(found);
     }
     return cats;
 }
