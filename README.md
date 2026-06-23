@@ -20,6 +20,7 @@ npm install
 | Vernacular names | `npm run names` | `names.html` | [docs/names.md](docs/names.md) |
 | iNat links | `npm run links` | `links.html`, `links-ambiguous.html` | [docs/links.md](docs/links.md) |
 | Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `area.html` | [docs/area.md](docs/area.md) |
+| Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `npm run web` | `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
 
 The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e.g. `CR`, `EN`, `VU`) flags; the area checker takes `--lat`/`--lng`/`--radius` instead. The `--` after `npm run <tool>` is required so npm forwards the flags to the script.
