@@ -48,7 +48,7 @@ async function run(limit) {
     if (cachedSkipped > 0)
         console.log(`Cache: skipped ${cachedSkipped} already-checked entries.`);
 
-    console.log(`Checking ${uncached.size} taxa against iNat for CC0 photos...`);
+    console.log(`Checking ${uncached.size} taxa against iNat for CC0/CC-BY/CC-BY-SA photos...`);
     const { available, inatTaxonIds } = await processInatIds(uncached);
     console.log("iNat check complete.");
 
