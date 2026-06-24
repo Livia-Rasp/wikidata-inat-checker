@@ -28,6 +28,9 @@ Then open <http://localhost:8080/>:
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
 4. Click **Upload to Commons ↗** under a photo. The Commons `Special:Upload` form opens
    pre-filled; review it and click Upload there. Then tick **Mark as uploaded** on the card.
+5. On the photo you uploaded, tick **Use as Wikidata image (P18)** — exactly one photo per
+   taxon. This records the file as the item's image and queues the taxon's QuickStatements on
+   the main view (see [Adding P18 + category in batches](#adding-p18--category-in-batches)).
 
 > To actually submit the upload you must be **logged in to Wikimedia Commons** (upload-by-URL
 > requires a registered account). The app's job ends at handing you a correctly pre-filled
@@ -98,6 +101,33 @@ list** button exports the set as JSON (`{ "exported": …, "uploaded": [ "<filen
 > Note: the per-tool tracking category (`Media uploaded with wikidata-inat-checker`) is
 > intentionally **not** added yet, since the tool isn't public. The uploaded-files list is
 > what lets those files be back-filled with the category once it is.
+
+## Adding P18 + category in batches
+
+Uploading the file to Commons still leaves two edits on the **Wikidata** item: setting the
+image (**P18**) and linking the Commons category. The app collects these into a
+[QuickStatements](https://quickstatements.toolforge.org) batch so you can apply many at once
+instead of editing items one by one.
+
+- In a taxon's gallery, ticking **Use as Wikidata image (P18)** on the uploaded photo records
+  that file as the item's image. Only one photo per taxon can be picked; it also marks the
+  taxon **done** and uploaded.
+- The main view has a **QuickStatements** panel at the top. For every taxon that is *done and
+  has a picked image*, it emits two tab-separated commands:
+
+  ```
+  Q10444353	P18	"Cedarbergeniana imperfecta - 15895773.jpg"
+  Q10444353	Scommonswiki	"Category:Cedarbergeniana imperfecta"
+  ```
+
+  The first sets the image; the second adds the **Commons-category sitelink** (the
+  "Other sites" / Multilingual Sites link — not the P373 statement). The category is the
+  taxon's own name; the filename is the one the upload form used.
+- Click **Copy & clear**, paste into the QuickStatements *Import* box, and run the batch. The
+  picks are then **flushed** from the panel, so the same edit can never be applied twice.
+
+The panel is built entirely in the browser from the picks you make (kept in `localStorage`);
+nothing is submitted to Wikidata automatically.
 
 ## How it fits together
 

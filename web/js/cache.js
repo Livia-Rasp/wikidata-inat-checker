@@ -44,3 +44,25 @@ export const uploaded = {
     /** The wrapped JSON shape downloaded from the main page (§7.2). */
     exportObject() { return { exported: new Date().toISOString(), uploaded: this.list() }; },
 };
+
+// ---- picked Wikidata image (P18) per taxon --------------------------------------------
+// Records, per taxon QID, the one Commons file the user picked as that item's image (P18)
+// and the taxon's category name (= taxonName). The main view turns these into QuickStatements
+// (P18 + commonswiki sitelink) and flushes a qid once its statement has been copied, so the
+// same edit can't be applied to Wikidata twice. Shape: { [qid]: { file, category } }.
+const P18_KEY = 'winc-p18';
+
+function readP18() {
+    try { return JSON.parse(localStorage.getItem(P18_KEY) || '{}'); }
+    catch { return {}; }
+}
+function writeP18(map) {
+    try { localStorage.setItem(P18_KEY, JSON.stringify(map)); } catch { /* quota */ }
+}
+
+export const p18 = {
+    get(qid) { return readP18()[qid]; },
+    set(qid, file, category) { const m = readP18(); m[qid] = { file, category }; writeP18(m); },
+    clear(qid) { const m = readP18(); delete m[qid]; writeP18(m); },
+    all() { return readP18(); },
+};
