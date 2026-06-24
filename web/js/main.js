@@ -3,7 +3,7 @@
 // the iNat taxon, and the Commons category, shows the draft Wikitext (click to copy),
 // and opens the per-taxon photo gallery in a new tab.
 
-import { uploaded } from './cache.js';
+import { uploaded, p18 } from './cache.js';
 
 const $ = (id) => document.getElementById(id);
 const INAT_OBS = (id) =>
@@ -63,6 +63,7 @@ window.setDone = function (qid, done) {
     row.classList.toggle('done', done);
     if (done && hidingDone) row.classList.add('hide-done');
     if (!done) row.classList.remove('hide-done');
+    refreshQuickStatements(); // a done taxon with a picked P18 image gates into the panel
 };
 
 window.toggleHideDone = function () {
@@ -85,6 +86,67 @@ function restoreState() {
     if (hidingDone) $('hide-done').textContent = 'Show done';
 }
 
+// ---- QuickStatements panel: P18 image + Commons-category sitelink ----
+// A taxon contributes two commands once it is both marked done and has a picked P18 image
+// (chosen in its gallery tab). Copying flushes the included picks so each edit runs only once.
+const taxaByQid = new Map();
+
+function pendingQs() {
+    return Object.entries(p18.all())
+        .filter(([qid]) => localStorage.getItem('done-' + qid))
+        .map(([qid, { file, category }]) => ({
+            qid,
+            file,
+            category: category || taxaByQid.get(qid) || '',
+        }))
+        .filter((q) => q.file && q.category);
+}
+
+function qsLines(pending) {
+    return pending
+        .map((q) => `${q.qid}\tP18\t"${q.file}"\n${q.qid}\tScommonswiki\t"Category:${q.category}"`)
+        .join('\n');
+}
+
+function refreshQuickStatements() {
+    const pending = pendingQs();
+    $('qs-text').value = qsLines(pending);
+    $('qs-count').textContent = pending.length
+        ? `${pending.length} taxa · ${pending.length * 2} statements`
+        : '';
+    $('qs-copy').disabled = pending.length === 0;
+}
+
+function copyQuickStatements() {
+    const pending = pendingQs();
+    if (pending.length === 0) return;
+    const text = qsLines(pending);
+    const flush = () => {
+        pending.forEach((q) => p18.clear(q.qid));
+        refreshQuickStatements();
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(flush);
+    else {
+        const ta = $('qs-text');
+        ta.select();
+        document.execCommand('copy');
+        flush();
+    }
+}
+
+// Re-read done flags from localStorage onto the rows — picks made in a gallery tab auto-mark
+// the taxon done, so the checkbox/row must catch up when the main view regains focus.
+function syncDoneState() {
+    document.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+        const qid = cb.id.replace('cb-', '');
+        const done = !!localStorage.getItem('done-' + qid);
+        cb.checked = done;
+        const row = $('row-' + qid);
+        row.classList.toggle('done', done);
+        row.classList.toggle('hide-done', done && hidingDone);
+    });
+}
+
 // ---- uploaded-files backfill list: download button + count (§7.2) ----
 function refreshUploadedCount() {
     const n = uploaded.count();
@@ -101,8 +163,14 @@ function downloadUploaded() {
 }
 
 $('download-uploaded').addEventListener('click', downloadUploaded);
+$('qs-copy').addEventListener('click', copyQuickStatements);
 refreshUploadedCount();
-window.addEventListener('focus', refreshUploadedCount); // refresh after marking in a gallery tab
+// Refresh after marking/picking in a gallery tab (which may auto-mark a taxon done).
+window.addEventListener('focus', () => {
+    refreshUploadedCount();
+    syncDoneState();
+    refreshQuickStatements();
+});
 
 async function load() {
     try {
@@ -110,10 +178,12 @@ async function load() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const taxa = data.taxa || [];
+        taxa.forEach((t) => { if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName); });
         $('count').textContent = `${taxa.length} taxa`;
         if (data.generated) $('generated').textContent = `generated ${new Date(data.generated).toLocaleString()}`;
         $('tbody').innerHTML = taxa.map(rowHtml).join('\n');
         restoreState();
+        refreshQuickStatements();
     } catch (e) {
         $('status').textContent = `Could not load data/taxa.json (${e.message}). Run \`node checkImages.js\` first.`;
     }

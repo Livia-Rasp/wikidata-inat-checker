@@ -16,7 +16,10 @@ npm run web           # serves this folder at http://localhost:8080
 ```
 
 Open <http://localhost:8080/>, then use **View photos** on a taxon and **Upload to
-Commons** on a photo.
+Commons** on a photo. Tick **Use as Wikidata image (P18)** on the photo you uploaded to
+queue the item's image + Commons-category sitelink in the main view's **QuickStatements**
+panel, then **Copy & clear** to apply them in a batch (see
+[docs/commons-upload.md](../docs/commons-upload.md#adding-p18--category-in-batches)).
 
 ## Credits & attribution
 

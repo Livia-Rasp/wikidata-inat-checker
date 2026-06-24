@@ -8,7 +8,7 @@ import {
     resolvePlaceIds, placeHierarchy, locationString,
     findGeoCategory, findAuthorCategories,
 } from './enrich.js';
-import { uploaded } from './cache.js';
+import { uploaded, p18 } from './cache.js';
 
 const API = 'https://api.inaturalist.org/v1/observations';
 const PER_PAGE = 200;
@@ -67,8 +67,10 @@ function card({ obs, photo }) {
     const destFile = buildDestFile({ photo, taxonName });
     const isUp = uploaded.has(destFile);
 
+    const isP18 = qid && p18.get(qid)?.file === destFile;
+
     const el = document.createElement('div');
-    el.className = 'card' + (isUp ? ' uploaded' : '');
+    el.className = 'card' + (isUp ? ' uploaded' : '') + (isP18 ? ' p18-selected' : '');
     el.innerHTML = `
       <a class="thumb" href="https://www.inaturalist.org/photos/${photo.id}" target="_blank">
         <img loading="lazy" src="${thumb}" alt="">
@@ -80,13 +82,36 @@ function card({ obs, photo }) {
         <span class="faves">★ ${faves}</span>
       </div>
       <a class="upload disabled" aria-disabled="true">Preparing…</a>
-      <label class="mark"><input type="checkbox" ${isUp ? 'checked' : ''}> Mark as uploaded</label>`;
+      <label class="mark"><input type="checkbox" ${isUp ? 'checked' : ''}> Mark as uploaded</label>
+      ${qid ? `<label class="p18"><input type="radio" name="p18-pick" ${isP18 ? 'checked' : ''}> Use as Wikidata image (P18)</label>` : ''}`;
 
     const cb = el.querySelector('.mark input');
     cb.addEventListener('change', () => {
         uploaded.set(destFile, cb.checked);
         el.classList.toggle('uploaded', cb.checked);
     });
+
+    // Pick exactly one photo as the taxon's Wikidata image (P18). Picking also marks the
+    // taxon "done" and uploaded, so it surfaces in the main view's QuickStatements panel.
+    // Clicking the already-picked radio clears the selection.
+    const radio = el.querySelector('.p18 input');
+    if (radio) {
+        radio.addEventListener('click', () => {
+            if (p18.get(qid)?.file === destFile) {
+                radio.checked = false;
+                p18.clear(qid);
+                el.classList.remove('p18-selected');
+                return;
+            }
+            p18.set(qid, destFile, taxonName);
+            localStorage.setItem('done-' + qid, '1');
+            uploaded.set(destFile, true);
+            cb.checked = true;
+            el.classList.add('uploaded');
+            document.querySelectorAll('.card.p18-selected').forEach((c) => c.classList.remove('p18-selected'));
+            el.classList.add('p18-selected');
+        });
+    }
     return el;
 }
 

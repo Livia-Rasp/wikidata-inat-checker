@@ -11,6 +11,22 @@ a { color: #36c; }
 #sort button.active { background: #36c; color: #fff; border-color: #36c; }
 .muted { color: #888; font-size: 0.8em; }
 
+/* ---- QuickStatements panel ---- */
+#qs-panel { margin: 0 0 1em; }
+#qs-panel .qs-head {
+  display: flex; gap: 0.6em; align-items: center; margin-bottom: 0.3em; font-size: 0.9em;
+}
+#qs-copy {
+  font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;
+  border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
+}
+#qs-copy:disabled { opacity: 0.5; cursor: default; }
+#qs-text {
+  width: 100%; box-sizing: border-box; min-height: 4.5em; resize: vertical;
+  font-family: monospace; font-size: 0.82em; line-height: 1.5;
+  padding: 0.5em 0.75em; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8;
+}
+
 /* ---- main table (mirrors drafts.html) ---- */
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; padding: 0.5em 0.75em; background: #f0f0f0;
@@ -85,3 +101,12 @@ tr.hide-done { display: none; }
 .card.uploaded .badge { display: inline-block; }
 .card.uploaded { border-color: #2a2; }
 .card.uploaded img { opacity: 0.6; }
+
+/* "Use as Wikidata image (P18)" picker — single-select across the gallery */
+.card .p18 {
+  display: flex; align-items: center; gap: 0.4em;
+  padding: 0.35em 0.6em; font-size: 0.78em; color: #555; cursor: pointer;
+  border-top: 1px solid #eee;
+}
+.card.p18-selected { border-color: #c60; box-shadow: 0 0 0 1px #c60; }
+.card.p18-selected .p18 { color: #c60; font-weight: bold; }

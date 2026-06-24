@@ -58,6 +58,11 @@ A **Mark as uploaded** checkbox on each photo records what you've uploaded (kept
 browser); the main page's **Download uploaded list** button exports that list as JSON. All
 the category/location lookups are cached locally so repeats are fast.
 
+Picking **Use as Wikidata image (P18)** on the uploaded photo queues the two remaining
+Wikidata edits — the image (P18) and the Commons-category sitelink — into a
+**QuickStatements** panel on the main page, so you can apply them to many items in one batch;
+copying clears them so each edit runs only once.
+
 See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/README.md).
 
 ## License
