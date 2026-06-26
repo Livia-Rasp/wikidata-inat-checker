@@ -125,9 +125,61 @@ budget for several traps:
 - **Discovery algorithm:** candidate taxa = the taxon's ancestor scientific names + iconic
   vernacular/Flora-Fauna labels; candidate places = the resolved admin levels (+ "the" variant
   for country). Build `<taxon> {of,in} <place>` for the cross product, existence-check (§3,
-  batched) **and resolve soft redirects to their real target**, then select the **most
-  specific** that resolves to a real category (deepest place, then deepest taxon, then "of"
-  before "in") to avoid over-categorising and to never emit a redirect.
+  batched) **and resolve soft redirects to their real target**.
+
+**Two axes, not one.** Selecting a single "most specific" category loses the actual county/city
+a photo was taken in, because fine places rarely have a `<Taxon> of <Place>` category and the
+search falls through to a coarser *place*. Instead emit **up to two** categories:
+
+- **Taxon axis** — the most *taxon*-specific `<Taxon> {of,in} <Place>` (iterate taxa
+  deepest-first; place falls through). Captures the precise lineage even at a coarse place.
+- **Place axis** — the most *place*-specific category: at the finest place, try the kingdom
+  label (`Flora/Fauna/Fungi of <place>`) then the **plain place category**. Plain titles must
+  follow Commons' **disambiguated** naming — a US county is `"<Name> County, <State>"`, a town
+  `"<Name>, <State>"`; the bare admin name (`Perry`, `Medina`) hits an unrelated or
+  disambiguation page. So sub-state levels are only tried qualified, and otherwise fall up a level.
+- **Drop redundant (nested) categories** structurally — no extra queries. Tag each pick
+  `(taxonDepth, placeLevel)`; one is an ancestor of (and dropped alongside) the other iff it is
+  ≤ on **both** axes. This holds because every place is one nested hierarchy, so
+  `<Taxon> of <FinePlace>` ⊂ `<CoarserTaxon> of <CoarserPlace>` exactly when both axes are ≤.
+  Independent picks (different axes) are both kept.
+
+**Finest place — reverse geocoding.** iNat `place_ids` already reverse-geocode the GPS but cover
+sub-county levels patchily. A reverse geocoder fills the municipality/town level (and any missing
+county). **OSM Nominatim** (`/reverse?format=jsonv2&lat=&lon=&zoom=14`) is CORS-open and key-less;
+map its `address` fields (`city`/`town`/`village`/`municipality` → town, `county`, `state`,
+`country`) to admin levels. Honour its **~1 req/sec** policy: cache per rounded coordinate
+(~110 m) and serialise calls ≥1.1 s apart. Browsers can't set `User-Agent` (forbidden header) —
+the page **Referer** satisfies the identification requirement instead. Merge only the levels iNat
+lacked (iNat's bare names already match Commons); on any failure fall back to the iNat hierarchy.
+
+**Don't geocode obscured points.** Threatened taxa (and user geoprivacy) expose a **randomized**
+coordinate (`geoprivacy`/`taxon_geoprivacy` = `obscured`/`private`, large `public_positional_
+accuracy`). Reverse-geocoding it assigns a confidently-wrong town/county, so skip the geocode for
+those (and drop the municipality level once accuracy exceeds ~2 km). iNat's exposed admin
+`place_ids` for obscured records are still the *true* containing places — keep using them. Bonus:
+skipping obscured points also keeps **threatened-species localities coarse**, which is the point
+of obscuring — only open observations get a precise place category.
+
+**Exact place categories via Wikidata (ISO 3166-2).** Admin-division naming on Commons is
+region-specific — `<X> County, <State>` (US), `<X> Province`, `<X> Canton`, `<X> Department`,
+`Landkreis <X>`, often accented (`Sucumbíos Province`) — too varied to guess. Resolve it instead:
+Nominatim's reverse `address` carries the province's **ISO 3166-2 code** (`ISO3166-2-lvl4`, e.g.
+`EC-U`) and the county name. One WDQS query maps them to the exact Commons category — the province
+via `?area wdt:P300 "<ISO>"`, the county as its `wdt:P131` child whose `rdfs:label`/`skos:altLabel`
+matches the Nominatim name — then read `wdt:P373` (or the `commonswiki` Category sitelink). This
+yields `Sucumbíos Province` / `Lago Agrio Canton` with no heuristics; cache per ISO+county.
+
+**Two more naming traps** (both existence-checked, so they fail safe):
+- **Disambiguation pages.** A bare place name often lands on a `{{Disambig}}` page (`Victoria`,
+  `Washington`, `Georgia`) — a real page, never a valid category. Detect the disambiguation
+  template (as with soft redirects) and reject it. (Ambiguous *non*-disambig pages, e.g. a
+  Bermuda parish `Smiths`, still slip through — a residual small-territory limitation.)
+- **Diacritics.** iNat carries accents (`Québec`) that Commons titles often drop
+  (`Flora of Quebec`). Retry each title deaccented (`String.normalize('NFD')` minus combining
+  marks) so the accented form falls back to the plain Commons title.
+- **Place floor.** `place_ids` can include continents (admin_level < 0); cap the place search at
+  country so images aren't filed into a continent.
 
 ### Endemic variant — `Endemic <group> of <place>` (from P183)
 
@@ -184,9 +236,10 @@ negatives) per user ID.
 
 - **Place naming is context-dependent.** The same country is `United States` for `{{Taken on}}`
   date categories but `the United States` for `<Taxon> of <Place>` categories. Don't assume a
-  single canonical spelling; generate variants and existence-check. iNat admin-0 names mostly
-  match but a few diverge (Czechia/Czech Republic, Türkiye/Turkey, diacritics) — a small
-  iNat→Commons mapping table is the eventual fix.
+  single canonical spelling; generate variants and existence-check. **Diacritics** are handled by
+  retrying each title deaccented (`Québec` → `Flora of Quebec`); a few word-level divergences
+  remain (Czechia/Czech Republic, Türkiye/Turkey) — a small iNat→Commons mapping table is the
+  eventual fix.
 - **Cache everything**, including negative results — these external facts rarely change. A
   cached "none" won't pick up a category created later; clearing the cache re-checks.
 - **Provenance once.** For iNaturalist sources, `{{iNaturalist|<obs id>}}` +
@@ -204,6 +257,9 @@ negatives) per user ID.
 | Copy-upload allowlist | `MediaWiki:Copyupload-allowed-domains` |
 | iNat API | `https://api.inaturalist.org/v1` (CORS `*`) |
 | WDQS | `https://query.wikidata.org/sparql` (CORS) |
+| OSM Nominatim (reverse geocode) | `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=&lon=&zoom=14` (CORS `*`; ~1 req/sec policy, identify via Referer/User-Agent; ODbL attribution) |
 | Commons license templates | `cc-by` → `cc-by-4.0`, `cc-by-sa` → `cc-by-sa-4.0`, `cc0` → `Cc-zero` |
-| iNat place admin levels | `0` country, `10` state, `20` county |
+| iNat place admin levels | `0` country, `10` state, `20` county; we also use `30` for town/municipality (from reverse geocoding) |
+| iNat geoprivacy fields | `geoprivacy`, `taxon_geoprivacy` (`open`/`obscured`/`private`), `public_positional_accuracy` (m) — gate precise geocoding on these |
 | Wikidata: iNat user ID | **P12022** · Commons category **P373** · Creator **P1472** |
+| Wikidata: place → Commons cat | ISO 3166-2 **P300** (province) · located-in **P131** (county) · **P373**/`commonswiki` Category sitelink |

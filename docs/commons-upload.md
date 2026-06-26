@@ -60,6 +60,7 @@ produces wikitext like:
 {{INaturalistreview}}
 [[Category:Melanerpes carolinus]]
 [[Category:Picidae of Texas]]
+[[Category:Grayson County, Texas]]
 ```
 
 Where each piece comes from:
@@ -77,12 +78,22 @@ Where each piece comes from:
 - **`{{iNaturalist}}` + `{{INaturalistreview}}`** — link the source observation and flag the
   file for the Commons license-review bot.
 - **Species category** — `[[Category:<Taxon>]]` for the taxon you're sourcing the image for.
-- **Geographic taxon category** — the most specific existing taxon-in-place category on
-  Commons (e.g. `Picidae of Texas`, `Odonata of Argentina`, `Fabaceae in Hawaii`), found by
-  checking the taxon's ancestry and iconic group against the location. Both prepositions
-  (`of`/`in`) are tried, plants/animals map to `Flora`/`Animals`, and soft redirects (e.g.
-  `Plants of Hawaii` → `Flora of Hawaii`) are followed so images never land in a redirect.
-  Added only when a real category exists.
+- **Geographic categories** — up to two, capturing **two independent axes** so a photo is
+  filed as specifically as possible on both:
+  - a **taxon-in-place** category — the most *taxon*-specific existing one (e.g.
+    `Picidae of Texas`, `Odonata of Argentina`, `Fabaceae in Hawaii`); the place falls back to
+    a coarser level when a finer one has no category. Both prepositions (`of`/`in`) are tried,
+    plants/animals/fungi map to `Flora`/`Animals`/`Fungi`, and soft redirects (e.g.
+    `Plants of Hawaii` → `Flora of Hawaii`) are followed so images never land in a redirect.
+  - a **most-specific location** category — the finest *place* available, as
+    `Flora/Fauna/Fungi of <place>` if that exists, else the plain place category named the way
+    Commons does (a county is `Grayson County, Texas`, a town `Williston, Vermont` — never the
+    bare iNat name, which would hit an unrelated page). The finest place comes from iNat's
+    `place_ids` plus an OpenStreetMap (Nominatim) reverse-geocode of the coordinates, which
+    adds the municipality/town level (and any missing county) iNat lacked.
+  - **No redundancy:** if one of the two is a subcategory of the other (e.g. the taxon-in-place
+    category already sits at the finest place), only the more specific is kept; otherwise both
+    are added. Each is emitted only when a real category exists.
 - **Author category** — if the photographer has a Commons category, it's added too. It's
   discovered from the iNaturalist user ID via Commons' `{{Inaturalist user}}` template and
   Wikidata's *iNaturalist user ID* property (P12022) — so it currently matches only the

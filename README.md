@@ -49,8 +49,11 @@ The generated file description aims to be comprehensive but not overloaded:
   description, taken from the observation's identified taxon and its location;
 - a `{{Taken on|<date>|location=<Country>}}` date (so the file is categorised by date and
   country);
-- **geographic taxon categories** when they exist on Commons (e.g. `Picidae of Texas`,
-  `Odonata of Argentina`);
+- **geographic categories** along two axes, when they exist on Commons: a taxon-in-place
+  category (e.g. `Picidae of Texas`) and the most-specific *location* category (e.g.
+  `Grayson County, Texas`, or a town when one exists) — the photo's coordinates are
+  reverse-geocoded (OpenStreetMap Nominatim) to reach the county/municipality level, and a
+  category nested inside the other is dropped so there's no redundancy;
 - an **author category** when the photographer has one (discovered via Commons'
   `{{Inaturalist user}}` template and Wikidata's iNaturalist-user-ID property).
 

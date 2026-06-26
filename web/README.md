@@ -36,3 +36,11 @@ The port from the original Python into this project's JavaScript was carried out
 assistance of **Claude (Anthropic)**, used to analyze the upstream source and adapt the
 relevant logic into this codebase. Many thanks to Tiago for the original work that made this
 feature possible.
+
+### Data sources
+
+Geographic categories are reverse-geocoded with the **[OpenStreetMap](https://www.openstreetmap.org/)
+[Nominatim](https://nominatim.org/) service** to reach the county/municipality level. Map data
+© OpenStreetMap contributors, available under the [Open Database License](https://www.openstreetmap.org/copyright).
+The app caches results and throttles requests to respect Nominatim's
+[usage policy](https://operations.osmfoundation.org/policies/nominatim/) (max ~1 request/second).

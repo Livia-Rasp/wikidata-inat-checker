@@ -612,7 +612,7 @@ OPEN (finetune later, shared with §7.3/§7.4):
 
 **Refinement (2026-06, after live imports):** real Commons data exposed three failure modes,
 now handled in `enrich.js` (`softRedirectTarget`, `loadCatInfo`, `resolveCategory`, and
-`ICONIC_LABELS` / dual prepositions in `findGeoCategory`):
+`ICONIC_LABELS` / dual prepositions in `findGeoCategories`):
 - **Soft redirects.** `Plants of <Place>` is a `{{Category redirect|Flora of <Place>}}` soft
   redirect (not `missing`, not `#REDIRECT`), so the old existence check filed images into the
   deprecated redirect. We now fetch each candidate's wikitext, detect the redirect template
@@ -627,9 +627,144 @@ now handled in `enrich.js` (`softRedirectTarget`, `loadCatInfo`, `resolveCategor
   `Anseriformes of Hawaii`, plant in Yemen→`Flora of Yemen` (kingdom fallback, real, not the
   `Plants of …` redirect).
 
+**Refinement (2026-06, two-axis + most-specific location):** the single "most-specific
+category" rule lost the actual county/city a photo was taken in — for fine places a
+`<Taxon> of <Place>` category rarely exists, so the search fell through to a coarser *place*.
+`findGeoCategory` was replaced by **`findGeoCategories`**, which returns **0–2** categories
+along two independent axes and removes redundancy:
+- **Taxon anchor** (finest taxon): iterate taxa **outer**, deepest-first; place falls through
+  (e.g. `Cardinalis cardinalis in the United States` when the state/county species cat is absent).
+- **Place anchor** (finest place): iterate places **outer**, deepest-first; at each place try
+  the kingdom label (`Flora/Fauna/Fungi of <place>`) then the **plain place category**. The
+  plain title follows Commons' disambiguated naming — county `→ "<Name> County, <State>"`, town
+  `→ "<Name>, <State>"` (the bare iNat name "Perry"/"Medina" hits an unrelated/disambiguation
+  page), so sub-state levels are only tried qualified and otherwise fall up a level.
+- **Dedup is structural, no extra queries:** each anchor is tagged `(taxonDepth, placeLevel)`;
+  `a` is an ancestor of `b` (hence dropped) iff it's ≤ on **both** axes. Sound because all
+  places are one nested hierarchy, so `<Taxon> of <FinePlace>` ⊂ `<CoarserTaxon> of <CoarserPlace>`
+  exactly when both axes are ≤. Independent anchors are both kept.
+- **Finest place via reverse geocoding:** `placeHierarchy` now returns an ordered `places`
+  list (all numeric admin levels, deepest-first). `reverseGeocode(lat, lon)` (OSM **Nominatim**,
+  CORS-open, no key; cached per ~110 m cell and serialised ≥1.1 s apart for the ~1 req/sec
+  policy — browsers identify via Referer since `User-Agent` can't be set) supplies the
+  municipality/town level (and any missing county/state/country); `mergeGeocodedPlaces` adds
+  only the levels iNat lacked (iNat's bare names win). Verified live (2026-06): obs in
+  Mobile, AL → `Cardinalis cardinalis in Alabama` + `Mobile, Alabama` (city, via geocode);
+  obs in Massac Co., IL → `… in Illinois` + `Massac County, Illinois` (town `Round Knob` had
+  no Commons cat, fell up to county).
+
+**Safeguards (2026-06, from thorough testing on the real image-less targets):** four side
+effects surfaced and were fixed; verified across diverse kingdoms/regions (Madagascar, Yemen,
+Bermuda, Brazil, …) and a headless-Chrome run of the app:
+- **Precision-gated geocoding (`geocodePlaces`).** The targets are mostly *threatened* taxa
+  whose iNat coordinates are **obscured** (randomized ~km). Reverse-geocoding that point would
+  assign a confidently-wrong town/county. So obscured/private records and `public_positional_
+  accuracy` > 20 km skip the geocode entirely; > 2 km drops only the municipality level. (iNat's
+  exposed admin `place_ids` for obscured records are the *true* places, so they're still used.)
+- **Place floor = country.** `placeHierarchy.places` now spans all admin levels including
+  continents (`North America` at admin_level −10); the category search filters to `level ≥ 0`
+  so images aren't filed into a continent.
+- **Disambiguation pages.** A bare place name often lands on a `{{Disambig}}` page (`Victoria`,
+  `Washington`, `Georgia`) — a real page that's never a valid category. `isDisambiguation`
+  rejects them like a missing page (surgical: `California`, `Northern Cape`, `Antananarivo` are
+  kept). Residual: ambiguous *non*-disambig pages (`Smiths` for a Bermuda parish) still slip
+  through — a small-territory edge case.
+- **Diacritic fallback (`resolveAnyCase`).** iNat carries accents (`Québec`) that Commons
+  titles often drop (`Flora of Quebec`); each title is retried deaccented, upgrading the broad
+  bare `Quebec` to `Flora of Quebec`.
+
+**Refinement (2026-06, exact non-US place categories via Wikidata).** The heuristic plain-place
+names (`<X> County, <State>`) only fit US-style admin divisions, so e.g. an Ecuadorian observation
+fell up to `… of Ecuador` (the `Sucumbíos Province` / `Lago Agrio Canton` categories exist but
+under names we can't guess: accented, with `Province`/`Canton` suffixes). Now, on the (non-obscured)
+geocode path, `parseNominatim` also returns the province **ISO 3166-2 code** + county name, and
+`resolvePlaceCats(iso, county)` (WDQS, cached in `placewd`) maps them to the **exact** Commons
+category — province via `wdt:P300`, county as its named `wdt:P131` child, reading `wdt:P373`/the
+`commonswiki` Category sitelink. The category is attached as `commonsCat` on the place and used as
+the place anchor's plain title (preferred over the heuristic). `mergeGeocodedPlaces` upgrades a
+level iNat already had with the resolved `commonsCat`. Verified: the `Symmachia batesi` observation
+that prompted this now yields `Lago Agrio Canton` instead of bottoming out at `Ecuador`. Obscured
+records skip this (no ISO, and threatened localities should stay coarse).
+
 ### 7.7 Other `{{Information}}` fields — keep as-is
 
 `author`, `source`, `permission`, `other versions` stay as in the current
 `buildDescription` (§1). In particular **`source` keeps the raw photo URL**
 (`https://www.inaturalist.org/photos/<photo_id>`) and the separate `{{iNaturalist|<obs_id>}}`
 line below the Information block remains.
+
+## 8. Testing the enrichment & the app (no test suite)
+
+There is no automated test suite; the app is plain ES modules that call live APIs. Two harness
+patterns cover it, both runnable from throwaway scripts (keep them in a temp/scratch dir, not the
+repo — see the project's "verify in a temp dir" note). Node ≥18 has a global `fetch`; Node ≥21
+has a global `WebSocket` (used for the Chrome DevTools Protocol below).
+
+### 8.1 Node harness — exercise `enrich.js` + `commonsUpload.js` directly
+
+The modules are browser-oriented but run in Node with two shims:
+
+- **Stub `localStorage`** before importing, so `cache.js`'s `Cache`/`localStorage` calls work
+  (the `Cache` ctor already swallows a missing `localStorage`, but a stub gives real caching):
+  ```js
+  const store = new Map();
+  globalThis.localStorage = { getItem:(k)=>store.has(k)?store.get(k):null,
+    setItem:(k,v)=>store.set(k,v), removeItem:(k)=>store.delete(k) };
+  ```
+- **Inject a `User-Agent`** into `fetch` *only in Node* — Nominatim rejects key-less, refererless
+  requests, but in a browser you must NOT set it (forbidden header; the page Referer is used):
+  ```js
+  const real = globalThis.fetch;
+  globalThis.fetch = (u, o={}) => real(u, { ...o, headers:{ ...(o.headers||{}),
+    'User-Agent':'wikidata-inat-checker dev test (you@example.com)' } });
+  ```
+
+Then mirror `gallery.js`'s `enrich()` exactly to get the real generated wikitext:
+`resolvePlaceIds(obs.place_ids)` → `placeHierarchy` → `mergeGeocodedPlaces(h, await geocodePlaces(obs))`
+→ `Promise.all([findGeoCategories(obs.taxon.id, h), findAuthorCategories(obs.user.id)])` →
+`buildDescription({ observation, photo, taxonName, location: locationString(h), country: h.country, extraCategories })`.
+
+**Use representative inputs:** load real targets from `web/data/taxa.json` (image-less, mostly
+*threatened* taxa) and fetch their observations — NOT common species. Common species have rich
+Commons presence that hides the real behaviour (e.g. they show a `<Species> in <Place>` /
+species-category overlap that does **not** occur for sparse rare taxa, and they hide the
+obscured-coordinate path because their points aren't obscured). Include at least one obscured
+record (`geoprivacy`/`taxon_geoprivacy === 'obscured'`, `public_positional_accuracy` ~30 km) to
+confirm `geocodePlaces` returns `[]`.
+
+**Oddity-scanner false positives to expect** (when auto-grepping generated categories): tautonyms
+(`Vulpes vulpes`, `Cardinalis cardinalis`) look like a doubled word; and any name containing the
+substring `nan` (Anta**nan**arivo, Boswellia **nan**a) trips a naïve case-insensitive `NaN` check.
+
+### 8.2 Headless-Chrome harness — the browser-only paths
+
+The Node harness can't verify ES-module loading, CORS from a real origin, Nominatim via **Referer**
+(the only way it's identified in-browser), or the DOM. Drive Chrome over CDP — no Puppeteer needed:
+
+1. `google-chrome --headless=new --no-sandbox --remote-debugging-port=9333 --user-data-dir=<tmp> about:blank`.
+2. Poll `http://127.0.0.1:9333/json/version`; open a tab with **`PUT /json/new?about:blank`**.
+3. Connect a global `WebSocket` to the tab's `webSocketDebuggerUrl`; `Runtime.enable` + `Log.enable`
+   + `Page.enable` **before** `Page.navigate` so early errors are caught.
+4. Collect `Runtime.exceptionThrown`, `Runtime.consoleAPICalled` (type `error`), `Log.entryAdded`
+   (level `error`). Then `Runtime.evaluate({ expression, returnByValue:true, awaitPromise:true })`.
+   **Response nesting gotcha:** the value is at `msg.result.result.value` (and `result.exceptionDetails`).
+
+Useful in-page assertions: main view → `#tbody tr` count == `taxa.json` length, `#qs-panel` present;
+gallery → `.card` count, every `a.upload` href contains `wpUploadDescription`, decode it
+(`new URL(href).searchParams.get('wpUploadDescription')`) and regex out `[[Category:…]]`, and read
+`localStorage['winc-cache-geocode']` — a non-empty geocode cache proves **Nominatim ran from the
+browser** (Referer accepted, no CORS error). A clean run shows zero collected errors.
+
+### 8.3 What the testing has to cover (regression checklist)
+
+- Two-axis result with **no nesting** (`findGeoCategories` ≤2 cats; neither a subcategory of the
+  other) — and dedup when they coincide.
+- **Obscured/coarse** coordinates → `geocodePlaces` skips geocoding (no fabricated town/county,
+  and threatened localities stay at country level by design).
+- **Exact non-US places** resolve via Wikidata (`Lago Agrio Canton`, `Sucumbíos Province`) on the
+  open-coordinate path; the canonical name is preferred over the heuristic.
+- **Diacritics** (`Québec` → `Flora of Quebec`), **disambiguation** pages rejected
+  (`Victoria`/`Washington`/`Georgia`), **place floor** (no continent categories).
+- Plain-place uses Commons' **disambiguated** naming (`<X> County, <State>`, `<Town>, <State>`),
+  never the bare iNat name. Known residual: ambiguous non-disambig pages (a Bermuda parish
+  `Smiths`) still slip through.
