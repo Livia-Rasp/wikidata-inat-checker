@@ -6,7 +6,8 @@
 import { LICENSE_MAP, buildUploadUrl, buildDestFile } from './commonsUpload.js';
 import {
     resolvePlaceIds, placeHierarchy, locationString,
-    findGeoCategory, findAuthorCategories,
+    geocodePlaces, mergeGeocodedPlaces,
+    findGeoCategories, findAuthorCategories,
 } from './enrich.js';
 import { uploaded, p18 } from './cache.js';
 
@@ -118,11 +119,14 @@ function card({ obs, photo }) {
 // Compute enrichment for one photo and wire its upload link.
 async function enrich(el, { obs, photo }) {
     const hierarchy = placeHierarchy(obs.place_ids);
-    const [geo, authorCats] = await Promise.all([
-        obs.taxon?.id ? findGeoCategory(obs.taxon.id, hierarchy) : null,
+    // Fill in finer/missing place levels (municipality, county) by reverse-geocoding the point,
+    // but only when the coordinates are precise enough (geocodePlaces gates obscured/coarse ones).
+    mergeGeocodedPlaces(hierarchy, await geocodePlaces(obs));
+    const [geoCats, authorCats] = await Promise.all([
+        obs.taxon?.id ? findGeoCategories(obs.taxon.id, hierarchy) : [],
         obs.user?.id ? findAuthorCategories(obs.user.id) : [],
     ]);
-    const extraCategories = [geo, ...(authorCats || [])].filter(Boolean);
+    const extraCategories = [...(geoCats || []), ...(authorCats || [])].filter(Boolean);
     const url = buildUploadUrl({
         observation: obs, photo, taxonName,
         location: locationString(hierarchy), country: hierarchy.country || '',
