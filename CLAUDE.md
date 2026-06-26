@@ -6,6 +6,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ```sh
 node checkImages.js --limit 500 --iucn VU   # image checker (--limit, --iucn optional)
+node checkImages.js --taxon Orchidaceae     # scope to a clade (taxon + iNat descendants); name or iNat ID, composes with --iucn/--limit
 npm run images -- --limit 500 --iucn VU     # same via npm (-- required to forward flags)
 
 node checkNames.js --limit 500 --iucn CR    # vernacular names checker (zero-P1843 taxa only by default)

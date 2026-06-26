@@ -21,9 +21,13 @@ Results are cached locally in `cache-images.json` so re-runs skip taxa already c
 npm run images                         # default: 5000 taxa
 npm run images -- --limit 500          # custom limit
 npm run images -- --limit 500 --iucn VU  # limit + IUCN status filter (VU, EN, CR, NT, DD, EX, EW, LC, NE)
+npm run images -- --taxon Orchidaceae  # scope the scan to one clade (orchids only)
+npm run images -- --taxon 47217 --iucn EN  # by iNat ID, combined with an IUCN filter
 ```
 
 `--limit` caps how many not-yet-cached candidate taxa are collected (each is a real no-image taxon; cached entries are skipped, so re-runs keep reaching new ones rather than re-fetching the same front-of-set). `--iucn` filters by IUCN conservation status (P141), useful for prioritising threatened species. Note the `--` separator after `npm run images` — it's required so npm forwards the flags to the script rather than interpreting them itself.
+
+`--taxon <name|id>` scopes the run to a single clade — the given taxon **plus all of its iNat descendants**. It accepts either a scientific name (`Orchidaceae`) or a numeric iNat taxon ID (`47217`). The clade is computed locally from the iNat taxa index's `ancestry` paths (a single sub-second SQLite scan), so a scoped run is typically *faster* than an unscoped one: only the clade's IDs are sent to Wikidata. It composes with `--iucn` and `--limit` (e.g. endangered orchids). If a name is **ambiguous** (a homonym shared by 2+ taxa, e.g. `Iris`), the checker prints the candidate iNat IDs and ranks and exits so you can re-run with the exact ID; an unknown name exits with a "not found" message.
 
 Coverage caveat: the scan only reaches Wikidata items whose P3151 points to an iNat taxon present in the local index (active taxa). Items linked to inactive/merged iNat taxa are skipped — they have no current iNat photo to source anyway.
 
