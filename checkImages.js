@@ -13,6 +13,36 @@ const CACHE_FILE = 'cache-images.json';
 const args = parseArgs();
 const limit = parseLimit(args, 5000);
 const { iucnArg, iucnQid } = parseIucnArg(args);
+const taxonArg = typeof args.taxon === 'string' ? args.taxon : null;
+
+/**
+ * Resolve a --taxon value (iNat ID or name) to a scoped set of iNat IDs: the taxon itself
+ * plus all of its descendants. Exits the process on an unknown name or an ambiguous homonym.
+ * @param {string} arg
+ * @param {Awaited<ReturnType<typeof loadTaxaDb>>} taxaDb
+ * @returns {string[]}
+ */
+function resolveTaxonScope(arg, taxaDb) {
+    let taxonId;
+    if (/^\d+$/.test(arg)) {
+        taxonId = arg;
+    } else {
+        const matches = taxaDb.getAll(arg);
+        if (matches.length === 0) {
+            console.error(`Taxon "${arg}" not found in the iNat taxa index.`);
+            process.exit(1);
+        }
+        if (matches.length > 1) {
+            console.error(`Taxon "${arg}" is ambiguous (${matches.length} matches). Re-run with the iNat ID:`);
+            for (const m of matches) console.error(`  ${m.inatId}  (${m.rank})`);
+            process.exit(1);
+        }
+        taxonId = matches[0].inatId;
+    }
+    const ids = [taxonId, ...taxaDb.descendantInatIds(taxonId)];
+    console.log(`Scope: ${arg} (${taxonId}) — ${ids.length} taxa (self + descendants).`);
+    return ids;
+}
 
 /** Queries Wikidata for taxa without P18, checks iNat for CC-licensed photos, writes drafts.html. */
 async function run(limit) {
@@ -22,6 +52,10 @@ async function run(limit) {
     const taxaDb = await loadTaxaDb();
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
+
+    // --taxon scopes the run to a clade: the taxon itself plus all its iNat descendants.
+    const scopedIds = taxonArg ? resolveTaxonScope(taxonArg, taxaDb) : null;
+    const scopedSet = scopedIds ? new Set(scopedIds) : null;
 
     // Find Wikidata taxa with P3151 but no P18. With an IUCN status, query Wikidata
     // directly (P141 is selective, so the no-P18 set is small and WDQS answers in
@@ -34,11 +68,13 @@ async function run(limit) {
         : `Querying Wikidata by iNat ID for taxa without P18 (limit ${limit})...`);
     const source = iucnQid
         ? fetchWdImagesByIucn(iucnQid)
-        : fetchWdTaxaByInatIds(taxaDb.allInatIds());
+        : fetchWdTaxaByInatIds(scopedIds ?? taxaDb.allInatIds());
     const uncached = new Map(); // iNat ID → Wikidata URI
     const seenIds = new Set();
     let cachedSkipped = 0;
     for await (const row of source) {
+        // The IUCN path queries Wikidata directly, so apply the --taxon scope here.
+        if (scopedSet && !scopedSet.has(row.inatId)) continue;
         if (seenIds.has(row.inatId)) continue;
         seenIds.add(row.inatId);
         if (cache[row.inatId]) { cachedSkipped++; continue; }

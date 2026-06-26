@@ -27,8 +27,11 @@ The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e
 
 ```sh
 npm run images -- --limit 500 --iucn CR   # 500 Critically Endangered taxa
+npm run images -- --taxon Orchidaceae     # scope the image checker to one clade (orchids)
 npm run links -- --limit 1000 --iucn EN   # 1000 Endangered taxa
 ```
+
+The image checker also accepts `--taxon <name|id>` to restrict the scan to a single clade (the taxon plus all its iNat descendants); it accepts a scientific name or a numeric iNat ID and composes with `--iucn`/`--limit`.
 
 ## iNaturalist → Commons upload app
 
