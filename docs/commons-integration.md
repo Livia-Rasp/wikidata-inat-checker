@@ -134,10 +134,14 @@ search falls through to a coarser *place*. Instead emit **up to two** categories
 - **Taxon axis** — the most *taxon*-specific `<Taxon> {of,in} <Place>` (iterate taxa
   deepest-first; place falls through). Captures the precise lineage even at a coarse place.
 - **Place axis** — the most *place*-specific category: at the finest place, try the kingdom
-  label (`Flora/Fauna/Fungi of <place>`) then the **plain place category**. Plain titles must
-  follow Commons' **disambiguated** naming — a US county is `"<Name> County, <State>"`, a town
-  `"<Name>, <State>"`; the bare admin name (`Perry`, `Medina`) hits an unrelated or
-  disambiguation page. So sub-state levels are only tried qualified, and otherwise fall up a level.
+  label (`Flora/Fauna/Fungi of <place>`), then `Nature of <place>` (the all-living-organisms
+  category, broader than a kingdom label but narrower than the plain place), then the **plain
+  place category**. Plain titles must follow Commons' **disambiguated** naming — a US county is
+  `"<Name> County, <State>"`, a town `"<Name>, <State>"`; the bare admin name (`Perry`, `Medina`)
+  hits an unrelated or disambiguation page. So sub-state levels are only tried qualified, and
+  otherwise fall up a level. (On the `taxonDepth` axis, `Nature of <place>` sits one tier below
+  kingdom — `RANK_DEPTH.kingdom - 1` — so the dedup treats it as more general than `Flora/Fauna`
+  and more specific than the plain place.)
 - **Drop redundant (nested) categories** structurally — no extra queries. Tag each pick
   `(taxonDepth, placeLevel)`; one is an ancestor of (and dropped alongside) the other iff it is
   ≤ on **both** axes. This holds because every place is one nested hierarchy, so

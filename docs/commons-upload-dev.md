@@ -635,10 +635,16 @@ along two independent axes and removes redundancy:
 - **Taxon anchor** (finest taxon): iterate taxa **outer**, deepest-first; place falls through
   (e.g. `Cardinalis cardinalis in the United States` when the state/county species cat is absent).
 - **Place anchor** (finest place): iterate places **outer**, deepest-first; at each place try
-  the kingdom label (`Flora/Fauna/Fungi of <place>`) then the **plain place category**. The
-  plain title follows Commons' disambiguated naming — county `→ "<Name> County, <State>"`, town
-  `→ "<Name>, <State>"` (the bare iNat name "Perry"/"Medina" hits an unrelated/disambiguation
-  page), so sub-state levels are only tried qualified and otherwise fall up a level.
+  the kingdom label (`Flora/Fauna/Fungi of <place>`), then `Nature of <place>` (the
+  all-living-organisms category — preferred over the bare place for these organism images, e.g.
+  `Nature of Pasco Department` when no `Flora of …` exists), then the **plain place category**.
+  The plain title follows Commons' disambiguated naming — county `→ "<Name> County, <State>"`,
+  town `→ "<Name>, <State>"` (the bare iNat name "Perry"/"Medina" hits an
+  unrelated/disambiguation page), so sub-state levels are only tried qualified and otherwise
+  fall up a level. `Nature of <place>` titles are built from both the taxon-style variants
+  (`Nature of the United States`) and the disambiguated plain titles so the right Commons name
+  is hit at every level; its `taxonDepth` is `RANK_DEPTH.kingdom - 1` (one tier below kingdom)
+  so the dedup ranks it between `Flora/Fauna` and the plain place.
 - **Dedup is structural, no extra queries:** each anchor is tagged `(taxonDepth, placeLevel)`;
   `a` is an ancestor of `b` (hence dropped) iff it's ≤ on **both** axes. Sound because all
   places are one nested hierarchy, so `<Taxon> of <FinePlace>` ⊂ `<CoarserTaxon> of <CoarserPlace>`

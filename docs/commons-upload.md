@@ -86,7 +86,8 @@ Where each piece comes from:
     plants/animals/fungi map to `Flora`/`Animals`/`Fungi`, and soft redirects (e.g.
     `Plants of Hawaii` → `Flora of Hawaii`) are followed so images never land in a redirect.
   - a **most-specific location** category — the finest *place* available, as
-    `Flora/Fauna/Fungi of <place>` if that exists, else the plain place category named the way
+    `Flora/Fauna/Fungi of <place>` if that exists, else `Nature of <place>` (the all-organisms
+    category, e.g. `Nature of Pasco Department`), else the plain place category named the way
     Commons does (a county is `Grayson County, Texas`, a town `Williston, Vermont` — never the
     bare iNat name, which would hit an unrelated page). The finest place comes from iNat's
     `place_ids` plus an OpenStreetMap (Nominatim) reverse-geocode of the coordinates, which

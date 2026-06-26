@@ -369,6 +369,12 @@ const ICONIC_LABELS = {
     Fungi: ['Fungi'],
 };
 
+// "Nature of <place>" collects all living organisms of a place — broader than any single
+// kingdom label (Flora/Fauna/Fungi), narrower than the plain place category. So on the taxon
+// axis it sits one tier *below* kingdom: more general than a kingdom label, more specific than
+// a plain place (-Infinity). Preferred over the plain place for these organism images.
+const NATURE_DEPTH = RANK_DEPTH.kingdom - 1;
+
 // A resolved category, tagged with its position on the two axes used for redundancy checks:
 // taxonDepth (higher = more taxon-specific; -Infinity for a plain place category) and
 // placeLevel (the iNat admin_level; higher = more place-specific).
@@ -403,8 +409,9 @@ function mergeAnchors(a, b) {
  * Best-effort Commons geographic categories for a photo, along two independent axes, with
  * redundant (nested) categories removed:
  *  - taxon anchor — the most TAXON-specific "<Taxon> <of|in> <Place>" (place falls through),
- *  - place anchor — the most PLACE-specific category ("Flora/Fauna/Fungi of <place>", else
- *    the plain "<place>" category) at the finest admin level available.
+ *  - place anchor — the most PLACE-specific category at the finest admin level available,
+ *    preferring "Flora/Fauna/Fungi of <place>", then "Nature of <place>" (all organisms),
+ *    then the plain "<place>" category.
  * Returns 0–2 category names (soft redirects resolved). When neither anchor is a subcategory
  * of the other they are both kept; when one contains the other, only the more specific stays.
  */
@@ -447,6 +454,10 @@ export async function findGeoCategories(taxonId, hierarchy) {
     const PREPS = ['of', 'in']; // "Flora of Hawaii" vs "Fabaceae in Hawaii"
     // "<taxon> <of|in> <place>" titles for one taxon label at one place level.
     const taxonPlaceTitles = (name, place) => place.variants.flatMap((pl) => PREPS.map((prep) => `${name} ${prep} ${pl}`));
+    // "Nature of <place>" titles. Built from both the taxon-style variants ("the <country>")
+    // and the disambiguated plain titles ("<county>, <state>") so the right Commons name is hit
+    // at every level (e.g. "Nature of the United States", "Nature of Pasco Department").
+    const natureTitles = (place) => [...new Set([...place.variants, ...place.plainTitles])].map((b) => `Nature of ${b}`);
 
     // Candidates per axis, ordered most-specific first; firstResolved picks the first that
     // exists. Taxon anchor: every taxon, deepest first (place falls through). Place anchor: each
@@ -457,6 +468,7 @@ export async function findGeoCategories(taxonId, hierarchy) {
     const placeCands = placeLevels.flatMap((place) => [
         ...kingdomLabels.flatMap((label) =>
             taxonPlaceTitles(label.name, place).map((title) => ({ title, taxonDepth: label.depth, placeLevel: place.level }))),
+        ...natureTitles(place).map((title) => ({ title, taxonDepth: NATURE_DEPTH, placeLevel: place.level })),
         ...place.plainTitles.map((title) => ({ title, taxonDepth: -Infinity, placeLevel: place.level })),
     ]);
 
