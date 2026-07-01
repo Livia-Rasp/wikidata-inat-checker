@@ -73,4 +73,4 @@ See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/REA
 
 ## License
 
-ISC — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
