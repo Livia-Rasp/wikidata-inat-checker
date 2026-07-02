@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'fs';
-import { loadTaxaDb } from './getInatTaxaDb.js';
-import { generateLinksHTML } from './generateLinksHTML.js';
-import { generateAmbiguousHTML } from './generateAmbiguousHTML.js';
-import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk } from './utils.js';
+import { loadTaxaDb } from './lib/getInatTaxaDb.js';
+import { generateLinksHTML } from './report/generateLinksHTML.js';
+import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
+import { loadCache, saveCache } from './lib/cache.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk } from './lib/utils.js';
+import { outputPath, cachePath, ensureParentDir } from './lib/paths.js';
 
-const CACHE_FILE = 'cache-links.json';
+const CACHE_FILE = cachePath('cache-links.json');
 
 const args = parseArgs();
 const limit = parseLimit(args, 200);
@@ -163,7 +164,7 @@ WHERE {
 
         // 5b. Write conflict bookkeeping file
         if (conflicts.length > 0) {
-            const conflictFile = 'inat-links-conflicts.json';
+            const conflictFile = outputPath('inat-links-conflicts.json');
             const conflictRecords = conflicts.map(c => ({
                 inatId: c.inatId,
                 matchedWdItem: c.qid,
@@ -171,7 +172,7 @@ WHERE {
                 existingWdItem: c.conflictQid,
                 existingTaxonName: c.conflictTaxonName,
             }));
-            fs.writeFileSync(conflictFile, JSON.stringify(conflictRecords, null, 2), 'utf8');
+            fs.writeFileSync(ensureParentDir(conflictFile), JSON.stringify(conflictRecords, null, 2), 'utf8');
             console.log(`Conflict bookkeeping written to ${conflictFile}.`);
         }
     }
@@ -198,8 +199,9 @@ WHERE {
                 safeLines.push(`${m.qid}\tP3151\t"${m.inatId}"`);
             }
         }
-        fs.writeFileSync('links-auto.qs', safeLines.join('\n') + (safeLines.length ? '\n' : ''));
-        console.log(`Auto-approved ${safeLines.length} / ${matches.length} matches → links-auto.qs`);
+        const autoFile = outputPath('links-auto.qs');
+        fs.writeFileSync(ensureParentDir(autoFile), safeLines.join('\n') + (safeLines.length ? '\n' : ''));
+        console.log(`Auto-approved ${safeLines.length} / ${matches.length} matches → ${autoFile}`);
     }
 
     // 8. Generate HTML

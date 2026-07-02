@@ -1,6 +1,7 @@
 // @ts-check
 import fs from 'fs';
-import { escapeHtml, qidFromUri } from './utils.js';
+import { escapeHtml, qidFromUri } from '../lib/utils.js';
+import { outputPath, ensureParentDir } from '../lib/paths.js';
 
 /**
  * @param {{
@@ -13,7 +14,7 @@ import { escapeHtml, qidFromUri } from './utils.js';
  * }} opts
  * @param {string} [outputFile]
  */
-export function generateAreaHTML({ lat, lng, radius, totalSpecies, qualified, noImage, obsMap, latestDateMap }, outputFile = 'area.html') {
+export function generateAreaHTML({ lat, lng, radius, totalSpecies, qualified, noImage, obsMap, latestDateMap }, outputFile = outputPath('area.html')) {
     // Pre-sort by latest observation date descending (newest first); ties broken by count desc.
     const sorted = [...qualified].sort((a, b) => {
         const da = latestDateMap.get(a.taxonId) ?? '';
@@ -128,6 +129,6 @@ ${rows}
 </body>
 </html>`;
 
-    fs.writeFileSync(outputFile, html, 'utf8');
+    fs.writeFileSync(ensureParentDir(outputFile), html, 'utf8');
     console.log(`HTML written to ${outputFile} (${sorted.length} taxa)`);
 }

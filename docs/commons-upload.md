@@ -20,7 +20,7 @@ npm run web                # serve the app at http://localhost:8080
 Then open <http://localhost:8080/>:
 
 1. **Main view** — a table of image-less taxa (Wikidata item, iNat taxon, Commons category,
-   draft category Wikitext). Same look and behaviour as `drafts.html`: click a draft to copy
+   draft category Wikitext). Same look and behaviour as `output/drafts.html`: click a draft to copy
    it, tick the checkbox to mark a taxon done. A **Download uploaded list** button exports
    what you've marked uploaded (see [Tracking uploads](#tracking-uploads)).
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
@@ -144,7 +144,7 @@ nothing is submitted to Wikidata automatically.
 ## How it fits together
 
 - `checkImages.js` exports `web/data/taxa.json` (the data contract) via
-  `generateImagesJson.js` — the only link between the core tools and the app.
+  `report/generateImagesJson.js` — the only link between the core tools and the app.
 - The `web/` app is **static** (plain HTML/JS/CSS, no build step, no backend): it reads that
   JSON and, from the browser, queries the iNaturalist API (photos, places, taxon ancestry),
   Commons (category existence, author categories), and the Wikidata Query Service (author

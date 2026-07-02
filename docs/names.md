@@ -8,9 +8,9 @@ Finds iNaturalist vernacular names (common names in any language) that are missi
 2. Fetches their existing P1843 claims from Wikidata.
 3. Fetches all vernacular names from iNaturalist (`all_names=true`), filtering out invalid entries, scientific-name-locale entries, and names that duplicate the taxon's scientific name.
 4. Compares the two sets (case-insensitive). Names present in iNat but absent from Wikidata are reported.
-5. Exports `names.html` — a table with QuickStatements snippets for batch-importing missing names.
+5. Exports `output/names.html` — a table with QuickStatements snippets for batch-importing missing names.
 
-Results are cached locally in `cache-names.json` so re-runs skip taxa already checked. Delete the file to force a full re-scan.
+Results are cached locally in `cache/cache-names.json` so re-runs skip taxa already checked. Delete the file to force a full re-scan.
 
 ## Usage
 
@@ -25,7 +25,7 @@ npm run names -- --limit 500 --iucn CR --all
 
 By default, only taxa with **no** vernacular names on Wikidata (P1843) yet are shown — these are the highest-priority additions. Pass `--all` to also include taxa that already have some names but are still missing certain iNat ones.
 
-## names.html columns
+## output/names.html columns
 
 | Column | Description |
 |---|---|
@@ -38,8 +38,8 @@ By default, only taxa with **no** vernacular names on Wikidata (P1843) yet are s
 
 ## Typical workflow
 
-1. Run `npm run names -- --limit 500` to generate `names.html`.
-2. Open `names.html` in a browser.
+1. Run `npm run names -- --limit 500` to generate `output/names.html`.
+2. Open `output/names.html` in a browser.
 3. Review rows and check off items you want to import. An aggregate QuickStatements field appears above the table and accumulates all checked rows — click it to copy everything in one go.
 4. Paste into [QuickStatements](https://quickstatements.toolforge.org/) and run.
 5. Use **Hide done** to keep the list tidy.

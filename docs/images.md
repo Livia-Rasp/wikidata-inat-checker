@@ -9,11 +9,11 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 1. On first run, downloads the iNaturalist open-data taxa dump and builds the local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~180 MB download, shared with the links/names checkers). It then finds Wikidata taxon items that have an iNaturalist taxon ID (P3151) but no image (P18) by querying Wikidata **by iNat ID** — feeding the local iNat IDs to Wikidata in bounded `VALUES` POST batches. This avoids scanning the ~619 K no-image set directly (which WDQS times out on) and lets re-runs skip cached entries to reach genuinely new taxa. (With `--iucn <code>` it instead runs one direct query filtered by P141 — that set is small enough for WDQS to answer in seconds, so the batched scan is skipped.) See [docs/dev.md](dev.md#large-dataset-enumeration-wdqs-cant-scan-these-sets).
 2. For each candidate taxon, asks iNat whether there is at least one research-grade observation whose photo is licensed CC0, CC BY, or CC BY-SA. All data is kept in memory.
 3. For each taxon with a hit, queries Wikidata for taxon name, NCBI/EOL/MycoBank/Index Fungorum identifiers, Wikispecies page, taxonomy (class through genus), and "endemic to" places (P183), then generates a draft Commons category Wikitext.
-4. Exports all drafts to `drafts.html` — a table with five columns: a done checkbox, a Wikidata item link, a filtered iNaturalist observations link, a Commons category edit link, and the draft Wikitext. Clicking the draft text copies it to the clipboard.
+4. Exports all drafts to `output/drafts.html` — a table with five columns: a done checkbox, a Wikidata item link, a filtered iNaturalist observations link, a Commons category edit link, and the draft Wikitext. Clicking the draft text copies it to the clipboard.
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 200 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
 
-Results are cached locally in `cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan. A second cache, `cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
+Results are cached locally in `cache/cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan. A second cache, `cache/cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
 
 ## Usage
 
@@ -33,9 +33,9 @@ Coverage caveat: the scan only reaches Wikidata items whose P3151 points to an i
 
 | File | Description |
 |---|---|
-| `drafts.html` | Human-readable overview of all drafts. See below for column details. |
+| `output/drafts.html` | Human-readable overview of all drafts. See below for column details. |
 
-## drafts.html columns
+## output/drafts.html columns
 
 | Column | Description |
 |---|---|
@@ -68,7 +68,7 @@ When the item has P183 (**endemic to**), the draft adds the matching Commons `En
 - **group word**, by the taxon's ancestry: a specific class word (`birds`, `mammals`, `amphibians`, `reptiles`, `fish`) when one applies, else the kingdom word (`fauna` / `flora` / `fungi`), with `species` as a final fallback — so a bird endemic to Australia gets `Endemic birds of Australia`, while a frog with no `Endemic amphibians of …` category falls back to `Endemic fauna of …`;
 - **place**, from the P183 value's English label, trying both `… of <place>` and `… of the <place>`.
 
-Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons (e.g. the place's Wikidata label differs from the Commons place name, like "Taiwan Island" vs "Taiwan"). Existence results are cached in `cache-commons-cats.json`. Implementation: [docs/commons-integration.md](commons-integration.md) and [docs/dev.md](dev.md).
+Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons (e.g. the place's Wikidata label differs from the Commons place name, like "Taiwan Island" vs "Taiwan"). Existence results are cached in `cache/cache-commons-cats.json`. Implementation: [docs/commons-integration.md](commons-integration.md) and [docs/dev.md](dev.md).
 
 ## Generating a single category draft
 
@@ -84,7 +84,7 @@ Each draft is printed to stdout under a `== Category:<name> ==` header. QIDs may
 ## Typical workflow
 
 1. Run `npm run images` to scan Wikidata and iNat.
-2. Open `drafts.html` in a browser.
+2. Open `output/drafts.html` in a browser.
 3. For each row: click the iNat link to preview candidate photos, then click the Commons link to open the category editor. Paste the draft (click to copy) and save.
 4. Upload a suitable iNat photo to Commons (CC0/CC BY/CC BY-SA, research grade) and add it as P18 on the Wikidata item.
 5. Check the row's checkbox to mark it done. Use **Hide done** to keep the list tidy.

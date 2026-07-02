@@ -10,11 +10,11 @@ Finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches 
 4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
 5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
 6. Fetches the full taxonomic ancestor chain for each clean match and each ambiguous case — from the SQLite index (iNat side, using the stored `ancestry` field, no API call) and from Wikidata via a `wdt:P171+` SPARQL query (Wikidata side).
-7. Exports `links.html` — QuickStatements to add P3151 for clean matches plus taxonomy trees for verification, and a conflict table for cases needing manual investigation.
-8. Exports `links-ambiguous.html` — one row group per ambiguous WD item, with the Wikidata tree on the left and each iNat candidate (tree + QS copy button) on the right for side-by-side comparison.
-9. Writes `inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
+7. Exports `output/links.html` — QuickStatements to add P3151 for clean matches plus taxonomy trees for verification, and a conflict table for cases needing manual investigation.
+8. Exports `output/links-ambiguous.html` — one row group per ambiguous WD item, with the Wikidata tree on the left and each iNat candidate (tree + QS copy button) on the right for side-by-side comparison.
+9. Writes `output/inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
 
-After the initial download and index build (~20 seconds), name lookups and iNat tree fetches are instant (local SQLite only). The Wikidata tree SPARQL adds a few seconds for large result sets. Results are cached locally in `cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
+After the initial download and index build (~20 seconds), name lookups and iNat tree fetches are instant (local SQLite only). The Wikidata tree SPARQL adds a few seconds for large result sets. Results are cached locally in `cache/cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
 
 ## Usage
 
@@ -22,11 +22,11 @@ After the initial download and index build (~20 seconds), name lookups and iNat 
 npm run links                              # default: 200 taxa
 npm run links -- --limit 1000             # custom limit — fast even for large numbers
 npm run links -- --limit 1000 --iucn EN   # limit + IUCN status filter
-npm run links -- --limit 1000 --auto      # also write links-auto.qs (certain matches only)
+npm run links -- --limit 1000 --auto      # also write output/links-auto.qs (certain matches only)
 npm run linkStats                          # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
 ```
 
-## links.html columns
+## output/links.html columns
 
 | Column | Description |
 |---|---|
@@ -44,7 +44,7 @@ An aggregate field above the table accumulates QuickStatements from all checked 
 
 The conflict table below (shown only when conflicts exist) lists iNat IDs found by name-search that are already linked to a different Wikidata item. These need manual investigation before importing.
 
-## links-ambiguous.html layout
+## output/links-ambiguous.html layout
 
 Each row group represents one Wikidata item whose scientific name matches multiple iNat taxa. The columns with rowspan (✓, Wikidata item, Taxon name, WD tree) appear once per group; the remaining columns repeat for each candidate:
 
@@ -96,22 +96,22 @@ NE              |      22 |       3 |       0 |        19
 TOTAL           |2,965,213| 455,470 |   2,622 | 2,507,121
 ```
 
-**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `links-ambiguous.html`. **No match** = Wikidata name not present in the iNat database (derived from the total). No files are written and the cache is not modified.
+**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `output/links-ambiguous.html`. **No match** = Wikidata name not present in the iNat database (derived from the total). No files are written and the cache is not modified.
 
 Totals come from CirrusSearch and matches from WDQS, two backends that index independently. Match/ambig are exact; because no-match is derived (`total − match − ambig`), any few-item indexing lag between the backends lands in the no-match figure.
 
 ## Auto mode (`--auto`)
 
-Pass `--auto` to additionally write `links-auto.qs` — a plain-text QuickStatements file
+Pass `--auto` to additionally write `output/links-auto.qs` — a plain-text QuickStatements file
 containing only matches that pass a programmatic certainty filter:
 
 - **Zero mismatches** — no labeled rank (genus, family, order, class, …) conflicts between the WD and iNat taxonomy trees
 - **≥3 rank agreements** — at least three labeled ranks match by name
 - **Family or order among the matches** — prevents three obscure intermediate ranks (e.g. subfamily/tribe/subtribe) from coincidentally agreeing
 
-Matches that fail these criteria still appear in `links.html` for manual review.
+Matches that fail these criteria still appear in `output/links.html` for manual review.
 
-`links-auto.qs` format — one statement per line, ready to paste into [QuickStatements](https://quickstatements.toolforge.org/):
+`output/links-auto.qs` format — one statement per line, ready to paste into [QuickStatements](https://quickstatements.toolforge.org/):
 
 ```
 Q12345	P3151	"67890"
@@ -119,9 +119,9 @@ Q12345	P3151	"67890"
 
 ## Typical workflow
 
-1. Run `npm run links -- --limit 1000` to generate `links.html` and `links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
-2. Open `links.html` in a browser. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent. Check rows you want to import, copy the aggregate field, and paste into [QuickStatements](https://quickstatements.toolforge.org/).
-3. Open `links-ambiguous.html`. For each group, compare the WD tree against the iNat candidate trees to identify the correct match (if any), then click its QuickStatements cell to copy.
-4. If a conflict table is present in `links.html`, review `inat-links-conflicts.json` and investigate each case before acting.
+1. Run `npm run links -- --limit 1000` to generate `output/links.html` and `output/links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
+2. Open `output/links.html` in a browser. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent. Check rows you want to import, copy the aggregate field, and paste into [QuickStatements](https://quickstatements.toolforge.org/).
+3. Open `output/links-ambiguous.html`. For each group, compare the WD tree against the iNat candidate trees to identify the correct match (if any), then click its QuickStatements cell to copy.
+4. If a conflict table is present in `output/links.html`, review `output/inat-links-conflicts.json` and investigate each case before acting.
 
-**With `--auto`:** paste `links-auto.qs` directly into QuickStatements for the certain matches, then use `links.html` for the remainder.
+**With `--auto`:** paste `output/links-auto.qs` directly into QuickStatements for the certain matches, then use `output/links.html` for the remainder.
