@@ -32,7 +32,7 @@ Deliberately boring, reusing what the repo already has.
   ESM, schema validation, minimal ceremony. (Express = fine but heavier-feeling; Hono = only
   if edge/runtime portability ever matters. Fastify chosen.)
 - **Cache / persistence: `better-sqlite3`** — **already a repo dependency** (it backs the
-  iNat taxa index in `getInatTaxaDb.js`). Reuse it for the shared enrichment cache, the
+  iNat taxa index in `lib/getInatTaxaDb.js`). Reuse it for the shared enrichment cache, the
   uploaded-files list, and the run-status records. No Redis/Postgres to operate.
 - **Frontend: vanilla, multi-page (MPA)** — one HTML entry per workflow sharing `core/`
   modules and a common nav/layout. No framework, no build step (as today). Add **Vite** as a
@@ -79,7 +79,7 @@ Everything else hangs off this, so it goes first.
   *returns data* instead of writing files to `cwd`. The CLI entry (`checkImages.js`, …) shrinks
   to: parse args → call `run()` → write HTML/JSON. This is what lets both `node-cron` and the
   UI trigger invoke a workflow without shelling out.
-- **Data contracts for the other three tools.** Only `generateImagesJson.js` exists today;
+- **Data contracts for the other three tools.** Only `report/generateImagesJson.js` exists today;
   names/links/area emit HTML only. Each needs a small, mechanical `generate<Workflow>Json`
   extraction from its existing HTML generator so its page has something to consume.
 
@@ -142,5 +142,5 @@ the `core/` extraction.
 - **Background jobs + live progress** — revisit if minute-long runs in the UI feel too opaque.
 - **Auth / multi-user** — the shared cache is anonymous; a per-user uploaded-list would need
   identity. Not required for the cache itself.
-- **Per-tool file caches** (`cache-images.json` etc.) could later fold into the shared SQLite
+- **Per-tool file caches** (`cache/cache-images.json` etc.) could later fold into the shared SQLite
   DB, but that is not required initially.

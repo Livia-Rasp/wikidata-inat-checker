@@ -3,8 +3,8 @@
 // Generates a Commons category draft for one or more taxa, given just their Wikidata QIDs,
 // using the same schema as the image checker. Handy when a draft's parent category (genus,
 // family, …) doesn't exist on Commons yet and needs creating from scratch.
-import { generateDraftWikitext } from './generateWikitext.js';
-import { extractTaxonName } from './htmlShared.js';
+import { generateDraftWikitext } from './lib/generateWikitext.js';
+import { extractTaxonName } from './report/htmlShared.js';
 
 const ENTITY_URI = 'http://www.wikidata.org/entity/';
 

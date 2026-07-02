@@ -16,12 +16,14 @@ npm install
 
 | Tool | Command | Output | Documentation |
 |---|---|---|---|
-| Image checker | `npm run images` | `drafts.html` | [docs/images.md](docs/images.md) |
-| Vernacular names | `npm run names` | `names.html` | [docs/names.md](docs/names.md) |
-| iNat links | `npm run links` | `links.html`, `links-ambiguous.html` | [docs/links.md](docs/links.md) |
-| Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `area.html` | [docs/area.md](docs/area.md) |
+| Image checker | `npm run images` | `output/drafts.html` | [docs/images.md](docs/images.md) |
+| Vernacular names | `npm run names` | `output/names.html` | [docs/names.md](docs/names.md) |
+| iNat links | `npm run links` | `output/links.html`, `output/links-ambiguous.html` | [docs/links.md](docs/links.md) |
+| Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html` | [docs/area.md](docs/area.md) |
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `npm run web` | `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
+
+Every tool writes its reports into `output/` and its cross-run caches into `cache/` (both gitignored, created on first run). Clearing `output/` is safe — reports regenerate; the `cache/` files let re-runs skip already-checked taxa.
 
 The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e.g. `CR`, `EN`, `VU`) flags; the area checker takes `--lat`/`--lng`/`--radius` instead. The `--` after `npm run <tool>` is required so npm forwards the flags to the script.
 
@@ -70,6 +72,19 @@ Wikidata edits — the image (P18) and the Commons-category sitelink — into a
 copying clears them so each edit runs only once.
 
 See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/README.md).
+
+## Project structure
+
+- **Entry scripts** (`check*.js`, `draftCategory.js`) live at the repository root — these are what the `npm run …` commands invoke.
+- **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the local SQLite taxa index, Commons wikitext generation, and `paths.js` for the output/cache locations).
+- **`report/`** — the HTML report builders and the `web/data/taxa.json` exporter, sharing a common page skeleton in `report/htmlShared.js`.
+- **`web/`** — the self-contained static upload app (no build step, no backend).
+- **`test/`** — unit tests (`npm test`, using Node's built-in test runner — no dev dependencies).
+- **`output/`, `cache/`** — generated reports and cross-run caches (gitignored, created on first run).
+
+Run the tests with `npm test`; they're fast and hit no network.
+
+Architecture and module-wiring details are in [docs/dev.md](docs/dev.md).
 
 ## License
 

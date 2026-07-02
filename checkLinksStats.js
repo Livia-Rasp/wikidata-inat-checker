@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
-import { loadTaxaDb } from './getInatTaxaDb.js';
-import { cirrusCount, fetchWdTaxaByNames, IUCN_STATUS_QIDS, IUCN_QID_TO_CODE } from './utils.js';
+import { loadTaxaDb } from './lib/getInatTaxaDb.js';
+import { cirrusCount, fetchWdTaxaByNames, IUCN_STATUS_QIDS, IUCN_QID_TO_CODE } from './lib/utils.js';
 
 const NO_STATUS = '(no IUCN status)';
 const IUCN_ORDER = ['CR', 'EN', 'VU', 'NT', 'LC', 'DD', 'EX', 'EW', 'NE', NO_STATUS];

@@ -7,12 +7,12 @@ for what the app does and how to use it, see [commons-upload.md](commons-upload.
 API recipes, category-discovery patterns) are factored out into
 [commons-integration.md](commons-integration.md) for future Commons-upload tools.
 
-**Implementation map:** `checkImages.js` → `generateImagesJson.js` exports
+**Implementation map:** `checkImages.js` → `report/generateImagesJson.js` exports
 `web/data/taxa.json` (the data contract). The static app: `web/index.html` + `web/js/main.js`
 (taxa list), `web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery),
 `web/js/commonsUpload.js` (the `Special:Upload` prefill-URL builder, ported from
 inat2wiki — see `web/README.md` for attribution), `web/serve.js` (zero-dep static server,
-`npm run web`). Shared taxon-name parsing lives in `htmlShared.js` (`extractTaxonName`).
+`npm run web`). Shared taxon-name parsing lives in `report/htmlShared.js` (`extractTaxonName`).
 
 ---
 
@@ -179,7 +179,7 @@ Our pipeline and inat2wiki operate at different levels:
 
 - **`checkImages.js`** finds Wikidata **taxa** (have P3151, lack P18). It already calls
   iNat (`/v1/observations/species_counts`) to confirm each taxon has *at least one*
-  research-grade, compatibly-licensed photo, and `drafts.html` already renders a
+  research-grade, compatibly-licensed photo, and `output/drafts.html` already renders a
   "filtered iNaturalist observations" link per taxon.
 - **inat2wiki** works from a **specific photo of a specific observation**.
 
@@ -209,7 +209,7 @@ the concrete, rankable photo set the per-taxon view needs.
 
 **Decision:** the upload description stays **minimal**, like inat2wiki — a `{{Information}}`
 block, optional `{{Location}}`, `{{iNaturalist}}`, `{{INaturalistreview}}`, and a bare
-`[[Category:<Taxon>]]`. We deliberately do **not** pull in `generateWikitext.js` here:
+`[[Category:<Taxon>]]`. We deliberately do **not** pull in `lib/generateWikitext.js` here:
 that Taxonavigation/category detail already lives on the Commons **category page** (which
 this repo's image checker already drafts), so duplicating it into every file description is
 redundant.
@@ -225,16 +225,16 @@ category) are noted as a **separate future feature**, not part of the initial ap
 and because it can grow into a genuinely useful standalone tool. See §4.1 for the repo
 placement decision (build here now, extract later).
 
-### Option A — Static enhancement of `drafts.html`
+### Option A — Static enhancement of `output/drafts.html`
 
 Port `get_commons_url()` into a shared JS module (e.g. `commonsUpload.js`). In
 `checkImages.js`, for each image-less taxon, run the §3 photo query for a few candidates
-and render them as thumbnails in `drafts.html`, each with its own pre-filled "Upload to
+and render them as thumbnails in `output/drafts.html`, each with its own pre-filled "Upload to
 Commons" link.
 
 - **Pros:** matches the requirement exactly (browse a selection → click → pre-filled
   Commons form); stays inside the current "Node script → static HTML" architecture; no new
-  running service; reuses `generateWikitext.js` for categories.
+  running service; reuses `lib/generateWikitext.js` for categories.
 - **Cons:** more iNat API calls per run (one extra photo query per taxon-with-hit); larger
   HTML; thumbnails make the page heavier.
 
@@ -244,7 +244,7 @@ Mirror `inat2wiki-dev` in spirit: a local server where you browse image-less tax
 search/select observations and photos live, then click through to the pre-filled Commons
 upload form. Two views (#2):
 
-1. **Main view** — a list of image-less taxa, **similar to today's `drafts.html`** (same
+1. **Main view** — a list of image-less taxa, **similar to today's `output/drafts.html`** (same
    columns/feel: Wikidata link, iNat link, Commons category, draft wikitext). Each row has
    an action that **opens the per-taxon photo view in a new tab**.
 2. **Per-taxon photo view** (new tab) — shows **all** research-grade, compatibly-licensed
@@ -257,12 +257,12 @@ upload form. Two views (#2):
   work.
 
 **Stack:** **plain JS/HTML/CSS** frontend (decided) — no Svelte/build step, keeping the
-repo's current zero-build simplicity and the closest feel to today's `drafts.html`. See
+repo's current zero-build simplicity and the closest feel to today's `output/drafts.html`. See
 §4.2 for why **no application backend** is needed.
 
 ### Option C — Link-builder module + minimal hook
 
-Port `get_commons_url()` only and add a single "Upload" link per existing `drafts.html`
+Port `get_commons_url()` only and add a single "Upload" link per existing `output/drafts.html`
 row using the taxon's **default** iNat photo.
 
 - **Pros:** least work.
@@ -300,10 +300,10 @@ The work splits into a **batch data step** (Node, stays with the core) and a **s
 client app** (`web/`):
 
 1. **Data export (CLI, root).** Finding image-less taxa needs the SQLite index
-   (`getInatTaxaDb.js`, native `better-sqlite3` → Node-only) plus Wikidata SPARQL
-   enumeration (`utils.js`) — heavy, batch-shaped work that cannot/should not run on a page
+   (`lib/getInatTaxaDb.js`, native `better-sqlite3` → Node-only) plus Wikidata SPARQL
+   enumeration (`lib/utils.js`) — heavy, batch-shaped work that cannot/should not run on a page
    load. `checkImages.js` exports the taxon list as JSON (`web/data/taxa.json`, gitignored)
-   alongside `drafts.html`, via `generateImagesJson.js`.
+   alongside `output/drafts.html`, via `report/generateImagesJson.js`.
 2. **Static client app (`web/`).** Plain HTML/JS/CSS. The **main view** reads `taxa.json`.
    The **per-taxon gallery** calls the **iNat API directly from the browser** — verified
    CORS-open (`Access-Control-Allow-Origin: *`), exactly as the existing Chrome addon
@@ -325,10 +325,10 @@ initial implementation.
 1. ~~Option A / B / C~~ — **decided: Option B, in this repo (§4, §4.1).**
 2. ~~Candidate sourcing~~ — **decided:** research-grade only; show **all** matching photos
    of the taxon; sort toggle **most faved** (`order_by=votes`) / **newest**
-   (`created_at`). Two-view UI: a `drafts.html`-like main list, each row opening a
+   (`created_at`). Two-view UI: a `output/drafts.html`-like main list, each row opening a
    per-taxon photo gallery in a new tab (§3, §4).
 3. ~~Wikitext richness~~ — **decided:** keep the description minimal (inat2wiki-style, bare
-   `[[Category:<Taxon>]]`); do **not** reuse `generateWikitext.js` — that detail lives on
+   `[[Category:<Taxon>]]`); do **not** reuse `lib/generateWikitext.js` — that detail lives on
    the category page already. Richer file-page descriptions/categories = separate future
    feature (§3).
 4. ~~Defensive host check~~ — **dropped:** unnecessary. Verified that all CC-licensed
@@ -710,7 +710,7 @@ has a global `WebSocket` (used for the Chrome DevTools Protocol below).
 
 The modules are browser-oriented but run in Node with two shims:
 
-- **Stub `localStorage`** before importing, so `cache.js`'s `Cache`/`localStorage` calls work
+- **Stub `localStorage`** before importing, so `web/js/cache.js`'s `Cache`/`localStorage` calls work
   (the `Cache` ctor already swallows a missing `localStorage`, but a stub gives real caching):
   ```js
   const store = new Map();

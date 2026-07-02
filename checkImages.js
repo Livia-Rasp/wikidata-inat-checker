@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // @ts-check
-import { processInatIds } from './getFromInat.js';
-import { generateDraftWikitext } from './generateWikitext.js';
-import { generateDraftsHTML } from './generateHTML.js';
-import { generateImagesJson } from './generateImagesJson.js';
-import { loadCache, saveCache } from './cache.js';
-import { loadTaxaDb } from './getInatTaxaDb.js';
-import { fetchWdTaxaByInatIds, fetchWdImagesByIucn, parseArgs, parseIucnArg, parseLimit } from './utils.js';
+import { processInatIds } from './lib/getFromInat.js';
+import { generateDraftWikitext } from './lib/generateWikitext.js';
+import { generateDraftsHTML } from './report/generateHTML.js';
+import { generateImagesJson } from './report/generateImagesJson.js';
+import { loadCache, saveCache } from './lib/cache.js';
+import { loadTaxaDb } from './lib/getInatTaxaDb.js';
+import { fetchWdTaxaByInatIds, fetchWdImagesByIucn, parseArgs, parseIucnArg, parseLimit } from './lib/utils.js';
+import { cachePath } from './lib/paths.js';
 
-const CACHE_FILE = 'cache-images.json';
+const CACHE_FILE = cachePath('cache-images.json');
 
 const args = parseArgs();
 const limit = parseLimit(args, 5000);

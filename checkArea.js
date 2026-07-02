@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
-import { HEADERS, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './utils.js';
-import { generateAreaHTML } from './generateAreaHTML.js';
+import { HEADERS, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './lib/utils.js';
+import { generateAreaHTML } from './report/generateAreaHTML.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
@@ -87,6 +87,16 @@ async function run() {
     // Step 3: fetch up to 3 sample observations per qualified taxon
     console.log('Fetching sample observations and latest dates...');
     const qualified = species.filter(s => noImage.has(s.taxonId));
+
+    // TODO(area-enrichment): Steps 3a/3b enrich each qualified taxon with photos and a latest
+    // date by querying 20 taxa at once against a FIXED result window (per_page 60 for photos,
+    // 20 for dates). That window is shared across the whole batch, so when a few taxa dominate
+    // the results the others get no rows back — the report then shows "no photo found" and a
+    // blank date for taxa that DO have qualifying observations. (The taxa themselves are never
+    // dropped: `qualified` comes from the fully-paginated Step 1 and is always rendered whole.)
+    // The date column is worst-hit: 20 taxa share only 20 date rows, so up to 19 can come back
+    // empty. Fix by fetching per taxon (one request each, or paginate until every taxon in the
+    // batch is covered) rather than relying on a single shared window. See docs/area.md.
 
     // Step 3a — photos ordered by votes for best thumbnail quality
     /** @type {Map<string, {obsId: number, photoUrl: string}[]>} */

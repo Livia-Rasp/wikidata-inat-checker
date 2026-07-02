@@ -1,7 +1,7 @@
 // @ts-check
 import fs from 'fs';
 import path from 'path';
-import { qidFromUri } from './utils.js';
+import { qidFromUri } from '../lib/utils.js';
 import { extractTaxonName } from './htmlShared.js';
 
 /**

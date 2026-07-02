@@ -7,6 +7,6 @@
     "moduleResolution": "bundler",
     "target": "ES2022"
   },
-  "include": ["*.js"],
+  "include": ["*.js", "lib/**/*.js", "report/**/*.js", "test/**/*.js"],
   "exclude": ["node_modules"]
 }

@@ -15,7 +15,7 @@
     "draft-category": "draftCategory.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "images": "node checkImages.js",
     "names": "node checkNames.js",
     "links": "node checkLinks.js",

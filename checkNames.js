@@ -2,13 +2,14 @@
 // @ts-check
 import { simplify } from 'wikibase-sdk';
 import pLimit from 'p-limit';
-import { fetchEntities } from './generateWikitext.js';
-import { fetchInatNames } from './getInatNames.js';
-import { generateNamesHTML } from './generateNamesHTML.js';
-import { loadCache, saveCache } from './cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, chunk } from './utils.js';
+import { fetchEntities } from './lib/generateWikitext.js';
+import { fetchInatNames } from './lib/getInatNames.js';
+import { generateNamesHTML } from './report/generateNamesHTML.js';
+import { loadCache, saveCache } from './lib/cache.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, chunk } from './lib/utils.js';
+import { cachePath } from './lib/paths.js';
 
-const CACHE_FILE = 'cache-names.json';
+const CACHE_FILE = cachePath('cache-names.json');
 
 const args = parseArgs();
 const limit = parseLimit(args, 5000);

@@ -6,32 +6,34 @@ Implementation details for contributors and for Claude to read on demand when de
 
 Each entry script wires shared modules together; all data flows in memory.
 
+Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders, their shared `htmlShared`, and `generateImagesJson`). The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
+
 ### Image checker (`checkImages.js`)
 ```
 checkImages.js
-  └─ getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
+  └─ lib/getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
   └─ utils.fetchWdTaxaByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
        → taxa with P3151 = a local iNat ID but no P18 (IUCN via OPTIONAL, JS-filtered)
        → --limit caps collected candidates; cached ids skipped to reach new taxa
-  └─ getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
-  └─ generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
-  └─ generateHTML.js: writes drafts.html
+  └─ lib/getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
+  └─ lib/generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
+  └─ report/generateHTML.js: writes output/drafts.html
 ```
 
 ### Vernacular names checker (`checkNames.js`)
 ```
 checkNames.js
   └─ SPARQL → Wikidata: all taxa with P3151
-       └─ generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per item
-       └─ getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
+       └─ lib/generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per item
+       └─ lib/getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
        └─ diff: iNat names absent from Wikidata P1843 (case-insensitive, scientific name excluded)
-       └─ generateNamesHTML.js: writes names.html (QuickStatements + aggregate field)
+       └─ report/generateNamesHTML.js: writes output/names.html (QuickStatements + aggregate field)
 ```
 
 ### iNat links checker (`checkLinks.js`)
 ```
 checkLinks.js
-  └─ getInatTaxaDb.js: SQLite taxa index (~124 MB, built from iNat open-data S3 dump)
+  └─ lib/getInatTaxaDb.js: SQLite taxa index (~124 MB, built from iNat open-data S3 dump)
        → get(name) → {inatId, rank} | undefined   (undefined = not found or homonym)
        → getAll(name) → [{inatId, rank}]           (all active taxa sharing the name)
        → allNames() → all distinct iNat names       (drives the Wikidata query)
@@ -44,14 +46,14 @@ checkLinks.js
   └─ SPARQL → Wikidata: P13177 (homonymous taxon) to filter false conflicts
   └─ getInatTaxaDb.getAncestors(inatId): iNat ancestor chain from SQLite (no API call)
   └─ utils.fetchWdAncestorChains() (wdt:P171+, batches of 50): Wikidata ancestor chain
-  └─ generateLinksHTML.js: writes links.html + inat-links-conflicts.json
-  └─ generateAmbiguousHTML.js: writes links-ambiguous.html (one row per iNat candidate)
+  └─ report/generateLinksHTML.js: writes output/links.html + output/inat-links-conflicts.json
+  └─ report/generateAmbiguousHTML.js: writes output/links-ambiguous.html (one row per iNat candidate)
 ```
 
 ### iNat links stats (`checkLinksStats.js`)
 ```
 checkLinksStats.js
-  └─ getInatTaxaDb.js {allNames(), get(), getAll()}: name universe + classification
+  └─ lib/getInatTaxaDb.js {allNames(), get(), getAll()}: name universe + classification
   └─ utils.cirrusCount() → CirrusSearch: exact total per IUCN bucket (instant)
   └─ utils.fetchWdTaxaByNames() → Wikidata: match/ambig via name-keyed VALUES POST batches
   └─ console table (No match = total − match − ambig)
@@ -65,14 +67,39 @@ checkArea.js (args: --lat --lng --radius)
   └─ SPARQL VALUES → Wikidata: P3151 lookup + FILTER NOT EXISTS P18
        → Map<inatId, {wdUri, wdName}>            (items with no image)
   └─ iNat /v1/observations (batched 20 taxa/call, ordered by votes): up to 3 sample photos each
-  └─ generateAreaHTML.js: writes area.html
+  └─ report/generateAreaHTML.js: writes output/area.html
 ```
 
-## iNat taxa SQLite index (`getInatTaxaDb.js`)
+## Output & cache locations (`lib/paths.js`)
 
-The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept.
+All generated files go under two gitignored, auto-created top-level dirs, so nothing but source sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
 
-## Vernacular name language codes (`getInatNames.js`)
+- **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
+- **`cache/`** — `cache-images.json`, `cache-names.json`, `cache-links.json` (per-checker "already scanned" sets) and `cache-commons-cats.json` (Commons category existence). Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
+
+Two things deliberately live elsewhere: `web/data/taxa.json` (must be under `web/` for the static app to fetch it, written by `report/generateImagesJson.js`) and the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
+
+## Tests (`test/`, `npm test`)
+
+`node --test` runs `test/*.test.js` — a dependency-free unit suite for the pure logic, no network, sub-second. Coverage: arg parsing (`parseArgs` incl. `--key=value`, `parseLimit`, `parseIucnArg`), `chunk`/`qidFromUri`/`escapeHtml`, `compareAncestorTrees`, the IUCN code↔QID inverse, the taxa-index queries (`descendantInatIds`/`getAncestors`/`get`), and the report scaffold (`extractTaxonName`, `doneScript` key namespacing, `renderReportPage`). Add cases here when you touch that logic.
+
+The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `better-sqlite3` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
+
+## Report page rendering (`report/htmlShared.js`)
+
+The four review reports (`generateHTML` = drafts, `generateLinksHTML`, `generateNamesHTML`, `generateAmbiguousHTML`) share a page shape: a heading, a "Hide done" control, one copyable `<pre>` per row, and per-row done/hidden state persisted in `localStorage`. That common shell lives in `report/htmlShared.js`, so each builder only supplies its own columns and any page-specific CSS:
+
+- `BASE_REPORT_CSS` / `TREE_PAIR_CSS` — the shared style rules (the tree-pair columns are used only by the links + ambiguous reports). Copyable blocks are styled under both `.qs` (QuickStatements) and `.draft` (Wikitext) so a page just picks the class its rows use.
+- `renderReportPage({ title, heading, intro, css, thead, rows, script, aggregate?, trailing? })` — assembles the full document, injecting the shared `COPY_SCRIPT` plus the page script.
+- `doneScript({ segment, aggregate })` — the standard done/hide-done client logic, with an optional "copy all selected" aggregate panel (links + names). `segment` namespaces the `localStorage` keys per report (`''` → `done-<qid>`/`hide-done`; `'links'` → `done-links-<qid>`/`hide-done-links`; etc.) so each report remembers its own state.
+
+The ambiguous report keeps its own script (it hides rowspan-grouped candidate rows, which the standard `doneScript` doesn't model) but still uses `renderReportPage` + the shared CSS. `generateAreaHTML` is a different shape (sortable, no copy/done state) and does **not** use these helpers. `report/generateImagesJson.js` is the non-HTML sibling: it serialises the same image-checker drafts to `web/data/taxa.json` for the upload app.
+
+## iNat taxa SQLite index (`lib/getInatTaxaDb.js`)
+
+The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept. `descendantInatIds(taxonId)` (drives `--taxon` scoping) returns every taxon whose `ancestry` contains the id as a whole path component, matching all four positions it can occupy — the entire string, the start (`<id>/…`), the end (`…/<id>`, a *direct* child), or the middle (`…/<id>/…`); the end position matters because `ancestry` omits self, so a taxon's direct children (e.g. a genus's own species) carry the id as the final component.
+
+## Vernacular name language codes (`lib/getInatNames.js`)
 
 iNaturalist returns Chinese names under `zh-CN` and `zh-TW`. These are normalised to `zh-hans` and `zh-hant` respectively before comparison with Wikidata, because Wikidata uses lowercase script subtags for these languages.
 
@@ -80,20 +107,20 @@ iNaturalist returns Chinese names under `zh-CN` and `zh-TW`. These are normalise
 
 iNaturalist sometimes stores the genus name itself as a vernacular name for a species in certain locales (e.g. `de:"Olyra"` for *Olyra longicaudata*). These pass through the scientific-name exclusion filter — which only strips the full binomial — unless explicitly checked. `checkNames.js` filters them by comparing each candidate name against the first word of the scientific name (`sciName.split(' ')[0]`).
 
-## Taxonavigation ancestor traversal (`generateWikitext.js`)
+## Taxonavigation ancestor traversal (`lib/generateWikitext.js`)
 
 The wbgetentities ancestor walk is capped at `MAX_ANCESTOR_DEPTH` (40) rounds, shared by `buildAncestorCache` and `resolveAncestors`. The taxonavigation block itself only needs ~15 levels (Lepidoptera sits roughly that far above species rank thanks to many unranked intermediate clades), but the **endemic** category resolution (below) needs to reach the kingdom for non-vertebrates, whose Wikidata lineage runs ~30 cladistic levels deep. The deep clades are highly shared across taxa, so once the per-batch frontier converges onto the tree-of-life backbone the extra rounds each fetch only a handful of entities — negligible API cost.
 
-## Endemic categories (`generateWikitext.js`)
+## Endemic categories (`lib/generateWikitext.js`)
 
 From P183 ("endemic to"), the draft adds Commons `Endemic <group> of <place>` categories. For each P183 place, candidate titles are generated most-specific → general and the first that actually exists on Commons (via `resolveCommonsCategory`, soft redirects followed) is emitted; nothing is emitted otherwise.
 
 - **Group word** comes from the ancestor chain's scientific names (matched by name, not rank QID, so it's immune to rank-QID merges): a specific class word from `ENDEMIC_GROUP_BY_CLASS` (`Aves→birds`, `Mammalia→mammals`, `Amphibia→amphibians`, `Reptilia→reptiles`, ray-/cartilaginous-/jawless-fish classes→`fish`), else the kingdom word from `ENDEMIC_GROUP_BY_KINGDOM` (`Animalia→fauna`, `Plantae→flora`, `Fungi→fungi`), then `species` as a final fallback. A matched animal class implies `fauna` directly — necessary because the `Animalia` node sits beyond the walk for deep lineages (birds run through `Dinosauria`). Note `Sarcopterygii`/`Osteichthyes` are deliberately **not** in the fish map: they cladistically contain all tetrapods, so they'd mislabel frogs/birds as "fish".
 - **Place** is the P183 value's English label, tried as both `… of <place>` and `… of the <place>`. A label that differs from the Commons place name (e.g. Q22502 "Taiwan Island" vs the "Taiwan" used by `Endemic flora of Taiwan`) simply yields no match — safe, never wrong.
 
-Commons existence results are cached in `cache-commons-cats.json` (`checkCommonsCategories`/`resolveCommonsCategory` in `utils.js`, ported from the browser-side `web/js/enrich.js` so `web/` stays self-contained), reused within and across runs.
+Commons existence results are cached in `cache/cache-commons-cats.json` (`checkCommonsCategories`/`resolveCommonsCategory` in `lib/utils.js`, ported from the browser-side `web/js/enrich.js` so `web/` stays self-contained), reused within and across runs.
 
-## Commons Taxonavigation templates (`generateWikitext.js`)
+## Commons Taxonavigation templates (`lib/generateWikitext.js`)
 
 Every Commons taxon category uses `{{Taxonavigation|include=X|Rank|Name|…}}`. The `include=` value names a template from [Category:Templates to include in Taxonavigation](https://commons.wikimedia.org/wiki/Category:Templates_to_include_in_Taxonavigation); that template renders everything above its level, so only ranks **below** `include=` are listed manually.
 
@@ -150,7 +177,7 @@ Note: "Critically **e**ndangered" is lowercase; "Extinct **I**n **T**he **W**ild
 
 ---
 
-## SPARQL patterns (`utils.js`, `checkLinksStats.js`)
+## SPARQL patterns (`lib/utils.js`, `checkLinksStats.js`)
 
 The endpoint is `https://query.wikidata.org/sparql` (Blazegraph). Since the May 2025 [WDQS graph split](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service/WDQS_graph_split) it serves the **main** subgraph (scholarly articles moved to a separate `query-scholarly` endpoint); taxon data is in the main graph, so the default endpoint is correct here. Always send a descriptive `User-Agent` — Wikidata blocks anonymous bots.
 
@@ -179,8 +206,8 @@ Two filtered sets are too big for WDQS to scan: taxa with `P225` and no `P3151` 
 - adding `?item wdt:P141 wd:<qid>` to a large `VALUES`-by-name query → bad query plan → 504 (fetch P141 via `OPTIONAL`, filter in JS)
 
 **What works — two complementary backends:**
-1. **CirrusSearch (`cirrusCount()` in `utils.js`)** for exact counts. The MediaWiki search API (`list=search`, `haswbstatement:`/`-haswbstatement:`) is Elasticsearch-backed: it returns exact `totalhits` instantly and its negation partitions cleanly (WITH + WITHOUT a property sum to the total). Include `haswbstatement:P31=Q16521` to match "instance of taxon". It caps any single query at 10 000 results, so it is used for **counting**, not enumeration.
-2. **Query Wikidata BY value (`fetchWdTaxaByValues()` in `utils.js`)** for enumeration — the "flip". We hold a complete local key set in `taxa.db`, so instead of scanning Wikidata we probe it with `VALUES ?value { … } ?item wdt:<valueProperty> ?value . FILTER NOT EXISTS {<absentProperty>}` in bounded batches (an indexed lookup, ~10 k values/batch in seconds; full pass in minutes). Two wrappers:
+1. **CirrusSearch (`cirrusCount()` in `lib/utils.js`)** for exact counts. The MediaWiki search API (`list=search`, `haswbstatement:`/`-haswbstatement:`) is Elasticsearch-backed: it returns exact `totalhits` instantly and its negation partitions cleanly (WITH + WITHOUT a property sum to the total). Include `haswbstatement:P31=Q16521` to match "instance of taxon". It caps any single query at 10 000 results, so it is used for **counting**, not enumeration.
+2. **Query Wikidata BY value (`fetchWdTaxaByValues()` in `lib/utils.js`)** for enumeration — the "flip". We hold a complete local key set in `taxa.db`, so instead of scanning Wikidata we probe it with `VALUES ?value { … } ?item wdt:<valueProperty> ?value . FILTER NOT EXISTS {<absentProperty>}` in bounded batches (an indexed lookup, ~10 k values/batch in seconds; full pass in minutes). Two wrappers:
    - `fetchWdTaxaByNames()` — by P225 name, absent P3151 (~1.4 M names). Used by `checkLinks.js` (collect matches up to `--limit`) **only when no IUCN status is given**, and by `checkLinksStats.js` (full pass; no-match = `total − match − ambig`).
    - `fetchWdTaxaByInatIds()` — by P3151 iNat ID, absent P18 (~1.4 M ids). Used by `checkImages.js` **only when no IUCN status is given**, skipping cached ids until `--limit` new candidates are collected.
 
@@ -201,7 +228,7 @@ Endpoint `https://www.wikidata.org/w/api.php?action=query&list=search&srnamespac
 
 ---
 
-## Taxonomy tree comparison and `--auto` certainty filter (`utils.js`, `checkLinks.js`)
+## Taxonomy tree comparison and `--auto` certainty filter (`lib/utils.js`, `checkLinks.js`)
 
 `compareAncestorTrees(wdChain, inatChain)` aligns the WD and iNat ancestor chains by rank name (case-insensitive), counts agreements and disagreements among labeled ranks present in **both** chains, and returns `{ matches, mismatches, matchedRanks }`. Only the 9 ranks in `WD_RANK_LABELS` can be labeled on the WD side (genus, family, superfamily, subfamily, tribe, subtribe, order, subclass, class); iNat rank strings are used as-is. Ranks present in only one chain are ignored — they do not count as mismatches.
 
@@ -215,10 +242,10 @@ The `--auto` certainty filter requires: `mismatches === 0 && matches >= 3 && (ma
 
 Most QIDs live in code constants; this is the human-readable map. **QIDs can change via item merges** — if rank or ancestor detection breaks unexpectedly, re-verify these against the live items.
 
-**Taxon ranks** (`WD_RANK_LABELS` in `utils.js`, `RANK_LABELS` in `generateWikitext.js`): genus `Q34740`, family `Q35409`, superfamily `Q2136103`, subfamily `Q164280`, tribe `Q227936`, subtribe `Q3965313`, order `Q36602`, subclass `Q5867051`, class `Q37517`. "Instance of taxon" is `Q16521`.
+**Taxon ranks** (`WD_RANK_LABELS` in `lib/utils.js`, `RANK_LABELS` in `lib/generateWikitext.js`): genus `Q34740`, family `Q35409`, superfamily `Q2136103`, subfamily `Q164280`, tribe `Q227936`, subtribe `Q3965313`, order `Q36602`, subclass `Q5867051`, class `Q37517`. "Instance of taxon" is `Q16521`.
 
 **IUCN status (P141)** QIDs and their Commons categories: see the [IUCN Commons categories](#iucn-commons-categories) table above. Note EN is `Q96377276` (not `Q11394`).
 
-**`{{IUCN}}` template logic** (`generateWikitext.js`): when an item has both P627 (Red List numeric ID) and P141 (status), emit `{{IUCN|code|id|name|authority}}`, which auto-categorises the Commons page into the correct IUCN maintenance category. With P141 only (no P627), emit a manual `[[Category:IUCN X species]]` instead.
+**`{{IUCN}}` template logic** (`lib/generateWikitext.js`): when an item has both P627 (Red List numeric ID) and P141 (status), emit `{{IUCN|code|id|name|authority}}`, which auto-categorises the Commons page into the correct IUCN maintenance category. With P141 only (no P627), emit a manual `[[Category:IUCN X species]]` instead.
 
 **Source item:** the iNaturalist Wikidata item `Q16958215` is used as the `S248` (stated in) source on generated P1843 vernacular-name references (`checkNames.js`).
