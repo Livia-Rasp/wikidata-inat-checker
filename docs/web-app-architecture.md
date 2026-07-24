@@ -144,3 +144,13 @@ the `core/` extraction.
   identity. Not required for the cache itself.
 - **Per-tool file caches** (`cache/cache-images.json` etc.) could later fold into the shared SQLite
   DB, but that is not required initially.
+- **Deployment, once this backend actually exists** — today's static `web/` app needs no server
+  beyond a trivial static-file host, so there's nothing to deploy yet. Once step 2 above ships a
+  real Fastify backend, the sibling repo `vue-commons-gallery` has since built (2026-07) a CI/CD
+  pattern worth reusing rather than re-deriving: a single Docker image (multi-stage build, backend
+  serves the built frontend from the same origin), GitHub Actions publishing to GHCR on push to
+  `main` (GitHub-hosted runner only, no self-hosted runner - deliberately, since a persistent
+  Docker-socket-privileged CI agent is a real liability on a box meant to run production services),
+  and `nicholas-fedor/watchtower` on the target host polling GHCR and redeploying automatically. See
+  `vue-commons-gallery/docs/deployment-roadmap.md` for the full writeup and reasoning when this is
+  actually being built.
