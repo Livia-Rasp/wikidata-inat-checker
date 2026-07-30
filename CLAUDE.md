@@ -2,6 +2,9 @@
 
 Guidance for Claude Code (claude.ai/code) when working in this repository.
 
+Project-level ToDos live in the Obsidian vault, not here — query them with `vault_tasks` /
+`vault_overview` (`winged-eye-obsidian` MCP, read-only; never write to the vault).
+
 ## Commands
 
 ```sh
