@@ -15,9 +15,14 @@ checkImages.js
   └─ utils.fetchWdTaxaByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
        → taxa with P3151 = a local iNat ID but no P18 (IUCN via OPTIONAL, JS-filtered)
        → --limit caps collected candidates; cached ids skipped to reach new taxa
-  └─ lib/getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
+  └─ lib/db.js {skipQids()}: qids already settled, or negative but still inside --recheck-after
+  └─ lib/getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds, failed }
   └─ lib/generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
-  └─ report/generateHTML.js: writes output/drafts.html
+  └─ lib/db.js {upsertTaxon(), recordFinding()}: every outcome persisted to data/findings.db
+       → open | no_draft | no_photos; a failed iNat batch records nothing so it retries
+  └─ lib/db.js {openFindings()}: the WHOLE open backlog, not just this run
+       └─ report/generateHTML.js: writes output/drafts.html
+       └─ report/generateImagesJson.js: writes web/data/taxa.json
 ```
 
 ### Vernacular names checker (`checkNames.js`)
@@ -83,7 +88,7 @@ Two things deliberately live elsewhere: `web/data/taxa.json` (must be under `web
 
 `node --test` runs `test/*.test.js` — a dependency-free unit suite for the pure logic, no network, sub-second. Coverage: arg parsing (`parseArgs` incl. `--key=value`, `parseLimit`, `parseIucnArg`), `chunk`/`qidFromUri`/`escapeHtml`, `compareAncestorTrees`, the IUCN code↔QID inverse, the taxa-index queries (`descendantInatIds`/`getAncestors`/`get`), and the report scaffold (`extractTaxonName`, `doneScript` key namespacing, `renderReportPage`). Add cases here when you touch that logic.
 
-The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `better-sqlite3` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
+The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `node:sqlite` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
 
 ## Report page rendering (`report/htmlShared.js`)
 
@@ -98,6 +103,31 @@ The ambiguous report keeps its own script (it hides rowspan-grouped candidate ro
 ## iNat taxa SQLite index (`lib/getInatTaxaDb.js`)
 
 The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept. `descendantInatIds(taxonId)` (drives `--taxon` scoping) returns every taxon whose `ancestry` contains the id as a whole path component, matching all four positions it can occupy — the entire string, the start (`<id>/…`), the end (`…/<id>`, a *direct* child), or the middle (`…/<id>/…`); the end position matters because `ancestry` omits self, so a taxon's direct children (e.g. a genus's own species) carry the id as the final component.
+
+### Driver: `node:sqlite`, not `better-sqlite3`
+
+SQLite comes from Node's built-in `node:sqlite` (`DatabaseSync`), so the project has **no native build step** — which is why the `engines` floor is `>=26`, where the module is fully stable. Four differences from `better-sqlite3` bit during the migration and will bite again:
+
+- **No `.pluck()`.** Single-column reads use `.all().map(r => r.col)` instead. (`setReturnArrays()` exists as an alternative but reads worse.)
+- **No `db.transaction()` helper.** Bulk inserts wrap `db.exec('BEGIN')` / `COMMIT` by hand, with `ROLLBACK` in a catch. This is not optional: without it the ~1.4 M-row index build commits per row and crawls.
+- **`run()` binds positionally and rejects a single array argument** — `run(...row)`, never `run(row)`, which fails with `Unknown named parameter '0'`.
+- **Rows come back with a null prototype.** `getAncestors` copies them into plain objects so callers get what the typedef promises; `assert.deepStrictEqual` against object literals fails otherwise.
+
+The open option is `{ readOnly: true }` (camelCase), not better-sqlite3's `readonly` — a silent no-op if mistyped, though it does correctly reject writes when spelled right.
+
+## Findings database (`lib/db.js`)
+
+`data/findings.db` is the image checker's persistent worklist, replacing `cache/cache-images.json`. That file was a tombstone — it recorded *that* a taxon was checked, never what was found, while the results lived in files overwritten on every run, so a second run destroyed the first run's backlog. Here nothing is evicted: one row per `(qid, kind)`, and the reports render `openFindings()` — the accumulated backlog — rather than the current run.
+
+Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PRAGMA user_version` and migrations applied one per transaction by `migrate()`. `createFindingsStore(db)` is split from `openFindingsDb(file)` for the same reason `createTaxaAccessor` is split from `loadTaxaDb` — so tests can pass an in-memory database.
+
+**Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone` reserved for later slices. A taxon whose iNat batch *errored* gets no row at all, which is why `processInatIds` returns a `failed` set: recording an unanswered request as "no photos" would write the taxon off for the whole recheck window.
+
+**Negative results expire, settled ones do not.** `no_photos` / `no_draft` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded and missing P225s keep being filled in. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it.
+
+This is not a background sweep. There is no scheduler; expired rows simply become candidates again the next time discovery runs, under the same `--limit`.
+
+**Known interim gap.** The report's done checkbox still writes `localStorage` (`done-<QID>`), which the checker cannot see, so ticking a row does not mark the finding `done` and it reappears in the next regenerated report. That mattered less when the report was a one-shot list; now that it is the persistent backlog it is visible. Slice 4 of [findings-db-roadmap.md](findings-db-roadmap.md) moves that state into the database.
 
 ## Vernacular name language codes (`lib/getInatNames.js`)
 

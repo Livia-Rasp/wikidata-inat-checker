@@ -4,7 +4,7 @@ A set of tools for improving Wikidata taxon items using iNaturalist data — fin
 
 ## Installation
 
-Requires Node.js 18+.
+Requires Node.js 26+ — the SQLite index uses the built-in `node:sqlite` module, so there is no native build step. A `.nvmrc` pins the version (`nvm use`).
 
 ```sh
 git clone https://github.com/Livia-Rasp/wikidata-inat-checker.git
@@ -23,7 +23,9 @@ npm install
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `npm run web` | `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
 
-Every tool writes its reports into `output/` and its cross-run caches into `cache/` (both gitignored, created on first run). Clearing `output/` is safe — reports regenerate; the `cache/` files let re-runs skip already-checked taxa.
+Every tool writes its reports into `output/` and its cross-run caches into `cache/`; the image checker also keeps a **findings database** at `data/findings.db`. All three are gitignored and created on first run. Clearing `output/` is safe — reports regenerate; the `cache/` files let re-runs skip already-checked taxa. **`data/` is not safe to clear**: it holds the accumulated backlog and what has been worked through, which nothing can reconstruct.
+
+That database is why the image checker's report *grows* across runs instead of being replaced — every outcome is recorded, so re-running with a new filter adds to `output/drafts.html` rather than overwriting it. See [docs/images.md](docs/images.md) and, for where this is heading, [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
 
 The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e.g. `CR`, `EN`, `VU`) flags; the area checker takes `--lat`/`--lng`/`--radius` instead. The `--` after `npm run <tool>` is required so npm forwards the flags to the script.
 
@@ -33,7 +35,7 @@ npm run images -- --taxon Orchidaceae     # scope the image checker to one clade
 npm run links -- --limit 1000 --iucn EN   # 1000 Endangered taxa
 ```
 
-The image checker also accepts `--taxon <name|id>` to restrict the scan to a single clade (the taxon plus all its iNat descendants); it accepts a scientific name or a numeric iNat ID and composes with `--iucn`/`--limit`.
+The image checker also accepts `--taxon <name|id>` to restrict the scan to a single clade (the taxon plus all its iNat descendants); it accepts a scientific name or a numeric iNat ID and composes with `--iucn`/`--limit`. Its `--recheck-after <days>` (default 90) controls how long a taxon recorded as having no CC photos is trusted before being re-examined — photos keep being uploaded, so those results expire; `0` re-checks all of them.
 
 ## iNaturalist → Commons upload app
 

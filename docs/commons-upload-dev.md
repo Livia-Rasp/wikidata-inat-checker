@@ -279,7 +279,8 @@ Rationale:
 - **Zero packaging friction now.** No git submodule, no `npm install` from a git URL, no
   version-sync tax during active development.
 - **One source of truth.** Category/index/wikitext changes are instantly shared between the
-  CLI tools and the data-export step; `better-sqlite3` (a native dep) is compiled once.
+  CLI tools and the data-export step, over one SQLite driver (`node:sqlite`, built in — there
+  is no native dependency to compile).
 - **Premature splitting locks in a boundary we don't understand yet.** The shared modules
   are internal helpers, not a designed public API; let the API surface settle first.
 
@@ -300,7 +301,7 @@ The work splits into a **batch data step** (Node, stays with the core) and a **s
 client app** (`web/`):
 
 1. **Data export (CLI, root).** Finding image-less taxa needs the SQLite index
-   (`lib/getInatTaxaDb.js`, native `better-sqlite3` → Node-only) plus Wikidata SPARQL
+   (`lib/getInatTaxaDb.js`, `node:sqlite` → Node-only) plus Wikidata SPARQL
    enumeration (`lib/utils.js`) — heavy, batch-shaped work that cannot/should not run on a page
    load. `checkImages.js` exports the taxon list as JSON (`web/data/taxa.json`, gitignored)
    alongside `output/drafts.html`, via `report/generateImagesJson.js`.

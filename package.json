@@ -4,7 +4,7 @@
   "description": "Finds iNaturalist observations with Commons-compatible licenses for Wikidata taxon items that lack an image, and generates draft Wikimedia Commons category pages for them",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=26"
   },
   "bin": {
     "check-images": "checkImages.js",
@@ -42,11 +42,7 @@
   },
   "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
-    "better-sqlite3": "^12.10.0",
     "p-limit": "^7.3.0",
     "wikibase-sdk": "^11.6.1"
-  },
-  "allowScripts": {
-    "better-sqlite3@12.11.1": true
   }
 }

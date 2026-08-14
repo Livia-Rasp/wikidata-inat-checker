@@ -1,10 +1,21 @@
 # Web app architecture — frontend + backend proposal
 
-A **planning record**, not yet implemented. It captures the agreed direction for evolving the
-current static `web/` app into a frontend + Node backend with a shared cache, one page per
-workflow, and light automation. The current static app is described in
-[commons-upload.md](commons-upload.md) / [commons-upload-dev.md](commons-upload-dev.md); the
-reusable API recipes live in [commons-integration.md](commons-integration.md).
+A **planning record**, not yet implemented: how the `web/` app is *structured* once it grows a
+backend — the framework choice, the `core/` extraction, the page layout, and the shared enrichment
+cache.
+
+> **Read [findings-db-roadmap.md](findings-db-roadmap.md) first.** It is the plan of record and it
+> **wins wherever the two disagree**, on persistence, on the order of work, and on automation. This
+> document predates it. Sections that conflicted have been cut rather than left to be implemented by
+> accident — most notably the scheduled-refresh design, which was rejected outright: discovery is a
+> user-triggered action with a scope, never a cron.
+
+What survives here and is *not* in the roadmap: §2 the stack rationale, §3 the target structure,
+§4 the `core/` extraction, §6 the enrichment cache (a different thing from the findings database).
+
+The current static app is described in [commons-upload.md](commons-upload.md) /
+[commons-upload-dev.md](commons-upload-dev.md); the reusable API recipes live in
+[commons-integration.md](commons-integration.md).
 
 Nothing here is wired into `CLAUDE.md` yet — that happens as each slice ships.
 
@@ -19,7 +30,7 @@ technically required for what the app does now. What justifies adding one:
 | Driver | Decision | Notes |
 |---|---|---|
 | **Shared cache across users** | **Wanted (future)** | `web/js/enrich.js` caches per-browser in `localStorage`; the same place/category/author/ancestry lookups repeat across users. A server cache dedupes them. Cross-workflow: images and links both resolve taxa. |
-| **Automation** (see §5) | **Wanted** | Scheduled refresh, on-demand UI runs, bulk actions. |
+| **Automation** | **Partly — on-demand only** | On-demand runs from the UI and bulk actions, yes. **Scheduled refresh: rejected.** See the roadmap: the backlog is deliberately never complete, so discovery is triggered with a scope when the current batch runs low. |
 | **Multiple pages, one per workflow** | **Wanted (future)** | Today only the image checker has a web UI. |
 | Real Commons uploads via OAuth | **Not pursued now** | Would genuinely need a backend (secrets, token exchange). Deferred. |
 | Background jobs with live progress | **Not pursued now** | Explicitly out of scope; see the long-run caveat in §5. |
@@ -31,9 +42,9 @@ Deliberately boring, reusing what the repo already has.
 - **Backend framework: [Fastify](https://fastify.dev/).** Right size — fast, first-class
   ESM, schema validation, minimal ceremony. (Express = fine but heavier-feeling; Hono = only
   if edge/runtime portability ever matters. Fastify chosen.)
-- **Cache / persistence: `better-sqlite3`** — **already a repo dependency** (it backs the
-  iNat taxa index in `lib/getInatTaxaDb.js`). Reuse it for the shared enrichment cache, the
-  uploaded-files list, and the run-status records. No Redis/Postgres to operate.
+- **Cache / persistence: SQLite via the built-in `node:sqlite`** — no dependency at all (it
+  backs the iNat taxa index in `lib/getInatTaxaDb.js`). Reuse it for the shared enrichment
+  cache, the uploaded-files list, and the run-status records. No Redis/Postgres to operate.
 - **Frontend: vanilla, multi-page (MPA)** — one HTML entry per workflow sharing `core/`
   modules and a common nav/layout. No framework, no build step (as today). Add **Vite** as a
   pure build/dev layer (not a framework) only when pages start sharing stateful components.
@@ -54,8 +65,8 @@ server/
   index.js                  # Fastify: static serving + API (+ scheduler)
   routes/{images,names,links,area}.js  # GET data, POST /run, GET /status per workflow
   routes/enrich.js          # shared enrichment, served from the SQLite cache
-  cache.js                  # better-sqlite3 store; same has/get/set interface as today's Cache
-  scheduler.js              # node-cron entries → core/workflows run()
+  cache.js                  # node:sqlite store; same has/get/set interface as today's Cache
+                            # (no scheduler.js — scheduled refresh was rejected, see §5)
 client/                     # today's web/, generalised
   shared/                   # nav, layout, css, the fetch-from-/api helpers
   images.html, names.html, links.html, area.html   + per-page js
@@ -73,7 +84,7 @@ Everything else hangs off this, so it goes first.
   and DOM-free; its only browser coupling is the `Cache` class.
 - **`Cache` becomes pluggable.** Same `has/get/set` interface, two implementations: the
   existing `localStorage` one (browser, kept until enrichment moves server-side) and a new
-  `better-sqlite3` one (server). Enrichment ultimately runs server-side, so the browser cache
+  `node:sqlite` one (server). Enrichment ultimately runs server-side, so the browser cache
   mostly disappears.
 - **Each checker's `run()` becomes a callable async function** in `core/workflows/` that
   *returns data* instead of writing files to `cwd`. The CLI entry (`checkImages.js`, …) shrinks
@@ -85,35 +96,31 @@ Everything else hangs off this, so it goes first.
 
 Low risk: the CLIs keep working throughout (they just delegate to `core/`).
 
-## 5. Automation design
+## 5. Long-running requests
 
-Scope (confirmed): **scheduled refresh**, **on-demand run from UI**, **bulk actions**.
-Out of scope: background jobs with live progress.
+**Scheduled refresh was cut** — see the roadmap. `server/scheduler.js` and `node-cron` in §3 are
+vestigial; do not build them. What remains is the on-demand path, and its one real problem:
 
-- **Scheduled refresh** — `node-cron` entries in `server/scheduler.js` call
-  `core/workflows` `run()` and persist results (SQLite/JSON). No extra infra.
-- **On-demand run** — `POST /api/<workflow>/run` calls the same `run()`.
-- **Bulk actions** — batch endpoints (e.g. prepare many upload forms, bulk mark-as-done,
-  export QuickStatements), mostly frontend; made cheap by the shared cache.
+Discovery runs take minutes (the image checker is dominated by iNat photo checks), and there is
+deliberately no job queue. So:
 
-**Long-run caveat (the one thing to get right).** Runs take minutes (the image checker is
-dominated by iNat photo checks), and we deliberately skipped a job queue. So:
+- **A run-lock plus status record** in the findings DB: `idle | running | done | error`, the last
+  run timestamp, and the last error. The `runs` table in the roadmap's schema v1 is the seed for
+  exactly this.
+- `POST /api/discover` starts the run async and returns `202` immediately — it must never block for
+  minutes.
+- The UI shows "running… / last topped up N ago" by polling status: a state flag, not streamed
+  progress.
 
-- **Per-workflow run-lock + status record** in SQLite: `idle | running | done | error` +
-  `lastRun` timestamp + last error.
-- `POST /run` starts the run async and returns `202` immediately (never blocks for minutes).
-- The cron job **respects the same lock** — a scheduled tick skips if a run is already going,
-  so manual and scheduled runs can't collide.
-- The UI shows "running… / last refreshed N ago" by polling `GET /status` — a state flag, not
-  streamed progress.
+Bulk actions (prepare many upload forms, bulk mark-as-done, export QuickStatements) are mostly
+frontend work, made cheap by the shared cache.
 
-This delivers both automation features without the infrastructure we opted out of. If live
-progress is wanted later, the run-status record is the seed for a real job system — nothing
+If live progress is ever wanted, the run-status record is the seed for a real job system — nothing
 wasted.
 
 ## 6. Shared cache
 
-- A single `better-sqlite3` DB (separate from the read-only taxa index) holds: the enrichment
+- A single `node:sqlite` DB (separate from the read-only taxa index) holds: the enrichment
   cache (places, category-existence, author categories, taxon ancestry), the uploaded-files
   list, and the run-status records.
 - Enrichment is served via `/api/enrich/*`; the frontend stops calling iNat/Commons/WDQS
@@ -122,28 +129,26 @@ wasted.
 - Cache keys mirror today's `Cache` namespaces (`places`, `ancestry`, `catexists`,
   `authorcat`) so the migration is a backend swap, not a logic change.
 
-## 7. Migration plan (staged, each reversible)
+## 7. Migration plan
 
-| Step | Work | Effort | Risk |
-|---|---|---|---|
-| 1 | Extract `core/` (pure logic + `run()` per workflow + `generate*Json`) | ~1–2 d | low — CLIs keep working |
-| 2 | Fastify serving static + `/api/enrich` on the SQLite shared cache | ~1 d | low |
-| 3 | Workflow pages, one at a time (images first — it already has data) | incremental | low |
-| 4 | Scheduler + run-lock + on-demand `POST /run` / `GET /status` | ~1 d | medium — see §5 caveat |
-| 5 | Bulk actions | incremental | low |
+**Superseded** by the ten slices in [findings-db-roadmap.md](findings-db-roadmap.md#slices), which
+is the sequencing of record. The staged table that used to sit here disagreed with it on both order
+and content.
 
-The only step needing care is **1** — the cache, the pages, and all the automation hang off
-the `core/` extraction.
+The one point worth carrying over: the `core/` extraction in §4 is the keystone. The shared cache,
+the per-workflow pages and every automation feature hang off it, so it is the piece to get right
+rather than fast.
 
 ## 8. Deferred / open questions
 
-- **OAuth Commons uploads** — the one feature that strictly needs a backend; revisit when
-  half-automated prefill stops being enough.
-- **Background jobs + live progress** — revisit if minute-long runs in the UI feel too opaque.
-- **Auth / multi-user** — the shared cache is anonymous; a per-user uploaded-list would need
-  identity. Not required for the cache itself.
-- **Per-tool file caches** (`cache/cache-images.json` etc.) could later fold into the shared SQLite
-  DB, but that is not required initially.
+- **OAuth Commons uploads** — **no longer open**: it is slice 10 of the roadmap, deliberately last,
+  with this app registering its own consumer rather than sharing one.
+- **Per-tool file caches** (`cache/cache-images.json` etc.) — **no longer open**: folding them into
+  SQLite is the whole point of the roadmap, images first in slice 1.
+- **Background jobs + live progress** — still open; revisit if minute-long runs in the UI feel too
+  opaque.
+- **Auth / multi-user** — still open. The shared cache is anonymous; a per-user uploaded-list would
+  need identity. Not required for the cache itself.
 - **Deployment, once this backend actually exists** — today's static `web/` app needs no server
   beyond a trivial static-file host, so there's nothing to deploy yet. Once step 2 above ships a
   real Fastify backend, the sibling repo `vue-commons-gallery` has since built (2026-07) a CI/CD
