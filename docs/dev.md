@@ -127,6 +127,20 @@ Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PR
 
 This is not a background sweep. There is no scheduler; expired rows simply become candidates again the next time discovery runs, under the same `--limit`.
 
+### Verification (`lib/verify.js`, `verifyFindings.js`)
+
+`verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
+
+Requests use `redirects=no`. That is the load-bearing simplification: the API then reports a redirect exactly like a deleted entity, so since merged and deleted both resolve to `gone`, a single `entity.missing` check covers both and no requested-vs-returned id comparison is needed. An entity absent from the response entirely is also treated as `gone`, so a finding can never get stuck open because the API stopped mentioning its item.
+
+Results go through **`store.markVerified()`, never `recordFinding()`** — the latter overwrites `payload`, and with `payload` undefined it writes NULL, so reusing it here would wipe the stored draft wikitext of every finding the pass touched. `test/verify.test.js` guards exactly that.
+
+### Batched entity fetches (`utils.fetchEntitiesBatched`)
+
+One helper owns the `wbgetentities` ceiling of **50 ids per request** and the Wikimedia guidance of **≤3 concurrent requests** (the three call sites it replaced each used 4), plus retry via the shared `fetchWithRetry`. `sitefilter` and `languages` are parameters rather than constants because callers want different things — the ancestor walk needs `specieswiki`, verification needs `commonswiki`, place labels need `props=labels&languages=en` — and a single widened filter would make every batch carry payload most callers never read.
+
+A well-formed but deleted or merged id returns per-entity `{id, missing: ''}`, so one bad id does not fail its batch. Only a *malformed* id (out of range) fails the whole request with `no-such-entity`; QIDs sourced from Wikidata cannot hit that.
+
 **Known interim gap.** The report's done checkbox still writes `localStorage` (`done-<QID>`), which the checker cannot see, so ticking a row does not mark the finding `done` and it reappears in the next regenerated report. That mattered less when the report was a one-shot list; now that it is the persistent backlog it is visible. Slice 4 of [findings-db-roadmap.md](findings-db-roadmap.md) moves that state into the database.
 
 ## Vernacular name language codes (`lib/getInatNames.js`)

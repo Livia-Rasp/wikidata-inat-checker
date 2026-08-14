@@ -17,6 +17,7 @@ npm install
 | Tool | Command | Output | Documentation |
 |---|---|---|---|
 | Image checker | `npm run images` | `output/drafts.html` | [docs/images.md](docs/images.md) |
+| Verification | `npm run verify` | prunes the backlog, re-renders reports | [docs/images.md](docs/images.md#verification) |
 | Vernacular names | `npm run names` | `output/names.html` | [docs/names.md](docs/names.md) |
 | iNat links | `npm run links` | `output/links.html`, `output/links-ambiguous.html` | [docs/links.md](docs/links.md) |
 | Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html` | [docs/area.md](docs/area.md) |
@@ -25,7 +26,7 @@ npm install
 
 Every tool writes its reports into `output/` and its cross-run caches into `cache/`; the image checker also keeps a **findings database** at `data/findings.db`. All three are gitignored and created on first run. Clearing `output/` is safe — reports regenerate; the `cache/` files let re-runs skip already-checked taxa. **`data/` is not safe to clear**: it holds the accumulated backlog and what has been worked through, which nothing can reconstruct.
 
-That database is why the image checker's report *grows* across runs instead of being replaced — every outcome is recorded, so re-running with a new filter adds to `output/drafts.html` rather than overwriting it. See [docs/images.md](docs/images.md) and, for where this is heading, [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
+That database is why the image checker's report *grows* across runs instead of being replaced — every outcome is recorded, so re-running with a new filter adds to `output/drafts.html` rather than overwriting it. `npm run verify` is the other half: it re-checks the open backlog against live Wikidata and drops anything someone else has already fixed, or whose item has been merged or deleted. See [docs/images.md](docs/images.md) and, for where this is heading, [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
 
 The image, names, and links checkers accept `--limit <n>` and `--iucn <code>` (e.g. `CR`, `EN`, `VU`) flags; the area checker takes `--lat`/`--lng`/`--radius` instead. The `--` after `npm run <tool>` is required so npm forwards the flags to the script.
 

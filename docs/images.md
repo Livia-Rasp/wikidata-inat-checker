@@ -17,6 +17,26 @@ Results are recorded in the **findings database** at `data/findings.db`, which i
 
 `no_photos` and `no_draft` are observations with a shelf life, not verdicts — CC-licensed photos keep being uploaded and missing P225s keep being filled in — so they carry a `checked_at` and expire after `--recheck-after` days (default 90), at which point the taxon becomes a candidate again. Settled outcomes never expire. Unlike `output/` and `cache/`, **`data/` is not safe to delete**: it is the only record of what has been found and worked through.
 
+## Verification
+
+Wikidata is a wiki, so a finding can stop being work while it sits in the backlog: somebody else adds the image, or the item is merged away or deleted. `npm run verify` (`verifyFindings.js`) reconciles the open backlog against live Wikidata and then re-renders `output/drafts.html` and `web/data/taxa.json`, so the reports stop offering work already done.
+
+```sh
+npm run verify                    # verify the whole open backlog
+npm run verify -- --limit 200     # cap one pass
+npm run verify -- --kind image    # default
+```
+
+| What it finds | New status |
+|---|---|
+| P18 has appeared since discovery | `fixed_upstream` (the filename is recorded) |
+| Item merged or deleted | `gone` |
+| Still no image | stays `open`, `verified_at` refreshed |
+
+Resolved findings leave the worklist but stay in the database, so discovery never rediscovers them.
+
+**It reads the Action API, never SPARQL.** WDQS is an eventually-consistent index whose lag is usually seconds and occasionally hours, and it fails in the worst possible way here: immediately after a QuickStatements batch it may not show the edit yet, so a re-check would report the image still missing and you would add a second one. `wbgetentities` reads the live database, 50 items per request. Requests carry `redirects=no`, which makes the API report a redirect exactly like a deleted entity — since merged and deleted both become `gone`, one check covers both. The trade-off: the record does not distinguish them, or say where a merged item went.
+
 A separate cache, `cache/cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
 
 ## Usage
