@@ -177,15 +177,32 @@ later.
 checker, so a ticked row stays `open` and returns in the next regenerated report. Slice 4 fixes it.
 Worth naming because this slice makes it far more noticeable than it was.
 
-### 2. Verification pass
-Adds `lib/verify.js` — batched `wbgetentities` (50 QIDs per call), widening `fetchEntities`'
-`sitefilter` from `specieswiki` to include `commonswiki`, handling redirects (compare the requested
-QID against the returned entity's own id; a mismatch means the item was merged) and deleted items
-(`missing`). Adds a `verifyFindings.js` entry script.
+### 2. Verification pass — **done**
+Adds `lib/verify.js` and a `verifyFindings.js` entry script (`npm run verify`): findings whose P18
+appeared meanwhile become `fixed_upstream` (recording the filename), merged or deleted items become
+`gone`, the rest stay `open` with `verified_at` refreshed, and the reports are re-rendered so they
+stop offering work already done.
 
-**Working means:** `npm run verify` prunes the backlog — findings whose P18 appeared meanwhile
-become `fixed_upstream`, merged or deleted items become `gone`, and the reports stop offering work
-that is already done.
+Two things turned out differently from this plan:
+
+- **The redirect comparison was unnecessary.** Because merged and deleted both resolve to `gone`,
+  passing `redirects=no` makes the API report a redirect exactly like a deleted entity, so one
+  `missing` check covers both and no requested-vs-returned id logic exists. The cost, accepted: the
+  record does not say which happened or where a merged item went.
+- **Widening the shared `fetchEntities` sitefilter would have been a mistake** — that call is shared
+  with the ancestor walk and `checkNames`, so every ancestor batch would carry sitelink payload it
+  never reads. Instead `sitefilter` became a parameter of a new `utils.fetchEntitiesBatched`, which
+  also absorbed the three copies of the `chunk(50)` + `pLimit` + `Promise.all` idiom and dropped
+  concurrency 4 → 3, the documented ceiling.
+
+The landmine avoided: `recordFinding` overwrites `payload`, so reusing it to flip a status would
+have wiped the stored draft wikitext of every finding verified. Hence `markVerified`, and a test for
+it specifically.
+
+**Verified.** 44/44 unit tests, plus a live run seeding Q140 (has P18 → `fixed_upstream`, recorded
+`Lion in masai mara.jpg`) and Q999999999 (absent → `gone`) alongside four genuinely open findings,
+which stayed open with `verified_at` stamped. A second pass re-fetched only the four, and every
+payload survived.
 
 **Not in this slice:** confirmation of my own edits (that needs the write path in slice 4).
 

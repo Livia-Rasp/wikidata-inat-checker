@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // @ts-check
 import { simplify } from 'wikibase-sdk';
-import pLimit from 'p-limit';
 import { fetchEntities } from './lib/generateWikitext.js';
 import { fetchInatNames } from './lib/getInatNames.js';
 import { generateNamesHTML } from './report/generateNamesHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, chunk } from './lib/utils.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit } from './lib/utils.js';
 import { cachePath } from './lib/paths.js';
 
 const CACHE_FILE = cachePath('cache-names.json');
@@ -44,21 +43,17 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
     const qids = wdUris.map(qidFromUri);
     console.log(`Fetching Wikidata vernacular names for ${qids.length} items...`);
 
-    const concurrency = pLimit(4);
-    const batches = chunk(qids, 50);
-    const entityResults = await Promise.all(batches.map(b => concurrency(() => fetchEntities(b))));
+    const entities = await fetchEntities(qids);
 
     const wdData = {};
-    for (const data of entityResults) {
-        for (const [qid, entity] of Object.entries(data.entities || {})) {
-            if (entity.missing) continue;
-            const claims = simplify.claims(entity.claims || {}, { keepRichValues: true });
-            const taxonName = claims.P225?.[0];
-            const wdNames = new Set(
-                (claims.P1843 || []).map(v => `${v.language}:${v.text.toLowerCase()}`)
-            );
-            wdData[qid] = { taxonName, wdNames };
-        }
+    for (const [qid, entity] of Object.entries(entities)) {
+        if (entity.missing) continue;
+        const claims = simplify.claims(entity.claims || {}, { keepRichValues: true });
+        const taxonName = claims.P225?.[0];
+        const wdNames = new Set(
+            (claims.P1843 || []).map(v => `${v.language}:${v.text.toLowerCase()}`)
+        );
+        wdData[qid] = { taxonName, wdNames };
     }
     console.log('Wikidata fetch complete.');
 
