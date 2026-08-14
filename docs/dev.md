@@ -121,6 +121,15 @@ The open option is `{ readOnly: true }` (camelCase), not better-sqlite3's `reado
 
 Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PRAGMA user_version` and migrations applied one per transaction by `migrate()`. `createFindingsStore(db)` is split from `openFindingsDb(file)` for the same reason `createTaxaAccessor` is split from `loadTaxaDb` — so tests can pass an in-memory database.
 
+**Reading it: `listFindings({kind, status, limit, offset})`**, with `openFindings(kind)` as its unlimited `status: 'open'` case. Two details are load-bearing:
+
+- **The default limit is "no limit" (`LIMIT -1`).** `drafts.html` and `web/data/taxa.json` render the whole backlog off `openFindings()`, so a page size defaulted in the store would silently drop rows from both — a data-loss bug that looks like a display bug. HTTP callers cap it themselves, in their route schema.
+- **The tiebreak is `f.id`, not `f.qid`.** `qid` is TEXT, so `Q9` sorts after `Q10`, and `discovered_at` ties are the norm within one batch — paging over that ordering would repeat and skip rows.
+
+Rows carry `id` and `status` alongside the render fields, because the HTTP API addresses a finding by its id.
+
+**Two processes, one file.** Since the server reads the database while a checker writes it, `openFindingsDb` sets `busy_timeout` **before** `journal_mode = WAL` — the WAL switch itself takes a brief exclusive lock, and with no timeout in effect it fails outright with `SQLITE_BUSY` when another process is mid-write. For the same reason `migrate()` uses `BEGIN IMMEDIATE` and re-reads `user_version` *inside* the transaction: with a deferred `BEGIN` and the version read outside, two processes opening the same fresh database both see 0, both begin, and the loser dies on `table taxa already exists`.
+
 **Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone` reserved for later slices. A taxon whose iNat batch *errored* gets no row at all, which is why `processInatIds` returns a `failed` set: recording an unanswered request as "no photos" would write the taxon off for the whole recheck window.
 
 **Negative results expire, settled ones do not.** `no_photos` / `no_draft` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded and missing P225s keep being filled in. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it.
