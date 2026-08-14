@@ -13,9 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # better-sqlite3 12.x requires Node 20+ (the package.json engines floor of >=18 is
-          # understated). The tests build only in-memory SQLite fixtures, so no taxa.db download.
-          node-version: '20'
+          # node:sqlite is fully stable from Node 26, which is the package.json engines floor.
+          # The tests build only in-memory SQLite fixtures, so no taxa.db download.
+          node-version: '26'
           cache: npm
       - run: npm ci
       - run: npm test

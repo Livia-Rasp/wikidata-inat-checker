@@ -69,10 +69,13 @@ The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that 
 
 Reusable, app-agnostic Commons/iNaturalist/Wikidata integration recipes (Special:Upload prefill, copy-upload allowlist, category-existence checks, `{{Taken on}}`, two-axis `<Taxon> of <Place>` + most-specific-location categories, Nominatim reverse geocoding, and author categories, P12022) are collected in [docs/commons-integration.md](docs/commons-integration.md) — the reference for building further Commons-upload tools.
 
+**Work in progress:** the checkers are being restructured around a persistent findings database (replacing the `cache/cache-*.json` tombstones, which lose the backlog on every re-run) served by a Fastify backend. [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) is the plan of record — ten slices, the schema, and the decisions behind them. Read it before changing anything about caching, persistence, or the web app.
+
 Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
 
 - **Module wiring** — per-tool data-flow diagrams (which module calls what)
 - **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()`/`allNames()`/`allInatIds()`/`descendantInatIds()`, stateofmatter filter (`lib/getInatTaxaDb.js`)
+- **`node:sqlite` driver** — why there is no SQLite dependency and `engines` is `>=26`; the four `better-sqlite3` differences that bite (no `.pluck()`, no `db.transaction()`, `run(...row)` not `run(row)`, null-prototype rows)
 - **zh-hans/zh-hant normalization** — why `zh-CN`/`zh-TW` are remapped (`lib/getInatNames.js`)
 - **Ancestor traversal depth** — why the cap is `MAX_ANCESTOR_DEPTH` (40) rounds; reaching the kingdom for endemic categories (`lib/generateWikitext.js`)
 - **Commons Taxonavigation templates** — wrappers, suffixed families, Fungorum, IUCN categories, placement rules (`lib/generateWikitext.js`)

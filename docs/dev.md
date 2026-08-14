@@ -83,7 +83,7 @@ Two things deliberately live elsewhere: `web/data/taxa.json` (must be under `web
 
 `node --test` runs `test/*.test.js` — a dependency-free unit suite for the pure logic, no network, sub-second. Coverage: arg parsing (`parseArgs` incl. `--key=value`, `parseLimit`, `parseIucnArg`), `chunk`/`qidFromUri`/`escapeHtml`, `compareAncestorTrees`, the IUCN code↔QID inverse, the taxa-index queries (`descendantInatIds`/`getAncestors`/`get`), and the report scaffold (`extractTaxonName`, `doneScript` key namespacing, `renderReportPage`). Add cases here when you touch that logic.
 
-The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `better-sqlite3` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
+The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `node:sqlite` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
 
 ## Report page rendering (`report/htmlShared.js`)
 
@@ -98,6 +98,17 @@ The ambiguous report keeps its own script (it hides rowspan-grouped candidate ro
 ## iNat taxa SQLite index (`lib/getInatTaxaDb.js`)
 
 The local SQLite DB at `~/.cache/wikidata-inat-checker/taxa.db` has schema `taxa(taxon_id PK, name, rank, ancestry)` with an index on `name`. `get(name)` issues a `LIMIT 2` query: exactly one row → returns `{inatId, rank}`, two or more rows → returns `undefined` (homonym, treated the same as not-found). `getAll(name)` returns all matching rows and is used to surface the ambiguous cases. `getAncestors(taxonId)` parses the slash-separated `ancestry` field (ancestor IDs root-to-parent) and looks each up by primary key — no API call needed; filters out the `stateofmatter` root concept. `descendantInatIds(taxonId)` (drives `--taxon` scoping) returns every taxon whose `ancestry` contains the id as a whole path component, matching all four positions it can occupy — the entire string, the start (`<id>/…`), the end (`…/<id>`, a *direct* child), or the middle (`…/<id>/…`); the end position matters because `ancestry` omits self, so a taxon's direct children (e.g. a genus's own species) carry the id as the final component.
+
+### Driver: `node:sqlite`, not `better-sqlite3`
+
+SQLite comes from Node's built-in `node:sqlite` (`DatabaseSync`), so the project has **no native build step** — which is why the `engines` floor is `>=26`, where the module is fully stable. Four differences from `better-sqlite3` bit during the migration and will bite again:
+
+- **No `.pluck()`.** Single-column reads use `.all().map(r => r.col)` instead. (`setReturnArrays()` exists as an alternative but reads worse.)
+- **No `db.transaction()` helper.** Bulk inserts wrap `db.exec('BEGIN')` / `COMMIT` by hand, with `ROLLBACK` in a catch. This is not optional: without it the ~1.4 M-row index build commits per row and crawls.
+- **`run()` binds positionally and rejects a single array argument** — `run(...row)`, never `run(row)`, which fails with `Unknown named parameter '0'`.
+- **Rows come back with a null prototype.** `getAncestors` copies them into plain objects so callers get what the typedef promises; `assert.deepStrictEqual` against object literals fails otherwise.
+
+The open option is `{ readOnly: true }` (camelCase), not better-sqlite3's `readonly` — a silent no-op if mistyped, though it does correctly reject writes when spelled right.
 
 ## Vernacular name language codes (`lib/getInatNames.js`)
 

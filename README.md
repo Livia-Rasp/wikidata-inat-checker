@@ -4,7 +4,7 @@ A set of tools for improving Wikidata taxon items using iNaturalist data — fin
 
 ## Installation
 
-Requires Node.js 18+.
+Requires Node.js 26+ — the SQLite index uses the built-in `node:sqlite` module, so there is no native build step. A `.nvmrc` pins the version (`nvm use`).
 
 ```sh
 git clone https://github.com/Livia-Rasp/wikidata-inat-checker.git
