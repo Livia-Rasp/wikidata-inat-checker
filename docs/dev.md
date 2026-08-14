@@ -15,9 +15,14 @@ checkImages.js
   └─ utils.fetchWdTaxaByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
        → taxa with P3151 = a local iNat ID but no P18 (IUCN via OPTIONAL, JS-filtered)
        → --limit caps collected candidates; cached ids skipped to reach new taxa
-  └─ lib/getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds }
+  └─ lib/db.js {skipQids()}: qids already settled, or negative but still inside --recheck-after
+  └─ lib/getFromInat.js: iNat /v1/observations/species_counts → { available, inatTaxonIds, failed }
   └─ lib/generateWikitext.js: Wikidata wbgetentities ancestor traversal → { [wdUri]: wikitext }
-  └─ report/generateHTML.js: writes output/drafts.html
+  └─ lib/db.js {upsertTaxon(), recordFinding()}: every outcome persisted to data/findings.db
+       → open | no_draft | no_photos; a failed iNat batch records nothing so it retries
+  └─ lib/db.js {openFindings()}: the WHOLE open backlog, not just this run
+       └─ report/generateHTML.js: writes output/drafts.html
+       └─ report/generateImagesJson.js: writes web/data/taxa.json
 ```
 
 ### Vernacular names checker (`checkNames.js`)
@@ -109,6 +114,20 @@ SQLite comes from Node's built-in `node:sqlite` (`DatabaseSync`), so the project
 - **Rows come back with a null prototype.** `getAncestors` copies them into plain objects so callers get what the typedef promises; `assert.deepStrictEqual` against object literals fails otherwise.
 
 The open option is `{ readOnly: true }` (camelCase), not better-sqlite3's `readonly` — a silent no-op if mistyped, though it does correctly reject writes when spelled right.
+
+## Findings database (`lib/db.js`)
+
+`data/findings.db` is the image checker's persistent worklist, replacing `cache/cache-images.json`. That file was a tombstone — it recorded *that* a taxon was checked, never what was found, while the results lived in files overwritten on every run, so a second run destroyed the first run's backlog. Here nothing is evicted: one row per `(qid, kind)`, and the reports render `openFindings()` — the accumulated backlog — rather than the current run.
+
+Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PRAGMA user_version` and migrations applied one per transaction by `migrate()`. `createFindingsStore(db)` is split from `openFindingsDb(file)` for the same reason `createTaxaAccessor` is split from `loadTaxaDb` — so tests can pass an in-memory database.
+
+**Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone` reserved for later slices. A taxon whose iNat batch *errored* gets no row at all, which is why `processInatIds` returns a `failed` set: recording an unanswered request as "no photos" would write the taxon off for the whole recheck window.
+
+**Negative results expire, settled ones do not.** `no_photos` / `no_draft` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded and missing P225s keep being filled in. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it.
+
+This is not a background sweep. There is no scheduler; expired rows simply become candidates again the next time discovery runs, under the same `--limit`.
+
+**Known interim gap.** The report's done checkbox still writes `localStorage` (`done-<QID>`), which the checker cannot see, so ticking a row does not mark the finding `done` and it reappears in the next regenerated report. That mattered less when the report was a one-shot list; now that it is the persistent backlog it is visible. Slice 4 of [findings-db-roadmap.md](findings-db-roadmap.md) moves that state into the database.
 
 ## Vernacular name language codes (`lib/getInatNames.js`)
 

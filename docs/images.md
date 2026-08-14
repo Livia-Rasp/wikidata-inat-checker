@@ -13,7 +13,11 @@ Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Co
 
 iNat queries are batched via the `/v1/observations/species_counts` endpoint (up to 200 taxa per request), so a 5000-taxon scan takes about a minute while staying within iNat's recommended ~1 request/second rate. The number of taxa per run is configurable — see [Usage](#usage).
 
-Results are cached locally in `cache/cache-images.json` so re-runs skip taxa already checked in a prior session. Delete the file to force a full re-scan. A second cache, `cache/cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
+Results are recorded in the **findings database** at `data/findings.db`, which is what makes the backlog survive: every outcome is stored, so re-runs skip taxa already dealt with *and* `output/drafts.html` shows the whole accumulated open worklist rather than just the latest run's. Statuses are `open` (CC photos found and a draft built), `no_draft` (photos found but no draft was possible — no P225, or the family template is missing), and `no_photos`. A taxon whose iNat request *failed* is recorded not at all, so it is retried next run rather than written off.
+
+`no_photos` and `no_draft` are observations with a shelf life, not verdicts — CC-licensed photos keep being uploaded and missing P225s keep being filled in — so they carry a `checked_at` and expire after `--recheck-after` days (default 90), at which point the taxon becomes a candidate again. Settled outcomes never expire. Unlike `output/` and `cache/`, **`data/` is not safe to delete**: it is the only record of what has been found and worked through.
+
+A separate cache, `cache/cache-commons-cats.json`, records which `Endemic <group> of <place>` categories exist on Commons (see [Endemic](#endemic) below) so those existence checks are reused across runs; delete it to re-verify against Commons.
 
 ## Usage
 

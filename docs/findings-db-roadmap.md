@@ -145,7 +145,7 @@ differences that bit are written up in [dev.md](dev.md#driver-nodesqlite-not-bet
 Verified: 25/25 unit tests, and a real index build — 1,418,443 active taxa in 12.4 s, with every
 accessor returning the right types.
 
-### 1. Findings store replaces the images tombstone cache
+### 1. Findings store replaces the images tombstone cache — **done**
 No backend yet. Adds `lib/db.js` (open + PRAGMAs + schema v1 + a `user_version` migration runner),
 writes `checkImages.js` results into `taxa`/`findings` instead of `cache/cache-images.json`, and
 makes the HTML report and `web/data/taxa.json` render *from the DB*.
@@ -159,7 +159,23 @@ Optional and small: import an existing `cache-images.json` as rows with a `legac
 previously-checked taxa do not resurface. The tombstone cannot say *what* was found, so that is the
 honest ceiling.
 
-**Not in this slice:** verification, any backend, any change to the app's UI.
+**Not in this slice:** verification, any backend.
+
+**Verified.** 35/35 unit tests, and four real runs from a scratch directory: a repeat of the same
+command skipped all 20 already-recorded taxa and found 20 different ones, then a run under a
+*different* IUCN filter left the report holding the earlier three findings **plus** the new one
+(Q136084/Q143300/Q587982 → those three plus Q428420). Under the old code that fourth run would have
+produced a report containing only Q428420 and destroyed the rest.
+
+**One addition beyond the plan.** `drafts.html` gained an IUCN column, using the Red List's own
+category colours. It is not decoration: the backlog now mixes categories from different runs, so
+without it there is no way to tell what a row is or what to prioritise — a gap created by
+accumulation itself. `iucn` rides along into `web/data/taxa.json` too, for the app to subselect on
+later.
+
+**Known interim gap.** The report's done checkbox still writes `localStorage`, invisible to the
+checker, so a ticked row stays `open` and returns in the next regenerated report. Slice 4 fixes it.
+Worth naming because this slice makes it far more noticeable than it was.
 
 ### 2. Verification pass
 Adds `lib/verify.js` — batched `wbgetentities` (50 QIDs per call), widening `fetchEntities`'
