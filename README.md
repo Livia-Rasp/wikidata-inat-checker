@@ -22,7 +22,7 @@ npm install
 | iNat links | `npm run links` | `output/links.html`, `output/links-ambiguous.html` | [docs/links.md](docs/links.md) |
 | Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html` | [docs/area.md](docs/area.md) |
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `npm run web` | `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
+| Upload app | `npm run web` | `web/` app + findings API at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md), [docs/security.md](docs/security.md) |
 
 Every tool writes its reports into `output/` and its cross-run caches into `cache/`; the image checker also keeps a **findings database** at `data/findings.db`. All three are gitignored and created on first run. Clearing `output/` is safe — reports regenerate; the `cache/` files let re-runs skip already-checked taxa. **`data/` is not safe to clear**: it holds the accumulated backlog and what has been worked through, which nothing can reconstruct.
 
@@ -45,6 +45,12 @@ Running the image checker also writes `web/data/taxa.json`. Then:
 ```sh
 npm run web        # serve the web/ app at http://localhost:8080
 ```
+
+That command starts a small [Fastify](https://fastify.dev) server (`server/`) which serves the app
+and a read-only findings API over the same database the checkers write. It binds `127.0.0.1` by
+default — exposing it on a network is a deliberate act (`HOST=…`), and the threat model, the headers
+and what is deliberately *not* done are in [docs/security.md](docs/security.md). Other environment
+variables: `PORT`, `FINDINGS_DB`, `LOG_LEVEL`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `TRUST_PROXY`.
 
 The app lists the image-less taxa, and for each one shows its research-grade,
 Commons-compatibly-licensed iNaturalist photos. Selecting a photo opens the Wikimedia
@@ -81,7 +87,8 @@ See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/REA
 - **Entry scripts** (`check*.js`, `draftCategory.js`) live at the repository root — these are what the `npm run …` commands invoke.
 - **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the local SQLite taxa index, Commons wikitext generation, and `paths.js` for the output/cache locations).
 - **`report/`** — the HTML report builders and the `web/data/taxa.json` exporter, sharing a common page skeleton in `report/htmlShared.js`.
-- **`web/`** — the self-contained static upload app (no build step, no backend).
+- **`server/`** — the Fastify app behind `npm run web`: serves `web/` plus the read-only findings API ([docs/security.md](docs/security.md)).
+- **`web/`** — the browser upload app (plain HTML/JS/CSS, no build step).
 - **`test/`** — unit tests (`npm test`, using Node's built-in test runner — no dev dependencies).
 - **`output/`, `cache/`** — generated reports and cross-run caches (gitignored, created on first run).
 

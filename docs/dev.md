@@ -2,6 +2,8 @@
 
 Implementation details for contributors and for Claude to read on demand when debugging or extending the tools.
 
+Its companion is [security.md](security.md) — the threat model for `server/`, why each header, limit and validation rule is there, and what is deliberately not done. Anything touching the HTTP surface belongs in that document, not this one.
+
 ## Module wiring
 
 Each entry script wires shared modules together; all data flows in memory.
@@ -135,6 +137,23 @@ Rows carry `id` and `status` alongside the render fields, because the HTTP API a
 **Negative results expire, settled ones do not.** `no_photos` / `no_draft` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded and missing P225s keep being filled in. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it.
 
 This is not a background sweep. There is no scheduler; expired rows simply become candidates again the next time discovery runs, under the same `--limit`.
+
+### The server (`server/`)
+
+`npm run web` runs `server/index.js`: it opens `data/findings.db`, hands the store to
+`buildServer({store})` in `server/app.js`, and binds **127.0.0.1** unless `HOST` says otherwise.
+`buildServer` never listens and never closes the store it was given — the same injection seam as
+`verifyOpenFindings(store, …)`, which is what lets `test/server.test.js` drive the whole app over an
+in-memory database with `app.inject()` and no port.
+
+`server/routes/findings.js` is encapsulated under `/api` so its rate limiter covers the API and not
+the static assets — an app-wide limiter trips on the burst of asset requests a single page load
+fires. `GET /api/findings?kind=&status=&limit=&offset=` returns `{generated, total, count, limit,
+offset, taxa}`; `total` is the count *before* paging, so a truncated page cannot pass itself off as
+the whole backlog.
+
+Everything about *why* the headers, limits and validation rules are what they are — including the
+CSP hosts that are easy to get wrong — is in [security.md](security.md).
 
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 

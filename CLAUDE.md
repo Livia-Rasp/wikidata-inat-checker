@@ -32,7 +32,9 @@ npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
 node draftCategory.js Q14625955            # print a Commons category draft for a taxon QID
 npm run draft -- Q14625955 Q10459793       # same via npm (accepts multiple QIDs)
 
-npm run web                                 # serve the iNat→Commons upload app (web/), localhost:8080
+npm run web                                 # Fastify: serves web/ + the findings API, localhost:8080
+                                            # env: PORT, HOST (default 127.0.0.1), FINDINGS_DB,
+                                            # LOG_LEVEL, RATE_LIMIT_MAX/WINDOW, TRUST_PROXY
 
 npm test                                    # run the unit suite (Node's built-in runner)
 ```
@@ -54,7 +56,8 @@ Six entry scripts (five tools), each wiring together shared modules; data flows 
 
 - **`lib/`** — core data + domain logic: `utils.js` (SPARQL/CirrusSearch/Commons helpers, arg parsing, IUCN maps), `cache.js`, `paths.js` (the `output/` + `cache/` path helpers), `getInatTaxaDb.js`, `getFromInat.js`, `getInatNames.js`, `generateWikitext.js` (Commons category wikitext + `fetchEntities`).
 - **`report/`** — output rendering: the `generate*HTML.js` report builders, their shared `htmlShared.js` (base CSS, `renderReportPage`/`doneScript`, tree-pair + copy helpers), and `generateImagesJson.js` (the `web/data/taxa.json` data-contract exporter).
-- **`web/`** — the self-contained static upload app (its own `web/js/*`, see below).
+- **`server/`** — the Fastify app (`npm run web`): `app.js` (`buildServer({store})`, which never listens and never closes the store it is handed — the same injection seam `verifyOpenFindings` uses), `routes/findings.js` (the read-only `GET /api/findings`, encapsulated so its rate limiter covers the API and not the static assets), `index.js` (opens `data/findings.db`, binds **127.0.0.1 by default**, owns shutdown). Threat model and the reason behind every header in [docs/security.md](docs/security.md) — **read it before adding a write endpoint.**
+- **`web/`** — the browser upload app (its own `web/js/*`, see below), served by `server/`.
 - **`test/`** — `node:test` unit suite (`*.test.js`), run via `npm test`.
 - **`output/`, `cache/`** — gitignored, auto-created generated artifacts (deliverables and cross-run caches respectively); see the Outputs/Caches bullets above.
 
@@ -69,13 +72,16 @@ All paths are relative to the working directory (the repo root, where the tools 
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [docs/links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
+| Upload app | `web/` + `server/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
+| Server | `server/index.js` (`npm run web`) | serves `web/` + read-only `GET /api/findings` | [docs/security.md](docs/security.md) |
 
-The upload app is a static, backend-free `web/` folder (plain HTML/JS/CSS) that consumes `web/data/taxa.json` (exported by `checkImages.js` via `report/generateImagesJson.js`) and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/cache.js` persists every lookup and the uploaded-files list in `localStorage`. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
+The upload app is a build-step-free `web/` folder (plain HTML/JS/CSS), served by `server/` together with the findings API. It still consumes `web/data/taxa.json` (exported by `checkImages.js` via `report/generateImagesJson.js`) and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/cache.js` persists every lookup and the uploaded-files list in `localStorage`. It is self-contained for an eventual spin-out into its own repo — see [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
 
 Reusable, app-agnostic Commons/iNaturalist/Wikidata integration recipes (Special:Upload prefill, copy-upload allowlist, category-existence checks, `{{Taken on}}`, two-axis `<Taxon> of <Place>` + most-specific-location categories, Nominatim reverse geocoding, and author categories, P12022) are collected in [docs/commons-integration.md](docs/commons-integration.md) — the reference for building further Commons-upload tools.
 
 **Work in progress:** the checkers are being restructured around a persistent findings database (replacing the `cache/cache-*.json` tombstones, which lose the backlog on every re-run) served by a Fastify backend. [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) is the plan of record — ten slices, the schema, and the decisions behind them. Read it before changing anything about caching, persistence, or the web app.
+
+**Security:** [`docs/security.md`](docs/security.md) is the threat model for `server/` — what each header and limit is for, and what is deliberately *not* done (no auth, no TLS, loopback-only by default). Read it before exposing the server on a network, before adding any endpoint that writes, and before the OAuth work.
 
 Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
 
