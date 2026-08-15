@@ -1,7 +1,8 @@
 # iNaturalist → Commons upload app
 
-A small, backend-free web app for the [wikidata-inat-checker](../) project. It lists the
-image-less Wikidata taxa found by the image checker (`web/data/taxa.json`), shows each
+A small, build-step-free web app for the [wikidata-inat-checker](../) project. It lists the
+image-less Wikidata taxa found by the image checker (served by `server/` from the findings
+database, `GET /api/findings`), shows each
 taxon's research-grade, Commons-compatibly-licensed iNaturalist photos, and opens the
 Wikimedia Commons upload form **pre-filled** for any photo you pick. Nothing is uploaded
 automatically — you review and submit the form yourself.

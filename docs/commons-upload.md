@@ -145,13 +145,16 @@ nothing is submitted to Wikidata automatically.
 
 - `checkImages.js` exports `web/data/taxa.json` (the data contract) via
   `report/generateImagesJson.js` — the only link between the core tools and the app.
-- The `web/` app is **static** (plain HTML/JS/CSS, no build step, no backend): it reads that
-  JSON and, from the browser, queries the iNaturalist API (photos, places, taxon ancestry),
-  Commons (category existence, author categories), and the Wikidata Query Service (author
-  categories) — all CORS-open — then builds the Commons upload URL client-side.
-  `web/serve.js` (`npm run web`) is just a static file server so the browser can load the JSON.
-- `web/` has no code dependency on the rest of the repo, so it can be split into its own
-  repository later. See [commons-upload-dev.md](commons-upload-dev.md) for the architecture.
+- The `web/` app has **no build step** (plain HTML/JS/CSS): it reads the open backlog from
+  `GET /api/findings` and, from the browser, queries the iNaturalist API (photos, places, taxon
+  ancestry), Commons (category existence, author categories), and the Wikidata Query Service
+  (author categories) — all CORS-open — then builds the Commons upload URL client-side.
+- `npm run web` runs the Fastify server in `server/`, which serves both `web/` and that API from
+  `data/findings.db`. It binds `127.0.0.1` by default; see [security.md](security.md) for the
+  threat model and the environment variables.
+- `web/` still has no code dependency on the rest of the repo beyond that one HTTP contract, so it
+  can be split into its own repository later. See [commons-upload-dev.md](commons-upload-dev.md)
+  for the architecture.
 
 ## Attribution
 

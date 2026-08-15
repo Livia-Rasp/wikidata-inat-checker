@@ -24,7 +24,7 @@
     "linkStats": "node checkLinksStats.js",
     "area": "node checkArea.js",
     "draft": "node draftCategory.js",
-    "web": "node web/serve.js"
+    "web": "node server/index.js"
   },
   "keywords": [
     "wikidata",
@@ -44,6 +44,10 @@
   },
   "homepage": "https://github.com/Livia-Rasp/wikidata-inat-checker#readme",
   "dependencies": {
+    "@fastify/helmet": "^13.1.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.3",
+    "fastify": "^5.12.0",
     "p-limit": "^7.3.0",
     "wikibase-sdk": "^11.6.1"
   }

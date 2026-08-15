@@ -1,4 +1,4 @@
-// Main view: loads the data contract (data/taxa.json) produced by checkImages.js and
+// Main view: loads the open image backlog from the server's /api/findings and
 // renders a drafts.html-like table of image-less taxa. Each row links out to Wikidata,
 // the iNat taxon, and the Commons category, shows the draft Wikitext (click to copy),
 // and opens the per-taxon photo gallery in a new tab.
@@ -33,55 +33,58 @@ function rowHtml(t) {
         ? `<a class="photos-btn" href="${escapeHtml(galleryUrl(t))}" target="_blank">View photos ↗</a>`
         : '—';
 
-    return `<tr id="row-${t.qid}">
-      <td class="check-col"><input type="checkbox" id="cb-${t.qid}" onchange="setDone('${t.qid}', this.checked)"></td>
+    // No inline onclick/onchange: the CSP forbids event-handler attributes (script-src-attr
+    // 'none'), and this table is built from server data with innerHTML. Rows carry data-qid and
+    // #tbody delegates both events.
+    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}">
+      <td class="check-col"><input type="checkbox" class="done-cb"></td>
       <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
       <td class="inat-col">${inatCell}</td>
       <td class="commons-col">${commonsCell}</td>
       <td class="photos-col">${photosCell}</td>
       <td class="draft-col">
-        <pre class="draft" onclick="copy(this)">${escapeHtml(t.wikitext)}</pre>
+        <pre class="draft">${escapeHtml(t.wikitext)}</pre>
         <span class="hint">Copied!</span>
       </td>
     </tr>`;
 }
 
 // ---- copy + done helpers (browser-side reimplementation of htmlShared.js) ----
-window.copy = function (el) {
+function copyDraft(el) {
     const text = el.textContent;
     const hint = el.nextElementSibling;
     const show = () => { hint.style.display = 'inline'; setTimeout(() => { hint.style.display = 'none'; }, 1500); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(show);
     else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); show(); }
-};
+}
 
 let hidingDone = localStorage.getItem('hide-done') === '1';
 
-window.setDone = function (qid, done) {
+function setDone(qid, done) {
     localStorage.setItem('done-' + qid, done ? '1' : '');
     const row = $('row-' + qid);
     row.classList.toggle('done', done);
     if (done && hidingDone) row.classList.add('hide-done');
     if (!done) row.classList.remove('hide-done');
     refreshQuickStatements(); // a done taxon with a picked P18 image gates into the panel
-};
+}
 
-window.toggleHideDone = function () {
+function toggleHideDone() {
     hidingDone = !hidingDone;
     localStorage.setItem('hide-done', hidingDone ? '1' : '');
     $('hide-done').textContent = hidingDone ? 'Show done' : 'Hide done';
     document.querySelectorAll('tr.done').forEach((row) => row.classList.toggle('hide-done', hidingDone));
-};
+}
+
+/** Every rendered row, paired with its qid — the single place the DOM↔qid mapping is read. */
+const rows = () => document.querySelectorAll('#tbody tr[data-qid]');
 
 function restoreState() {
-    document.querySelectorAll('input[type=checkbox]').forEach((cb) => {
-        const qid = cb.id.replace('cb-', '');
-        if (localStorage.getItem('done-' + qid)) {
-            cb.checked = true;
-            const row = $('row-' + qid);
-            row.classList.add('done');
-            if (hidingDone) row.classList.add('hide-done');
-        }
+    rows().forEach((row) => {
+        if (!localStorage.getItem('done-' + row.dataset.qid)) return;
+        row.querySelector('.done-cb').checked = true;
+        row.classList.add('done');
+        if (hidingDone) row.classList.add('hide-done');
     });
     if (hidingDone) $('hide-done').textContent = 'Show done';
 }
@@ -137,11 +140,9 @@ function copyQuickStatements() {
 // Re-read done flags from localStorage onto the rows — picks made in a gallery tab auto-mark
 // the taxon done, so the checkbox/row must catch up when the main view regains focus.
 function syncDoneState() {
-    document.querySelectorAll('input[type=checkbox]').forEach((cb) => {
-        const qid = cb.id.replace('cb-', '');
-        const done = !!localStorage.getItem('done-' + qid);
-        cb.checked = done;
-        const row = $('row-' + qid);
+    rows().forEach((row) => {
+        const done = !!localStorage.getItem('done-' + row.dataset.qid);
+        row.querySelector('.done-cb').checked = done;
         row.classList.toggle('done', done);
         row.classList.toggle('hide-done', done && hidingDone);
     });
@@ -164,6 +165,18 @@ function downloadUploaded() {
 
 $('download-uploaded').addEventListener('click', downloadUploaded);
 $('qs-copy').addEventListener('click', copyQuickStatements);
+$('hide-done').addEventListener('click', toggleHideDone);
+
+// Delegated on #tbody, so rows rendered later need no wiring of their own.
+$('tbody').addEventListener('change', (e) => {
+    const row = e.target.closest('tr[data-qid]');
+    if (row && e.target.matches('.done-cb')) setDone(row.dataset.qid, e.target.checked);
+});
+$('tbody').addEventListener('click', (e) => {
+    const draft = e.target.closest('.draft');
+    if (draft) copyDraft(draft);
+});
+
 refreshUploadedCount();
 // Refresh after marking/picking in a gallery tab (which may auto-mark a taxon done).
 window.addEventListener('focus', () => {
@@ -172,20 +185,30 @@ window.addEventListener('focus', () => {
     refreshQuickStatements();
 });
 
+// The URL is relative, like every other path here, so the app still works mounted under a
+// reverse-proxy subpath. limit is the API's ceiling: past that the backlog is reported as
+// truncated rather than silently cut short.
+const API = 'api/findings?kind=image&status=open&limit=2000';
+
 async function load() {
     try {
-        const r = await fetch('data/taxa.json', { cache: 'no-store' });
+        const r = await fetch(API, { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const taxa = data.taxa || [];
         taxa.forEach((t) => { if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName); });
-        $('count').textContent = `${taxa.length} taxa`;
-        if (data.generated) $('generated').textContent = `generated ${new Date(data.generated).toLocaleString()}`;
+        $('count').textContent = data.total > taxa.length
+            ? `${taxa.length} of ${data.total} taxa`
+            : `${taxa.length} taxa`;
+        if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
         $('tbody').innerHTML = taxa.map(rowHtml).join('\n');
+        if (taxa.length === 0) {
+            $('status').textContent = 'Nothing open in the backlog. Run `node checkImages.js` to find more taxa.';
+        }
         restoreState();
         refreshQuickStatements();
     } catch (e) {
-        $('status').textContent = `Could not load data/taxa.json (${e.message}). Run \`node checkImages.js\` first.`;
+        $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
     }
 }
 

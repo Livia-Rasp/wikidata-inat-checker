@@ -114,13 +114,56 @@ test('openFindings returns only open rows, shaped for the report', () => {
     const rows = store.openFindings('image');
     assert.equal(rows.length, 1);
     assert.deepEqual(rows[0], {
+        id: rows[0].id,
         qid: 'Q1',
+        status: 'open',
         wdUri: 'http://www.wikidata.org/entity/Q1',
         inatTaxonId: 'inat-Q1',
         taxonName: 'Taxon Q1',
         iucn: 'VU',
         wikitext: '{{Species|Panthera onca|}}',
     });
+    assert.equal(typeof rows[0].id, 'number', 'the row carries the finding id the API addresses');
+});
+
+test('listFindings filters by status and kind, and openFindings is the unlimited open case', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open', { wikitext: 'a' });
+    seed(store, 'Q2', 'done', { wikitext: 'b' });
+    store.upsertTaxon({ qid: 'Q3', taxonName: 'Taxon Q3' });
+    store.recordFinding({ qid: 'Q3', kind: 'name', status: 'open' });
+
+    assert.deepEqual(store.listFindings({ kind: 'image' }).map(r => r.qid), ['Q1']);
+    assert.deepEqual(store.listFindings({ kind: 'image', status: 'done' }).map(r => r.qid), ['Q2']);
+    assert.deepEqual(store.listFindings({ kind: 'name' }).map(r => r.qid), ['Q3']);
+    // The truncation guard: drafts.html and taxa.json render everything openFindings returns, so
+    // it must never inherit a page size.
+    assert.deepEqual(store.openFindings('image'), store.listFindings({ kind: 'image' }));
+});
+
+test('listFindings pages stably and countFindings reports the untruncated total', () => {
+    const { store } = makeStore();
+    for (const qid of ['Q10', 'Q9', 'Q2']) seed(store, qid, 'open', { wikitext: qid });
+
+    const all = store.listFindings({ kind: 'image' }).map(r => r.qid);
+    assert.equal(all.length, 3);
+    assert.deepEqual(store.listFindings({ kind: 'image', limit: 2 }).map(r => r.qid), all.slice(0, 2));
+    assert.deepEqual(store.listFindings({ kind: 'image', limit: 2, offset: 2 }).map(r => r.qid), all.slice(2));
+    assert.equal(store.countFindings({ kind: 'image' }), 3, 'the total ignores limit/offset');
+    assert.equal(store.countFindings({ kind: 'image', status: 'done' }), 0);
+});
+
+test('latestRunAt reports the last finished run, never an unfinished one', () => {
+    const { store } = makeStore();
+    assert.equal(store.latestRunAt(), null, 'no runs yet');
+
+    const done = store.startRun('images', {});
+    store.finishRun(done, { scanned: 1, found: 1 });
+    const finishedAt = store.latestRunAt();
+    assert.ok(finishedAt, 'a finished run sets the freshness stamp');
+
+    store.startRun('images', {}); // still running, or crashed
+    assert.equal(store.latestRunAt(), finishedAt, 'an unfinished run must not look like fresh data');
 });
 
 test('upsertTaxon does not blank existing fields with nulls', () => {

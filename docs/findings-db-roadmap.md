@@ -206,21 +206,52 @@ payload survived.
 
 **Not in this slice:** confirmation of my own edits (that needs the write path in slice 4).
 
-### 3. Fastify serves the images app from the DB
-Adds `server/` — Fastify serving the static `web/` plus a read-only
-`GET /api/findings?kind=image&status=open`. `web/js/main.js` fetches the API instead of
-`web/data/taxa.json`. `npm run web` starts the server.
-
-**Working means:** the app shows live data with no export step in between. The `taxa.json` exporter
-stays for one more slice as a fallback, then goes.
-
-**Not in this slice:** any write endpoint. This is deliberately the smallest backend that works.
+### 3. Fastify serves the images app from the DB — **done**
+`server/` — Fastify serving `web/` plus a read-only `GET /api/findings`, with `web/js/main.js`
+fetching it instead of `web/data/taxa.json`, and `npm run web` starting it. `web/serve.js` is gone.
+The `taxa.json` exporter still runs but nothing reads it; removing it is slice 4's cleanup.
 
 Folding this into slice 4 was considered and rejected (2026-08-14): it would produce a single commit
 that changes where the data comes from *and* introduces the first write path, which is exactly the
 shape that is miserable to bisect when the app later shows the wrong rows. Keep them separate.
 
+Four things turned out differently from the plan, all because this is the slice that makes the
+project a *service*:
+
+- **Two latent `lib/db.js` bugs became reachable and had to be fixed first.** Until now exactly one
+  process ever opened the database. `busy_timeout` was set *after* `journal_mode = WAL`, and the WAL
+  switch itself takes a brief exclusive lock — so that line failed outright with `SQLITE_BUSY`
+  whenever a checker was mid-write. And `migrate()` read `user_version` outside a *deferred*
+  transaction, so two processes opening a fresh database both saw 0, both began, and the loser died
+  on `table taxa already exists`. Now `BEGIN IMMEDIATE` with the version re-read inside the lock.
+- **The API was hardened in its first commit, not a follow-up.** An intermediate commit with no CSP,
+  no rate limit and a leaking error handler is not a state worth being able to bisect to. The
+  threat model, and more usefully the list of what is deliberately *not* done, is the new
+  [security.md](security.md) — which **slice 4 must re-read**, because "it only reads public data"
+  stops being true at the first write endpoint.
+- **The CSP forced a small `web/` refactor.** helmet's default `script-src-attr 'none'` blocks
+  event-handler attributes, and the app had three (`onclick`/`onchange`) plus three `window.*`
+  globals existing only to serve them. They became delegated listeners on `#tbody` — worth doing
+  regardless, since that table is built from database content with `innerHTML`.
+- **The page-size cap lives in the route schema, not the store.** A default `limit` on
+  `listFindings` would have silently truncated `drafts.html` and `taxa.json`, which render the whole
+  backlog — a data-loss bug wearing a display bug's clothes. The response therefore carries `total`
+  alongside `count`, so a truncated page cannot present itself as the complete worklist.
+
+The row contract gained `id` and `status` **now**, so slice 4's `POST /api/findings/:id/confirm`
+does not have to change the read contract and add the first write path in one commit.
+
+**Verified.** 74/74 unit tests, including negative ones that matter more than the happy path: an
+internal error whose message contains the database path answers with none of it; `?unknown=1` and
+`?limit=999999` are 400s rather than silently-defaulted queries; ten consecutive asset requests do
+not trip the API's rate limit (the failure `vue-commons-gallery` documented); `/data/` and dotfiles
+are not served; `/nope.html` 404s instead of falling back to the index.
+
 ### 4. Confirm-gated done state in the DB
+**Read [security.md](security.md) first.** It records that the API is unauthenticated and that the
+judgement behind that — read-only, over public facts — expires at this slice. Also drop the
+now-unread `report/generateImagesJson.js` export here.
+
 Adds `POST /api/findings/:id/confirm` — runs the slice-2 verification for that single QID and marks
 `done` **only if the edit is actually live**, otherwise leaves it `open` with a reason — plus
 `POST /api/findings/:id/skip`. A one-time importer pulls existing `winc-uploaded` / `winc-p18`
@@ -273,7 +304,11 @@ Migrates `checkNames.js`. Verification is per-language: P1843 must not already c
 language the finding proposes.
 
 ### 9. Dockerise, with a persistent volume and backups
-Fastify plus a mounted volume for the findings database, port 8080. The pipeline shape to copy is
+Fastify plus a mounted volume for the findings database, port 8080. `HOST` and `TRUST_PROXY` are the
+two settings to get right here — see [security.md](security.md), which explains why the server binds
+loopback by default and why trusting `X-Forwarded-For` unconditionally would make the rate limiter
+bypassable. Note also that the server's connection is bound to the file it opened: restoring a
+`VACUUM INTO` backup requires a restart, or it keeps serving the old database. The pipeline shape to copy is
 `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo. Backup is `VACUUM INTO` on a timer;
 the database is gitignored, so nothing else is protecting it.
 
