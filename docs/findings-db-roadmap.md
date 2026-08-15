@@ -29,6 +29,13 @@ profile.
   is nearly done fetch more — untargeted, or scoped to a family, an IUCN status or an area.
   Discovery is a *user-triggered action with a scope*, not a schedule. This is why there is no TTL
   sweep, no daily budget scheduler and no revalidation cron in this plan.
+
+  **Partly revisited 2026-08-15 (slice 5b).** A schedule is wanted after all, but for a different
+  reason than the one rejected here: spreading outbound load onto quiet hours, and accumulating
+  candidates over time so a work session does not have to start by waiting for a discovery run. What
+  stays true is the sentence above it — the table is not meant to be complete — so the scheduled run
+  is **conditional on the backlog being low**, not unconditional. On-demand discovery remains the
+  primary trigger; the schedule reuses its job runner and its single-flight lock.
 - **SQLite, deliberately** — `journal_mode=WAL`, a `busy_timeout`, `STRICT` tables, one writer by
   discipline, `VACUUM INTO` for backup. Postgres was considered and rejected: it is more ops here,
   and the iNat taxa index stays SQLite regardless, so findings in Postgres would mean two engines
@@ -350,3 +357,28 @@ id synchronously — which lands in the `resolution` column that has been there 
 
 **Register the consumer early, not when the code is ready.** A full consumer needs admin approval,
 and that lead time is the long pole; the toolbox's note records the same warning.
+
+### 5b. Scheduled top-up when the backlog runs low
+Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
+which builds everything it needs: the child-process job runner, the single-flight lock, the status
+record and the outbound caps. This slice is the trigger and the condition, nothing else.
+
+Decisions made when it was planned, so they do not have to be re-argued:
+
+- **It only runs when the backlog is low** — below a configured threshold of open findings. This is
+  what keeps it compatible with "the findings table is never meant to be complete": work through
+  nothing and it stops fetching, rather than growing a worklist nobody is touching.
+- **Timing is adaptive on measured request volume**, not a fixed hour. Recommended against at
+  planning time and chosen anyway, so the concerns belong here: it needs traffic history, a
+  definition of "low" and hysteresis to avoid flapping, and it makes the outbound traffic time
+  unpredictable, which is the opposite of what a shared API prefers. Start by recording request
+  volume and only then decide the rule; a fixed hour is the fallback if the signal proves too noisy
+  on a single-user tool.
+- **Off unless configured, with one fixed scope from the environment.** An unattended job that
+  spends Wikimedia and iNaturalist reputation must never be a default, and what it does should be
+  written down rather than inherited from whatever was last clicked in the UI.
+- **On-demand still works exactly as before.** The schedule is another caller of the same runner, so
+  a manual top-up and a scheduled one cannot overlap — the lock already refuses the second.
+
+**Working means:** a machine left running accumulates candidates on its own, and a work session
+starts with a backlog already there.
