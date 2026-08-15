@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // @ts-check
-import { HEADERS, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './lib/utils.js';
+import { reqInit, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './lib/utils.js';
 import { generateAreaHTML } from './report/generateAreaHTML.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
 /** GET a JSON endpoint, throwing on a non-ok status (clearer than a JSON parse error). */
 async function getJson(url) {
-    const r = await fetch(url, { headers: HEADERS });
+    const r = await fetch(url, reqInit());
     if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
     return r.json();
 }

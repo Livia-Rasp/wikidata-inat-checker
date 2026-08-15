@@ -5,6 +5,7 @@ import {
     chunk, qidFromUri, escapeHtml, compareAncestorTrees,
     parseArgs, parseLimit, parseIucnArg,
     IUCN_STATUS_QIDS, IUCN_QID_TO_CODE,
+    reqInit, HEADERS, FETCH_TIMEOUT_MS, SPARQL_TIMEOUT_MS,
 } from '../lib/utils.js';
 
 test('chunk splits into fixed-size groups, remainder last', () => {
@@ -110,4 +111,31 @@ test('compareAncestorTrees: ranks present on only one side are ignored, and it i
     assert.equal(r.matches, 1);
     assert.equal(r.mismatches, 0);
     assert.deepEqual(r.matchedRanks, ['family']);
+});
+
+test('reqInit identifies us and bounds the request', () => {
+    const init = reqInit();
+    assert.equal(init.headers, HEADERS, 'every outbound call says who we are');
+    assert.ok(init.signal instanceof AbortSignal);
+    assert.equal(init.signal.aborted, false);
+});
+
+test('reqInit takes custom headers without losing the timeout', () => {
+    const init = reqInit(SPARQL_TIMEOUT_MS, { ...HEADERS, Accept: 'text/tab-separated-values' });
+    assert.equal(init.headers.Accept, 'text/tab-separated-values');
+    assert.equal(init.headers['User-Agent'], HEADERS['User-Agent']);
+    assert.ok(init.signal instanceof AbortSignal);
+});
+
+test('WDQS gets a longer budget than everything else', () => {
+    // Its own query limit is 60s, so a 30s client timeout would abandon queries the service
+    // still intends to answer.
+    assert.ok(SPARQL_TIMEOUT_MS > 60_000);
+    assert.ok(FETCH_TIMEOUT_MS < SPARQL_TIMEOUT_MS);
+});
+
+test('a request actually aborts when its budget runs out', async () => {
+    const init = reqInit(10);
+    await new Promise(r => setTimeout(r, 30));
+    assert.equal(init.signal.aborted, true, 'a stalled connection must not hang a run forever');
 });
