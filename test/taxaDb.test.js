@@ -73,3 +73,18 @@ test('get returns a lone match, undefined for a homonym or a miss', () => {
     assert.equal(db.get('Nope'), undefined);
     assert.equal(db.getAll('Iris').length, 2);
 });
+
+test('openTaxaDb refuses rather than downloading 189MB', async () => {
+    const { openTaxaDb, TaxaIndexUnavailable } = await import('../lib/getInatTaxaDb.js');
+    // Only meaningful when the real index is absent; when a developer has one, the accessor path
+    // is what runs and the message below is what a fresh checkout would see.
+    try {
+        const db = openTaxaDb();
+        assert.ok(typeof db.allInatIds === 'function', 'an existing index opens read-only');
+    } catch (err) {
+        assert.ok(err instanceof TaxaIndexUnavailable);
+        assert.equal(err.code, 'taxa_index_unavailable');
+        // The failure has to say what to do, because the server will never do it.
+        assert.match(err.message, /from a terminal/);
+    }
+});
