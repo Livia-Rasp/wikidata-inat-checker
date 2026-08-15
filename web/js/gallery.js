@@ -9,7 +9,7 @@ import {
     geocodePlaces, mergeGeocodedPlaces,
     findGeoCategories, findAuthorCategories,
 } from './enrich.js';
-import { uploaded, p18 } from './cache.js';
+import { state } from './state.js';
 
 const API = 'https://api.inaturalist.org/v1/observations';
 const PER_PAGE = 200;
@@ -66,9 +66,9 @@ function card({ obs, photo }) {
     const faves = obs.faves_count ?? 0;
     const lic = photo.license_code.toUpperCase();
     const destFile = buildDestFile({ photo, taxonName });
-    const isUp = uploaded.has(destFile);
+    const isUp = state.isUploaded(destFile);
 
-    const isP18 = qid && p18.get(qid)?.file === destFile;
+    const isP18 = qid && state.pickFor(qid)?.destFile === destFile;
 
     const el = document.createElement('div');
     el.className = 'card' + (isUp ? ' uploaded' : '') + (isP18 ? ' p18-selected' : '');
@@ -86,31 +86,46 @@ function card({ obs, photo }) {
       <label class="mark"><input type="checkbox" ${isUp ? 'checked' : ''}> Mark as uploaded</label>
       ${qid ? `<label class="p18"><input type="radio" name="p18-pick" ${isP18 ? 'checked' : ''}> Use as Wikidata image (P18)</label>` : ''}`;
 
+    /** Server writes can fail; the checkbox must not silently disagree with the database. */
+    const save = async (body, revert) => {
+        try {
+            await state.setUpload(body);
+        } catch (e) {
+            revert();
+            $('status').textContent = `Could not save: ${e.message}`;
+        }
+    };
+
     const cb = el.querySelector('.mark input');
     cb.addEventListener('change', () => {
-        uploaded.set(destFile, cb.checked);
         el.classList.toggle('uploaded', cb.checked);
+        save(
+            { destFile, qid: qid || undefined, photoId: String(photo.id), taxonName, uploaded: cb.checked },
+            () => { cb.checked = !cb.checked; el.classList.toggle('uploaded', cb.checked); });
     });
 
-    // Pick exactly one photo as the taxon's Wikidata image (P18). Picking also marks the
-    // taxon "done" and uploaded, so it surfaces in the main view's QuickStatements panel.
-    // Clicking the already-picked radio clears the selection.
+    // Pick exactly one photo as the taxon's Wikidata image (P18). Picking marks the photo
+    // uploaded too, but — unlike before slice 4 — it does *not* mark the taxon done: the pick is
+    // an intention to edit, and only Wikidata itself can say the edit happened. Clicking the
+    // already-picked radio clears the selection.
     const radio = el.querySelector('.p18 input');
     if (radio) {
         radio.addEventListener('click', () => {
-            if (p18.get(qid)?.file === destFile) {
+            const picked = state.pickFor(qid)?.destFile === destFile;
+            if (picked) {
                 radio.checked = false;
-                p18.clear(qid);
                 el.classList.remove('p18-selected');
+                save({ destFile, qid, taxonName, uploaded: true, p18: false },
+                    () => { radio.checked = true; el.classList.add('p18-selected'); });
                 return;
             }
-            p18.set(qid, destFile, taxonName);
-            localStorage.setItem('done-' + qid, '1');
-            uploaded.set(destFile, true);
             cb.checked = true;
             el.classList.add('uploaded');
             document.querySelectorAll('.card.p18-selected').forEach((c) => c.classList.remove('p18-selected'));
             el.classList.add('p18-selected');
+            save(
+                { destFile, qid, photoId: String(photo.id), taxonName, uploaded: true, p18: true },
+                () => { radio.checked = false; el.classList.remove('p18-selected'); });
         });
     }
     return el;
@@ -182,5 +197,9 @@ if (!taxonId) {
         b.classList.toggle('active', b.dataset.sort === sort);
         b.addEventListener('click', () => setSort(b.dataset.sort));
     });
-    render();
+    // The uploaded/picked state must be in memory before the first card renders — card() asks
+    // for it synchronously — so this is awaited rather than raced with the photo fetch.
+    state.load()
+        .then(render)
+        .catch((e) => { $('status').textContent = `Could not reach the server (${e.message}).`; });
 }
