@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-check
-import { loadTaxaDb } from './lib/getInatTaxaDb.js';
+import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { cirrusCount, fetchWdTaxaByNames, IUCN_STATUS_QIDS, IUCN_QID_TO_CODE } from './lib/utils.js';
 
 const NO_STATUS = '(no IUCN status)';
@@ -10,7 +10,7 @@ const BASE_FILTER = 'haswbstatement:P31=Q16521 haswbstatement:P225 -haswbstateme
 
 async function runStats() {
     console.log('Loading iNat taxa DB…');
-    const taxaDb = await loadTaxaDb();
+    const taxaDb = await ensureTaxaDb();
     const names = taxaDb.allNames();
     console.log(`${names.length.toLocaleString()} distinct iNat names loaded.`);
 
