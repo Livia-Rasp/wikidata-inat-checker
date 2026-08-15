@@ -51,8 +51,9 @@ test('a finding row carries exactly the documented fields', async (t) => {
     // The response schema strips anything not listed in it, so this is what stops a future
     // migration — or a typo in the schema — silently dropping a column the app renders.
     assert.deepEqual(Object.keys(row).sort(),
-        ['id', 'inatTaxonId', 'iucn', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+        ['id', 'inatTaxonId', 'iucn', 'kind', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
     assert.equal(row.qid, 'Q1');
+    assert.equal(row.kind, 'image');
     assert.equal(row.status, 'open');
     assert.equal(row.iucn, 'VU');
     assert.equal(row.wdUri, 'http://www.wikidata.org/entity/Q1');
@@ -161,6 +162,115 @@ test('an unknown /api path answers as JSON', async (t) => {
     assert.equal(res.statusCode, 404);
     assert.match(res.headers['content-type'], /application\/json/);
 });
+
+// ---- write endpoints ----
+
+/** A wbgetentities fake; `state` is 'both' | 'imageOnly' | 'neither' | 'missing'. */
+function fakeApi(state = 'both') {
+    return async (qids) => ({
+        entities: Object.fromEntries(qids.map(qid => [qid,
+            state === 'missing' ? { id: qid, missing: '' } : {
+                id: qid,
+                claims: state === 'both' || state === 'imageOnly'
+                    ? { P18: [{ mainsnak: { datavalue: { value: `${qid}.jpg` } } }] } : {},
+                sitelinks: state === 'both' ? { commonswiki: { title: `Category:${qid}` } } : {},
+            }])),
+        success: 1,
+    });
+}
+
+/** Writes come from the app, so they carry what a browser would send. */
+const post = (app, url, payload) => app.inject({
+    method: 'POST',
+    url,
+    headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' },
+    payload: payload ?? {},
+});
+
+const firstId = (store) => store.listFindings({ kind: 'image' })[0].id;
+
+test('confirming a complete edit takes the finding off the backlog', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('both') });
+    seed(store, 'Q1');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/confirm`);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().results[0].confirmed, true);
+    assert.deepEqual((await app.inject('/api/findings')).json().taxa, []);
+});
+
+test('confirming a half-applied batch leaves the row open and says which half is missing', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('imageOnly') });
+    seed(store, 'Q1');
+
+    const [result] = (await post(app, `/api/findings/${firstId(store)}/confirm`)).json().results;
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, 'missing_sitelink');
+    assert.equal((await app.inject('/api/findings')).json().total, 1, 'still work to do');
+});
+
+test('a bulk confirm answers per id', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('both') });
+    seed(store, 'Q1');
+    seed(store, 'Q2');
+    const ids = store.listFindings({ kind: 'image' }).map(f => f.id);
+
+    const res = await post(app, '/api/findings/confirm', { ids });
+    assert.deepEqual(res.json().results.map(r => r.id), ids);
+    assert.ok(res.json().results.every(r => r.confirmed));
+});
+
+test('when Wikidata cannot be reached the answer is 503 and nothing changes', async (t) => {
+    const { app, store } = makeApp(t, {
+        fetchFn: async () => { throw new Error('Wikidata API HTTP 503'); },
+    });
+    seed(store, 'Q1');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/confirm`);
+    // Distinguishable from "this server is broken": the client should try again, and the row is
+    // untouched so trying again is safe.
+    assert.equal(res.statusCode, 503);
+    assert.ok(!res.body.includes('HTTP 503') || !res.body.includes('at '), 'no stack trace');
+    assert.equal(store.listFindings({ kind: 'image' })[0].status, 'open');
+});
+
+test('skipping settles a finding and clears its pick', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1' });
+    store.setP18Pick('Q1', 'A.jpg');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/skip`, { reason: 'no category' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().status, 'skipped');
+    assert.deepEqual(store.p18Picks(), {});
+    assert.ok(store.skipQids('image').has('Q1'), 'and discovery will not offer it again');
+});
+
+test('an unknown finding id is a 404, not a silent success', async (t) => {
+    const { app } = makeApp(t, { fetchFn: fakeApi('both') });
+    assert.equal((await post(app, '/api/findings/999999/skip')).statusCode, 404);
+    // Confirm reports it per-id rather than failing the whole batch.
+    const [result] = (await post(app, '/api/findings/999999/confirm')).json().results;
+    assert.equal(result.reason, 'not_found');
+});
+
+for (const [what, url, payload] of [
+    ['a non-numeric id', '/api/findings/abc/confirm', {}],
+    ['an empty bulk list', '/api/findings/confirm', { ids: [] }],
+    ['an over-long bulk list', '/api/findings/confirm', { ids: Array.from({ length: 201 }, (_, i) => i + 1) }],
+    ['an unknown body field', '/api/findings/confirm', { ids: [1], force: true }],
+    // Note ajv coerces "1" to 1 by default, and that coercion is what makes the querystring's
+    // integer limit/offset work at all — so the id cases worth pinning are the ones no coercion
+    // can rescue.
+    ['a zero id', '/api/findings/confirm', { ids: [0] }],
+    ['a non-numeric id in the list', '/api/findings/confirm', { ids: [{}] }],
+]) {
+    test(`${what} is rejected`, async (t) => {
+        const { app } = makeApp(t, { fetchFn: fakeApi('both') });
+        assert.equal((await post(app, url, payload)).statusCode, 400);
+    });
+}
 
 // ---- rate limiting ----
 

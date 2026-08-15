@@ -51,10 +51,12 @@ class ApiOnlyLogController extends LogController {
 
 /**
  * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
- *          allowedHosts?: string[]}} opts
+ *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>}} opts
  * @returns {import('fastify').FastifyInstance}
  */
-export function buildServer({ store, logger = false, rateLimit, staticOptions, allowedHosts } = {}) {
+export function buildServer({
+    store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
+} = {}) {
     const app = Fastify({
         logger,
         logController: new ApiOnlyLogController(),
@@ -126,7 +128,9 @@ export function buildServer({ store, logger = false, rateLimit, staticOptions, a
         ...staticOptions,
     });
 
-    app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts });
+    // fetchFn is the Wikidata seam lib/verify.js already established: injected here so the whole
+    // application can be exercised over an in-memory database with no network.
+    app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts, fetchFn });
 
     // Fastify's default 404 echoes the requested route back; this one does not.
     app.setNotFoundHandler((_req, reply) => {

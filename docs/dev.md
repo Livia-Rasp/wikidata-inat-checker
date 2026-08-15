@@ -154,8 +154,37 @@ fires. `GET /api/findings?kind=&status=&limit=&offset=` returns `{generated, tot
 offset, taxa}`; `total` is the count *before* paging, so a truncated page cannot pass itself off as
 the whole backlog.
 
+**Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
+`{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
+a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
+`fetchFn` is threaded from `buildServer` down to `confirmFindings`, so the whole application can be
+driven over an in-memory database with no network.
+
 Everything about *why* the headers, limits and validation rules are what they are — including the
-CSP hosts that are easy to get wrong — is in [security.md](security.md).
+CSP hosts that are easy to get wrong, and what the write guard defends against — is in
+[security.md](security.md).
+
+### Confirming (`lib/confirm.js`) — and why it is not verification
+
+Both read the same `wbgetentities` response through `readImageFacts()`, and then ask **different
+questions of it**:
+
+| | `verifyOpenFindings` (`npm run verify`) | `confirmFindings` (the app's Confirm button) |
+|---|---|---|
+| Question | Does this taxon still need an image? | Did *my* edit land in full? |
+| Test | P18 present | P18 **and** the commonswiki sitelink present |
+| Resolves to | `fixed_upstream` | `done` |
+
+So a taxon whose P18 you added but whose sitelink statement failed will **refuse to confirm** and
+then be swept to `fixed_upstream` by the next verify run. That is not a bug: it no longer needs an
+image, so it is no longer this checker's work, even though your batch was half-applied. The confirm
+response names which half is missing (`missing_p18` / `missing_sitelink` /
+`missing_p18_and_sitelink`) so the difference is visible rather than mysterious.
+
+A failed confirm is a **no-op** — the finding keeps `open` and only `verified_at` moves — never an
+error state, because a QuickStatements batch can be queued and confirming too eagerly must be safe.
+An *upstream* failure is different again: it answers 503 and touches nothing, so retrying is safe.
+`skip` is the escape hatch for a taxon that will never have a Commons category.
 
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 

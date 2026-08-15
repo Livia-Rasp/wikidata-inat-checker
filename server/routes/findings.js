@@ -1,10 +1,11 @@
 // @ts-check
-// The read-only findings API. Encapsulated as its own plugin for two reasons: the rate limiter
-// registered here then covers the API and *only* the API (an app-wide limiter trips on the burst
-// of static assets one page load fires), and the write endpoints of the next slice hang off this
-// same resource behind whatever auth hook is added at this seam.
+// The findings API. Encapsulated as its own plugin for two reasons: the rate limiter registered
+// here covers the API and *only* the API (an app-wide limiter trips on the burst of static assets
+// one page load fires), and the write guard registered here covers every mutating route, including
+// the ones later slices add.
 import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
+import { confirmFindings } from '../../lib/confirm.js';
 import writeGuard from '../writeGuard.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
@@ -16,11 +17,24 @@ const STATUSES = [...STICKY_STATUSES, ...NEGATIVE_STATUSES];
 /** Hard ceiling on one page. Every query blocks the event loop — node:sqlite is synchronous. */
 const MAX_LIMIT = 2000;
 
+/** Ids per bulk confirm. 200 is four Wikidata requests — polite, and one paste-sized batch. */
+const MAX_CONFIRM_IDS = 200;
+
+/**
+ * Writes cost more than reads: a confirm spends Wikimedia's API budget, not just ours. Applied
+ * per-route so it composes with the shared limiter above rather than replacing it.
+ */
+const WRITE_RATE_LIMIT = {
+    max: Number(process.env.RATE_LIMIT_WRITE_MAX ?? 30),
+    timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
+};
+
 const findingSchema = {
     type: 'object',
     properties: {
         id: { type: 'integer' },
         qid: { type: 'string' },
+        kind: { type: 'string' },
         status: { type: 'string' },
         wdUri: { type: 'string' },
         // Nullable in the database and therefore nullable here: a bare 'string' would serialise
@@ -34,7 +48,8 @@ const findingSchema = {
 
 /**
  * @param {import('fastify').FastifyInstance} app
- * @param {{store: any, rateLimit?: object}} opts
+ * @param {{store: any, rateLimit?: object, allowedHosts?: string[],
+ *          fetchFn?: (qids: string[]) => Promise<object>}} opts
  */
 export default async function findingsRoutes(app, opts) {
     const { store } = opts;
@@ -98,6 +113,94 @@ export default async function findingsRoutes(app, opts) {
             offset,
             taxa,
         };
+    });
+
+    // ---- writes ----
+    // All three sit behind the write guard registered above, and carry the tighter write budget.
+
+    const confirmResultSchema = {
+        type: 'object',
+        properties: {
+            id: { type: 'integer' },
+            qid: { type: 'string' },
+            status: { type: 'string' },
+            confirmed: { type: 'boolean' },
+            reason: { type: 'string' },
+            image: { type: ['string', 'null'] },
+            commonsCategory: { type: ['string', 'null'] },
+            expectedFile: { type: ['string', 'null'] },
+        },
+    };
+
+    /** Answers 503 rather than 500 when Wikidata is the thing that failed, leaving rows untouched. */
+    const confirm = async (ids, reply) => {
+        try {
+            return { results: await confirmFindings(store, ids, { fetchFn: opts.fetchFn }) };
+        } catch (err) {
+            // A confirm that could not reach Wikidata has decided nothing. Saying so is the
+            // difference between "try again" and "this server is broken".
+            reply.log.warn({ err }, 'confirm could not reach Wikidata');
+            return reply.status(503).send({
+                statusCode: 503,
+                error: 'Service Unavailable',
+                message: 'Wikidata could not be reached; nothing was changed. Try again.',
+            });
+        }
+    };
+
+    app.post('/findings/:id/confirm', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            params: {
+                type: 'object',
+                properties: { id: { type: 'integer', minimum: 1 } },
+                required: ['id'],
+            },
+            response: { 200: { type: 'object', properties: { results: { type: 'array', items: confirmResultSchema } } } },
+        },
+    }, async (req, reply) => confirm([/** @type {any} */ (req.params).id], reply));
+
+    app.post('/findings/confirm', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['ids'],
+                properties: {
+                    ids: {
+                        type: 'array',
+                        minItems: 1,
+                        maxItems: MAX_CONFIRM_IDS,
+                        items: { type: 'integer', minimum: 1 },
+                    },
+                },
+            },
+            response: { 200: { type: 'object', properties: { results: { type: 'array', items: confirmResultSchema } } } },
+        },
+    }, async (req, reply) => confirm(/** @type {any} */ (req.body).ids, reply));
+
+    app.post('/findings/:id/skip', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            params: {
+                type: 'object',
+                properties: { id: { type: 'integer', minimum: 1 } },
+                required: ['id'],
+            },
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                properties: { reason: { type: 'string', maxLength: 500 } },
+            },
+        },
+    }, async (req, reply) => {
+        const finding = store.getFinding(/** @type {any} */ (req.params).id);
+        if (!finding) return reply.status(404).send({ statusCode: 404, error: 'Not Found' });
+
+        store.markSkipped(finding.qid, finding.kind, /** @type {any} */ (req.body)?.reason);
+        store.clearP18Pick(finding.qid);
+        return { id: finding.id, qid: finding.qid, status: 'skipped' };
     });
 
     // Anything else under /api answers as JSON, and inside the rate-limited scope. Without these
