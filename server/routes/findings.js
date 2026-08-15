@@ -21,6 +21,18 @@ const MAX_LIMIT = 2000;
 const MAX_CONFIRM_IDS = 200;
 
 /**
+ * Recover the photo id from a filename the app built, `<Taxon name> - <photoId>.<ext>`. Split on
+ * the *last* separator: a taxon name can itself contain " - " (hybrids, cultivar names). Anything
+ * that does not match is kept anyway with no photo id — an unparseable legacy filename is still
+ * worth having, and losing it would be the worse failure.
+ * @param {string} destFile
+ */
+function parseDestFile(destFile) {
+    const m = /^(.*) - (\d+)\.\w+$/.exec(destFile);
+    return m ? { taxonName: m[1], photoId: m[2] } : {};
+}
+
+/**
  * Writes cost more than reads: a confirm spends Wikimedia's API budget, not just ours. Applied
  * per-route so it composes with the shared limiter above rather than replacing it.
  */
@@ -201,6 +213,105 @@ export default async function findingsRoutes(app, opts) {
         store.markSkipped(finding.qid, finding.kind, /** @type {any} */ (req.body)?.reason);
         store.clearP18Pick(finding.qid);
         return { id: finding.id, qid: finding.qid, status: 'skipped' };
+    });
+
+    // ---- uploads and the pending P18 pick ----
+
+    app.get('/uploads', async () => {
+        const uploads = store.listUploads();
+        return { count: uploads.length, uploads, picks: store.p18Picks() };
+    });
+
+    app.post('/uploads', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['destFile'],
+                properties: {
+                    destFile: { type: 'string', minLength: 1, maxLength: 240 },
+                    qid: { type: 'string', pattern: '^Q[0-9]+$' },
+                    photoId: { type: 'string', maxLength: 40 },
+                    taxonName: { type: 'string', maxLength: 240 },
+                    // One endpoint for both controls, because marking a photo uploaded and
+                    // choosing it as the taxon's image are one user action often enough.
+                    uploaded: { type: 'boolean', default: true },
+                    p18: { type: 'boolean' },
+                },
+            },
+        },
+    }, async (req) => {
+        const body = /** @type {any} */ (req.body);
+        const { destFile, photoId, taxonName, uploaded, p18 } = body;
+        // uploads.qid is a foreign key; a qid this database has never seen must not 500 the route.
+        const qid = body.qid && store.hasTaxon(body.qid) ? body.qid : null;
+
+        if (uploaded) store.recordUpload({ destFile, qid, photoId, taxonName });
+        else store.removeUpload(destFile);
+
+        if (qid && p18 === true) store.setP18Pick(qid, destFile);
+        else if (qid && (p18 === false || !uploaded)) store.clearP18Pick(qid);
+
+        return { destFile, uploaded: !!uploaded, picks: store.p18Picks() };
+    });
+
+    // ---- one-time migration of what used to live in localStorage ----
+
+    app.post('/import', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    done: { type: 'array', maxItems: 5000, items: { type: 'string', pattern: '^Q[0-9]+$' } },
+                    uploaded: { type: 'array', maxItems: 5000, items: { type: 'string', minLength: 1, maxLength: 240 } },
+                    picks: {
+                        type: 'object',
+                        additionalProperties: {
+                            type: 'object',
+                            properties: {
+                                file: { type: 'string', maxLength: 240 },
+                                category: { type: ['string', 'null'], maxLength: 240 },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }, async (req) => {
+        const { done = [], uploaded = [], picks = {} } = /** @type {any} */ (req.body ?? {});
+
+        for (const destFile of uploaded) store.recordUpload({ destFile, ...parseDestFile(destFile) });
+        for (const [qid, pick] of Object.entries(/** @type {any} */ (picks))) {
+            if (!pick?.file) continue;
+            // A pick for a taxon this database does not have is kept as a plain upload record:
+            // the filename is still worth having, and the foreign key would otherwise reject it.
+            const known = store.hasTaxon(qid);
+            store.recordUpload({
+                ...parseDestFile(pick.file),
+                destFile: pick.file,
+                qid: known ? qid : null,
+                // The app's own category is more authoritative than one parsed back out of a
+                // filename, so it wins where both exist.
+                taxonName: pick.category ?? parseDestFile(pick.file).taxonName ?? null,
+            });
+            if (known) store.setP18Pick(qid, pick.file);
+        }
+
+        // Locally-"done" taxa are deliberately NOT marked done. That flag was written when a
+        // QuickStatements line was copied, which is no evidence anyone pasted it — importing it
+        // as truth would reproduce the exact defect this slice removes. They come back as ids to
+        // confirm, so the database only ever learns "done" from Wikidata itself.
+        const byQid = new Map(store.listFindings({ kind: 'image' }).map(f => [f.qid, f.id]));
+        const toConfirm = done.map((qid) => byQid.get(qid)).filter((id) => id !== undefined);
+
+        return {
+            uploads: store.listUploads().length,
+            picks: Object.keys(store.p18Picks()).length,
+            toConfirm,
+        };
     });
 
     // Anything else under /api answers as JSON, and inside the rate-limited scope. Without these

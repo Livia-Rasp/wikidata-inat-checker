@@ -272,6 +272,88 @@ for (const [what, url, payload] of [
     });
 }
 
+// ---- uploads and picks ----
+
+test('an upload and a pick round-trip through the database', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+
+    await post(app, '/api/uploads',
+        { destFile: 'Taxon Q1 - 42.jpg', qid: 'Q1', photoId: '42', taxonName: 'Taxon Q1', uploaded: true, p18: true });
+
+    const body = (await app.inject('/api/uploads')).json();
+    assert.equal(body.count, 1);
+    assert.equal(body.uploads[0].destFile, 'Taxon Q1 - 42.jpg');
+    assert.deepEqual(body.picks.Q1, { destFile: 'Taxon Q1 - 42.jpg', taxonName: 'Taxon Q1' });
+    assert.equal(store.p18Picks().Q1.destFile, 'Taxon Q1 - 42.jpg');
+});
+
+test('un-marking an upload also drops the pick that depended on it', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    await post(app, '/api/uploads', { destFile: 'A.jpg', qid: 'Q1', uploaded: true, p18: true });
+
+    await post(app, '/api/uploads', { destFile: 'A.jpg', qid: 'Q1', uploaded: false });
+
+    assert.deepEqual((await app.inject('/api/uploads')).json().uploads, []);
+    assert.deepEqual(store.p18Picks(), {}, 'a pick on a file no longer claimed uploaded is stale');
+});
+
+test('an upload for an unknown taxon is kept without the reference', async (t) => {
+    const { app } = makeApp(t);
+    // uploads.qid is a foreign key; a qid this database never had must not 500 the route, and
+    // the filename is still worth keeping.
+    const res = await post(app, '/api/uploads', { destFile: 'Orphan.jpg', qid: 'Q999999', uploaded: true });
+    assert.equal(res.statusCode, 200);
+    assert.equal((await app.inject('/api/uploads')).json().uploads[0].qid, null);
+});
+
+test('importing localStorage state never marks anything done by itself', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    seed(store, 'Q2');
+    const id = store.listFindings({ kind: 'image' }).find(f => f.qid === 'Q1').id;
+
+    const res = await post(app, '/api/import', {
+        done: ['Q1'],
+        picks: { Q1: { file: 'Taxon Q1 - 42.jpg', category: 'Taxon Q1' } },
+        uploaded: ['Taxon Q1 - 42.jpg', 'Taxon Q2 - 7.jpg'],
+    });
+
+    const body = res.json();
+    assert.equal(body.uploads, 2);
+    assert.equal(body.picks, 1);
+    // The locally-"done" flag was written when a QuickStatements line was *copied*, which is no
+    // evidence anyone pasted it. Importing it as truth would reproduce the very defect this
+    // slice removes, so it comes back as work to confirm instead.
+    assert.deepEqual(body.toConfirm, [id]);
+    assert.equal(store.listFindings({ kind: 'image' }).length, 2, 'both still open');
+});
+
+test('importing is idempotent and recovers the photo id from the filename', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    const payload = { uploaded: ['Ficus benjamina - 12345.jpg'] };
+
+    await post(app, '/api/import', payload);
+    await post(app, '/api/import', payload);
+
+    const uploads = (await app.inject('/api/uploads')).json().uploads;
+    assert.equal(uploads.length, 1, 'the same file imported twice is one row');
+    assert.equal(uploads[0].photoId, '12345');
+    assert.equal(uploads[0].taxonName, 'Ficus benjamina');
+    assert.equal(store.listUploads()[0].qid, null);
+});
+
+test('an unparseable legacy filename is imported rather than dropped', async (t) => {
+    const { app } = makeApp(t);
+    await post(app, '/api/import', { uploaded: ['some old name.jpg'] });
+
+    const [row] = (await app.inject('/api/uploads')).json().uploads;
+    assert.equal(row.destFile, 'some old name.jpg');
+    assert.equal(row.photoId, null, 'no photo id recoverable, and that is fine');
+});
+
 // ---- rate limiting ----
 
 test('the rate limit covers the API and leaves static assets alone', async (t) => {
