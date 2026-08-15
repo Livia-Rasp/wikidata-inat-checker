@@ -22,14 +22,98 @@ function seed(store, qid, status, payload) {
     store.recordFinding({ qid, kind: 'image', status, payload });
 }
 
-test('migrate creates schema v1 and is idempotent', () => {
+test('migrate creates the current schema and is idempotent', () => {
     const db = new DatabaseSync(':memory:');
-    assert.equal(migrate(db), 1);
-    assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), 1);
-    assert.equal(migrate(db), 1, 're-running must not throw or bump the version');
+    const version = migrate(db);
+    assert.equal(Number(db.prepare('PRAGMA user_version').get().user_version), version);
+    assert.equal(migrate(db), version, 're-running must not throw or bump the version');
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
-    for (const t of ['taxa', 'findings', 'runs']) assert.ok(tables.includes(t), `${t} table exists`);
+    for (const t of ['taxa', 'findings', 'runs', 'uploads']) assert.ok(tables.includes(t), `${t} table exists`);
+});
+
+test('the v2 migration runs on an existing v1 database without touching its rows', () => {
+    // The upgrade path a real installation takes: a populated v1 file, opened by newer code.
+    const db = new DatabaseSync(':memory:');
+    db.exec(`
+        CREATE TABLE taxa (qid TEXT PRIMARY KEY, inat_id TEXT, taxon_name TEXT, rank TEXT, iucn TEXT, first_seen TEXT NOT NULL) STRICT;
+        CREATE TABLE findings (id INTEGER PRIMARY KEY, qid TEXT NOT NULL REFERENCES taxa(qid), kind TEXT NOT NULL, payload TEXT, status TEXT NOT NULL, discovered_at TEXT NOT NULL, checked_at TEXT NOT NULL, verified_at TEXT, resolved_at TEXT, resolution TEXT, UNIQUE (qid, kind)) STRICT;
+        CREATE INDEX idx_findings_worklist ON findings(kind, status);
+        CREATE TABLE runs (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, scope TEXT, started_at TEXT NOT NULL, finished_at TEXT, n_scanned INTEGER, n_found INTEGER) STRICT;
+        PRAGMA user_version = 1;
+    `);
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO taxa (qid, taxon_name, first_seen) VALUES (?, ?, ?)').run('Q1', 'Taxon Q1', now);
+    db.prepare(`INSERT INTO findings (qid, kind, payload, status, discovered_at, checked_at)
+                VALUES (?, ?, ?, ?, ?, ?)`)
+        .run('Q1', 'image', JSON.stringify({ wikitext: 'precious' }), 'open', now, now);
+
+    assert.ok(migrate(db) >= 2);
+
+    const store = createFindingsStore(db); // only buildable once the schema is current
+    assert.equal(store.openFindings('image')[0].wikitext, 'precious', 'existing findings survive');
+    assert.deepEqual(store.listUploads(), [], 'and the new table is there and empty');
+});
+
+test('a taxon can have only one P18 pick, enforced by the database', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1', photoId: '1', taxonName: 'Taxon Q1' });
+    store.recordUpload({ destFile: 'B.jpg', qid: 'Q1', photoId: '2', taxonName: 'Taxon Q1' });
+
+    store.setP18Pick('Q1', 'A.jpg');
+    store.setP18Pick('Q1', 'B.jpg'); // changing your mind must not collide with the unique index
+
+    assert.deepEqual(store.p18Picks(), { Q1: { destFile: 'B.jpg', taxonName: 'Taxon Q1' } });
+    assert.equal(store.listUploads().filter(u => u.isP18).length, 1);
+});
+
+test('uploads round-trip and are removable, and an upsert never blanks known fields', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1', photoId: '7', taxonName: 'Taxon Q1' });
+    store.recordUpload({ destFile: 'A.jpg' }); // a later claim that knows less
+
+    const [row] = store.listUploads();
+    assert.equal(row.photoId, '7', 'a null must not overwrite a known photo id');
+    assert.equal(row.isP18, false);
+
+    store.removeUpload('A.jpg');
+    assert.deepEqual(store.listUploads(), []);
+});
+
+test('an upload with no resolvable taxon is still recorded', () => {
+    const { store } = makeStore();
+    // Imported legacy filenames may not parse back to a taxon; losing them would be worse.
+    store.recordUpload({ destFile: 'Something odd.jpg' });
+    assert.deepEqual(store.listUploads().map(u => [u.destFile, u.qid]), [['Something odd.jpg', null]]);
+    assert.deepEqual(store.p18Picks(), {}, 'and it can never become a pick');
+});
+
+test('getFinding translates an id, and says nothing for an unknown one', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    const id = store.openFindings('image')[0].id;
+
+    assert.deepEqual(store.getFinding(id), { id, qid: 'Q1', kind: 'image', status: 'open' });
+    // The trap: markVerified silently updates zero rows, so without this an unknown id would
+    // look like a successful confirm.
+    assert.equal(store.getFinding(999_999), undefined);
+});
+
+test('markSkipped settles a finding without claiming Wikidata was asked', () => {
+    const { db, store } = makeStore();
+    seed(store, 'Q1', 'open', { wikitext: 'precious' });
+
+    store.markSkipped('Q1', 'image', 'no Commons category will ever exist');
+
+    const row = db.prepare("SELECT status, verified_at, resolved_at, resolution, payload FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'skipped');
+    assert.equal(row.verified_at, null, 'skipping never looked upstream, so it must not claim to have');
+    assert.ok(row.resolved_at);
+    assert.equal(JSON.parse(row.resolution).reason, 'no Commons category will ever exist');
+    assert.equal(JSON.parse(row.payload).wikitext, 'precious', 'the draft survives');
+    assert.ok(store.skipQids('image').has('Q1'), 'skipped is sticky — never rediscovered');
 });
 
 test('STRICT tables reject a wrong-typed value', () => {
@@ -116,6 +200,7 @@ test('openFindings returns only open rows, shaped for the report', () => {
     assert.deepEqual(rows[0], {
         id: rows[0].id,
         qid: 'Q1',
+        kind: 'image',
         status: 'open',
         wdUri: 'http://www.wikidata.org/entity/Q1',
         inatTaxonId: 'inat-Q1',
