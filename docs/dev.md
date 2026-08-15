@@ -8,7 +8,7 @@ Its companion is [security.md](security.md) — the threat model for `server/`, 
 
 Each entry script wires shared modules together; all data flows in memory.
 
-Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders, their shared `htmlShared`, and `generateImagesJson`). The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
+Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders and their shared `htmlShared`); the HTTP layer is in **`server/`**. The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
 
 ### Image checker (`checkImages.js`)
 ```
@@ -24,7 +24,7 @@ checkImages.js
        → open | no_draft | no_photos; a failed iNat batch records nothing so it retries
   └─ lib/db.js {openFindings()}: the WHOLE open backlog, not just this run
        └─ report/generateHTML.js: writes output/drafts.html
-       └─ report/generateImagesJson.js: writes web/data/taxa.json
+       (the web app needs no export — server/ reads the same database live)
 ```
 
 ### Vernacular names checker (`checkNames.js`)
@@ -84,7 +84,7 @@ All generated files go under two gitignored, auto-created top-level dirs, so not
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
 - **`cache/`** — `cache-images.json`, `cache-names.json`, `cache-links.json` (per-checker "already scanned" sets) and `cache-commons-cats.json` (Commons category existence). Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
 
-Two things deliberately live elsewhere: `web/data/taxa.json` (must be under `web/` for the static app to fetch it, written by `report/generateImagesJson.js`) and the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
+One thing deliberately lives elsewhere: the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
 
 ## Tests (`test/`, `npm test`)
 
@@ -100,7 +100,9 @@ The four review reports (`generateHTML` = drafts, `generateLinksHTML`, `generate
 - `renderReportPage({ title, heading, intro, css, thead, rows, script, aggregate?, trailing? })` — assembles the full document, injecting the shared `COPY_SCRIPT` plus the page script.
 - `doneScript({ segment, aggregate })` — the standard done/hide-done client logic, with an optional "copy all selected" aggregate panel (links + names). `segment` namespaces the `localStorage` keys per report (`''` → `done-<qid>`/`hide-done`; `'links'` → `done-links-<qid>`/`hide-done-links`; etc.) so each report remembers its own state.
 
-The ambiguous report keeps its own script (it hides rowspan-grouped candidate rows, which the standard `doneScript` doesn't model) but still uses `renderReportPage` + the shared CSS. `generateAreaHTML` is a different shape (sortable, no copy/done state) and does **not** use these helpers. `report/generateImagesJson.js` is the non-HTML sibling: it serialises the same image-checker drafts to `web/data/taxa.json` for the upload app.
+The ambiguous report keeps its own script (it hides rowspan-grouped candidate rows, which the standard `doneScript` doesn't model) but still uses `renderReportPage` + the shared CSS. `generateAreaHTML` is a different shape (sortable, no copy/done state) and does **not** use these helpers.
+
+Note that these reports still keep their done state in `localStorage`, per `segment`. The web app no longer does — its done state is confirm-gated in the database (see below) — so **a taxon ticked in `drafts.html` is not done as far as anything else is concerned.** Migrating the reports is not planned; they are a fallback view, and the app is the worklist.
 
 ## iNat taxa SQLite index (`lib/getInatTaxaDb.js`)
 
@@ -125,7 +127,7 @@ Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PR
 
 **Reading it: `listFindings({kind, status, limit, offset})`**, with `openFindings(kind)` as its unlimited `status: 'open'` case. Two details are load-bearing:
 
-- **The default limit is "no limit" (`LIMIT -1`).** `drafts.html` and `web/data/taxa.json` render the whole backlog off `openFindings()`, so a page size defaulted in the store would silently drop rows from both — a data-loss bug that looks like a display bug. HTTP callers cap it themselves, in their route schema.
+- **The default limit is "no limit" (`LIMIT -1`).** `drafts.html` renders the whole backlog off `openFindings()`, so a page size defaulted in the store would silently drop rows from it — a data-loss bug that looks like a display bug. HTTP callers cap it themselves, in their route schema.
 - **The tiebreak is `f.id`, not `f.qid`.** `qid` is TEXT, so `Q9` sorts after `Q10`, and `discovered_at` ties are the norm within one batch — paging over that ordering would repeat and skip rows.
 
 Rows carry `id` and `status` alongside the render fields, because the HTTP API addresses a finding by its id.

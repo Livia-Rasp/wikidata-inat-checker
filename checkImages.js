@@ -3,7 +3,6 @@
 import { processInatIds } from './lib/getFromInat.js';
 import { generateDraftWikitext } from './lib/generateWikitext.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
-import { generateImagesJson } from './report/generateImagesJson.js';
 import { extractTaxonName } from './report/htmlShared.js';
 import { openFindingsDb, DEFAULT_RECHECK_DAYS } from './lib/db.js';
 import { loadTaxaDb } from './lib/getInatTaxaDb.js';
@@ -150,7 +149,6 @@ async function run(limit) {
     // Render the whole open backlog, not just this run — that is the point of the store.
     const backlog = store.openFindings(KIND);
     await generateDraftsHTML(backlog);
-    generateImagesJson(backlog);
     console.log(`HTML export complete (${backlog.length} open findings in total).`);
 
     store.finishRun(runId, { scanned: meta.size, found: open });

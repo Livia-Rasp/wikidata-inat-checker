@@ -404,13 +404,6 @@ test('paths outside the web root are not served', async (t) => {
     }
 });
 
-test('the generated data directory is not served', async (t) => {
-    const { app } = makeApp(t);
-    // taxa.json is still written for now, but the app reads the API; serving a file that is
-    // rewritten with a non-atomic writeFileSync only offers a torn read.
-    assert.equal((await app.inject('/data/taxa.json')).statusCode, 404);
-});
-
 test('an unknown page 404s instead of falling back to the index', async (t) => {
     const { app } = makeApp(t);
     const res = await app.inject('/nope.html');

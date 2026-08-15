@@ -90,7 +90,7 @@ Everything else hangs off this, so it goes first.
   *returns data* instead of writing files to `cwd`. The CLI entry (`checkImages.js`, …) shrinks
   to: parse args → call `run()` → write HTML/JSON. This is what lets both `node-cron` and the
   UI trigger invoke a workflow without shelling out.
-- **Data contracts for the other three tools.** Only `report/generateImagesJson.js` exists today;
+- **Data contracts for the other three tools.** Only the image kind is served today (`GET /api/findings?kind=image`; the `generateImagesJson.js` export this line described was deleted in slice 4);
   names/links/area emit HTML only. Each needs a small, mechanical `generate<Workflow>Json`
   extraction from its existing HTML generator so its page has something to consume.
 

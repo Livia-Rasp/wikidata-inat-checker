@@ -13,16 +13,17 @@ behind it are in the [design & research record](commons-upload-dev.md).
 ## Usage
 
 ```sh
-node checkImages.js        # (or npm run images) — also writes web/data/taxa.json
+node checkImages.js        # (or npm run images) — fills the findings database
 npm run web                # serve the app at http://localhost:8080
 ```
 
 Then open <http://localhost:8080/>:
 
 1. **Main view** — a table of image-less taxa (Wikidata item, iNat taxon, Commons category,
-   draft category Wikitext). Same look and behaviour as `output/drafts.html`: click a draft to copy
-   it, tick the checkbox to mark a taxon done. A **Download uploaded list** button exports
-   what you've marked uploaded (see [Tracking uploads](#tracking-uploads)).
+   draft category Wikitext). Click a draft to copy it. Each row has **Confirm** (check live
+   Wikidata and mark the taxon done if the edit is there) and **Skip** (never offer it again).
+   A **Download uploaded list** button exports what you've marked uploaded (see
+   [Tracking uploads](#tracking-uploads)).
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
@@ -36,8 +37,11 @@ Then open <http://localhost:8080/>:
 > requires a registered account). The app's job ends at handing you a correctly pre-filled
 > form.
 
-The app needs `web/data/taxa.json`, which `checkImages.js` regenerates on every run. Re-run
-the image checker to refresh the list (and to reach new taxa as the cache fills).
+6. Copy the QuickStatements, run the batch, and press **Confirm pending**. Until that check
+   passes, nothing is marked done — see [Confirming](#confirming-what-actually-landed).
+
+The app reads the backlog live from the server, so there is nothing to regenerate; re-run the
+image checker to *add* taxa to it.
 
 ## What the file description contains
 
@@ -107,8 +111,9 @@ re-visits are fast.
 
 The app can't tell whether an upload actually went through (it just opens the Commons form in
 a new tab). So after you submit a file, tick **Mark as uploaded** on its card — it gets an
-"uploaded" badge and is remembered in your browser. The main page's **Download uploaded
-list** button exports the set as JSON (`{ "exported": …, "uploaded": [ "<filename>", … ] }`).
+"uploaded" badge and is recorded in the findings database, which means it survives a cleared
+browser profile and the checkers can see it. The main page's **Download uploaded list** button
+exports the set as JSON (`{ "exported": …, "uploaded": [ "<filename>", … ] }`).
 
 > Note: the per-tool tracking category (`Media uploaded with wikidata-inat-checker`) is
 > intentionally **not** added yet, since the tool isn't public. The uploaded-files list is
@@ -122,10 +127,11 @@ image (**P18**) and linking the Commons category. The app collects these into a
 instead of editing items one by one.
 
 - In a taxon's gallery, ticking **Use as Wikidata image (P18)** on the uploaded photo records
-  that file as the item's image. Only one photo per taxon can be picked; it also marks the
-  taxon **done** and uploaded.
-- The main view has a **QuickStatements** panel at the top. For every taxon that is *done and
-  has a picked image*, it emits two tab-separated commands:
+  that file as the item's image. Only one photo per taxon can be picked (the database enforces
+  it); it also marks the photo uploaded. It does **not** mark the taxon done — that is what
+  confirming is for.
+- The main view has a **QuickStatements** panel at the top. For every taxon with a picked
+  image, it emits two tab-separated commands:
 
   ```
   Q10444353	P18	"Cedarbergeniana imperfecta - 15895773.jpg"
@@ -135,16 +141,35 @@ instead of editing items one by one.
   The first sets the image; the second adds the **Commons-category sitelink** (the
   "Other sites" / Multilingual Sites link — not the P373 statement). The category is the
   taxon's own name; the filename is the one the upload form used.
-- Click **Copy & clear**, paste into the QuickStatements *Import* box, and run the batch. The
-  picks are then **flushed** from the panel, so the same edit can never be applied twice.
+- Click **Copy**, paste into the QuickStatements *Import* box, and run the batch. The picks stay
+  in the panel — they are cleared by **confirmation**, not by copying, because that is the point
+  at which the edit is known to exist. (Before slice 4 copying cleared them, which meant a batch
+  you never actually pasted left no trace of what it was supposed to do.)
 
-The panel is built entirely in the browser from the picks you make (kept in `localStorage`);
-nothing is submitted to Wikidata automatically.
+The panel is built in the browser from the picks you make, which are stored in the findings
+database; nothing is submitted to Wikidata automatically.
+
+## Confirming what actually landed
+
+**A taxon is never marked done because you said so.** Copying QuickStatements is not evidence
+that you pasted them, and a batch can apply one statement and not the other — so the app asks
+Wikidata instead.
+
+Press **Confirm** on a row, or **Confirm pending** for everything you have picked, and the
+server reads the live item through the Action API (never SPARQL, whose lag would show your own
+edit as missing seconds after you made it). The finding becomes `done` only when **both** the
+image (P18) and the commonswiki sitelink are there. Otherwise it stays on the worklist and says
+which half is missing, which is usually the useful part.
+
+A confirm that fails changes nothing, and re-running it is safe — a QuickStatements batch can sit
+queued for a while. If Wikidata itself cannot be reached you get a "try again" rather than a
+false answer. Use **Skip** for a taxon that will never have a Commons category, since it would
+otherwise never confirm.
 
 ## How it fits together
 
-- `checkImages.js` exports `web/data/taxa.json` (the data contract) via
-  `report/generateImagesJson.js` — the only link between the core tools and the app.
+- `checkImages.js` records findings in `data/findings.db`; the server serves them as
+  `GET /api/findings` — the only link between the core tools and the app.
 - The `web/` app has **no build step** (plain HTML/JS/CSS): it reads the open backlog from
   `GET /api/findings` and, from the browser, queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service

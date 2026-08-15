@@ -2,7 +2,7 @@
 
 Finds [iNaturalist](https://www.inaturalist.org/) observations with Wikimedia-Commons-compatible licenses for Wikidata taxon items that do not yet have an image. Useful for sourcing candidate photos to upload to Commons and then add to the corresponding Wikidata entry.
 
-> The checker also exports `web/data/taxa.json`, consumed by the assisted **iNat → Commons upload app** (`npm run web`) — pick a photo and open a pre-filled Commons upload form. See [docs/commons-upload.md](commons-upload.md).
+> The findings this records are also the worklist of the assisted **iNat → Commons upload app** (`npm run web`), which reads them live from `GET /api/findings` — pick a photo, open a pre-filled Commons upload form, then confirm the edit landed. See [docs/commons-upload.md](commons-upload.md).
 
 ## How it works
 
@@ -19,7 +19,9 @@ Results are recorded in the **findings database** at `data/findings.db`, which i
 
 ## Verification
 
-Wikidata is a wiki, so a finding can stop being work while it sits in the backlog: somebody else adds the image, or the item is merged away or deleted. `npm run verify` (`verifyFindings.js`) reconciles the open backlog against live Wikidata and then re-renders `output/drafts.html` and `web/data/taxa.json`, so the reports stop offering work already done.
+Wikidata is a wiki, so a finding can stop being work while it sits in the backlog: somebody else adds the image, or the item is merged away or deleted. `npm run verify` (`verifyFindings.js`) reconciles the open backlog against live Wikidata and then re-renders `output/drafts.html`, so the report stops offering work already done. The web app needs no re-render — it reads the same database live.
+
+**Verification is not the same test as the app's Confirm button**, deliberately. Verify asks "does this taxon still need an image?", so anybody's P18 resolves it to `fixed_upstream`. Confirm asks "did *my* edit land in full?", and this app emits two statements per taxon, so it requires the P18 *and* the Commons-category sitelink before writing `done`. A taxon whose sitelink half failed will therefore refuse to confirm and later be swept to `fixed_upstream` — it no longer needs an image, even though your batch was half-applied. See [dev.md](dev.md#confirming-libconfirmjs--and-why-it-is-not-verification).
 
 ```sh
 npm run verify                    # verify the whole open backlog

@@ -247,22 +247,49 @@ internal error whose message contains the database path answers with none of it;
 not trip the API's rate limit (the failure `vue-commons-gallery` documented); `/data/` and dotfiles
 are not served; `/nope.html` 404s instead of falling back to the index.
 
-### 4. Confirm-gated done state in the DB
-**Read [security.md](security.md) first.** It records that the API is unauthenticated and that the
-judgement behind that — read-only, over public facts — expires at this slice. Also drop the
-now-unread `report/generateImagesJson.js` export here.
+### 4. Confirm-gated done state in the DB — **done**
+`POST /api/findings/:id/confirm` (plus a bulk `POST /api/findings/confirm`) and
+`POST /api/findings/:id/skip`; the uploads and P18 picks in the database; a one-time importer for
+what a browser profile still holds; and `report/generateImagesJson.js` deleted.
 
-Adds `POST /api/findings/:id/confirm` — runs the slice-2 verification for that single QID and marks
-`done` **only if the edit is actually live**, otherwise leaves it `open` with a reason — plus
-`POST /api/findings/:id/skip`. A one-time importer pulls existing `winc-uploaded` / `winc-p18`
-`localStorage` contents into the DB.
+The plan understated the problem. It described moving the done state, but the flow itself was
+inverted: picking a photo wrote `done-<qid>` immediately, and **Copy & clear deleted the pick** — so
+the app recorded that work was finished while destroying the record of what the work was, with no
+evidence anyone had pasted the batch. Picking now records an *intention*; only Wikidata can turn it
+into `done`.
 
-**Working means:** done-state survives a cleared browser profile, and a taxon cannot be marked done
-on the strength of a copied QuickStatements line that was never pasted.
+Five things worth keeping:
 
-Note: confirmation must be idempotent and re-runnable. A QuickStatements batch can be queued, so
-confirming too eagerly can fail spuriously; a failed confirm is a no-op that leaves the finding open,
-never an error state.
+- **Confirmation requires both statements**, P18 *and* the commonswiki sitelink, decided against my
+  recommendation of P18-alone. It costs nothing (slice 2 already fetched `sitefilter=commonswiki`
+  and never read it) and it catches the half-applied batch, which is a real failure mode. The
+  objection I raised — a taxon that will never have a Commons category sits open looking like a
+  failure — is answered by the response naming *which* half is missing, and by `skip`.
+- **This makes confirm and verify disagree, deliberately.** Verify still resolves on P18 alone,
+  because it asks "does this still need an image?". Written up in [dev.md](dev.md) so it does not
+  read as a bug later.
+- **The security gate was met by enforcing the loopback bind**, not by adding auth: the server now
+  refuses to start bound elsewhere without `ALLOW_REMOTE_WRITES`. A shared token was rejected as the
+  wrong shape — a static app cannot hold a secret, and a per-deployment token is not the per-user
+  identity slice 10 needs. What did get built is `server/writeGuard.js` (Host allowlist against DNS
+  rebinding, fetch-metadata CSRF checks, JSON-only bodies), because a loopback bind is not a defence
+  on its own.
+- **Two `lib/db.js` details paid for themselves:** `getFinding(id)` (the write endpoints address
+  findings by id while every write statement is keyed on `(qid, kind)`, and `markVerified` silently
+  updates zero rows — so without it a bad id looked like a successful confirm), and `markSkipped`,
+  which does *not* stamp `verified_at` because a skip never asked Wikidata anything.
+- **The importer does not import "done".** That flag was written when a QuickStatements line was
+  copied; taking it as truth would have reproduced the exact defect being removed. Locally-done taxa
+  come back as ids to confirm.
+
+**Verified.** 117 unit tests, including the write guard re-run against `GET` to prove reads are
+untouched, and error sanitisation. Against live Wikidata: a genuinely image-less taxon answered
+`missing_p18_and_sitelink` and stayed open; `Larix mastersiana`, which already has a Commons
+category but no image, answered `missing_p18` — the discrimination the strict gate buys; and a
+seeded Q140 confirmed with the real filename and category, left the backlog and spent its pick.
+In the browser: the import moved two files and one pick, left another report's `done-links-*` key
+alone, confirmed 0 of 1 previously-"done" taxa, and picking a photo recorded the pick without
+marking anything done.
 
 **Not in this slice:** discovery from the UI.
 

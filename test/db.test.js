@@ -221,8 +221,8 @@ test('listFindings filters by status and kind, and openFindings is the unlimited
     assert.deepEqual(store.listFindings({ kind: 'image' }).map(r => r.qid), ['Q1']);
     assert.deepEqual(store.listFindings({ kind: 'image', status: 'done' }).map(r => r.qid), ['Q2']);
     assert.deepEqual(store.listFindings({ kind: 'name' }).map(r => r.qid), ['Q3']);
-    // The truncation guard: drafts.html and taxa.json render everything openFindings returns, so
-    // it must never inherit a page size.
+    // The truncation guard: drafts.html renders everything openFindings returns, so it must
+    // never inherit a page size.
     assert.deepEqual(store.openFindings('image'), store.listFindings({ kind: 'image' }));
 });
 

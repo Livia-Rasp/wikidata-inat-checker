@@ -8,11 +8,13 @@ API recipes, category-discovery patterns) are factored out into
 [commons-integration.md](commons-integration.md) for future Commons-upload tools.
 
 **Implementation map:** `checkImages.js` records findings in `data/findings.db`, and
-`server/routes/findings.js` serves them as `GET /api/findings` (the data contract; the older
-`web/data/taxa.json` export still runs but nothing reads it). The app: `web/index.html` +
-`web/js/main.js` (taxa list), `web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery),
-`web/js/commonsUpload.js` (the `Special:Upload` prefill-URL builder, ported from
-inat2wiki — see `web/README.md` for attribution), served by `server/` (`npm run web`, see
+`server/routes/findings.js` serves them as `GET /api/findings` — the data contract. The app:
+`web/index.html` + `web/js/main.js` (taxa list, confirm/skip, QuickStatements panel),
+`web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery), `web/js/commonsUpload.js` (the
+`Special:Upload` prefill-URL builder, ported from inat2wiki — see `web/README.md` for
+attribution), `web/js/api.js` + `web/js/state.js` (this app's own backend, and the in-memory
+mirror of the uploads/picks it holds), `web/js/cache.js` (enrichment lookup caches only, plus the
+legacy readers the one-time import uses). Served by `server/` (`npm run web`, see
 [security.md](security.md)). Shared taxon-name parsing lives in `report/htmlShared.js`
 (`extractTaxonName`).
 
@@ -305,9 +307,10 @@ client app** (`web/`):
 1. **Data export (CLI, root).** Finding image-less taxa needs the SQLite index
    (`lib/getInatTaxaDb.js`, `node:sqlite` → Node-only) plus Wikidata SPARQL
    enumeration (`lib/utils.js`) — heavy, batch-shaped work that cannot/should not run on a page
-   load. `checkImages.js` exports the taxon list as JSON (`web/data/taxa.json`, gitignored)
-   alongside `output/drafts.html`, via `report/generateImagesJson.js`.
-2. **Static client app (`web/`).** Plain HTML/JS/CSS. The **main view** reads `taxa.json`.
+   load. `checkImages.js` recorded the taxon list as JSON (`web/data/taxa.json`) alongside
+   `output/drafts.html`. *(Superseded in slice 3: the list is now read live from the findings
+   database over `GET /api/findings`, and the exporter was deleted in slice 4.)*
+2. **Static client app (`web/`).** Plain HTML/JS/CSS. The **main view** read `taxa.json`.
    The **per-taxon gallery** calls the **iNat API directly from the browser** — verified
    CORS-open (`Access-Control-Allow-Origin: *`), exactly as the existing Chrome addon
    relies on. The **prefill upload URL** is built client-side (pure string assembly, §6).
@@ -738,7 +741,7 @@ Then mirror `gallery.js`'s `enrich()` exactly to get the real generated wikitext
 → `Promise.all([findGeoCategories(obs.taxon.id, h), findAuthorCategories(obs.user.id)])` →
 `buildDescription({ observation, photo, taxonName, location: locationString(h), country: h.country, extraCategories })`.
 
-**Use representative inputs:** load real targets from `web/data/taxa.json` (image-less, mostly
+**Use representative inputs:** load real targets from `GET /api/findings` (image-less, mostly
 *threatened* taxa) and fetch their observations — NOT common species. Common species have rich
 Commons presence that hides the real behaviour (e.g. they show a `<Species> in <Place>` /
 species-category overlap that does **not** occur for sparse rare taxa, and they hide the
@@ -763,7 +766,7 @@ The Node harness can't verify ES-module loading, CORS from a real origin, Nomina
    (level `error`). Then `Runtime.evaluate({ expression, returnByValue:true, awaitPromise:true })`.
    **Response nesting gotcha:** the value is at `msg.result.result.value` (and `result.exceptionDetails`).
 
-Useful in-page assertions: main view → `#tbody tr` count == `taxa.json` length, `#qs-panel` present;
+Useful in-page assertions: main view → `#tbody tr` count == the API's `count`, `#qs-panel` present;
 gallery → `.card` count, every `a.upload` href contains `wpUploadDescription`, decode it
 (`new URL(href).searchParams.get('wpUploadDescription')`) and regex out `[[Category:…]]`, and read
 `localStorage['winc-cache-geocode']` — a non-empty geocode cache proves **Nominatim ran from the
