@@ -5,6 +5,7 @@
 // same resource behind whatever auth hook is added at this seam.
 import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
+import writeGuard from '../writeGuard.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
 const KINDS = ['image', 'name', 'link'];
@@ -37,6 +38,10 @@ const findingSchema = {
  */
 export default async function findingsRoutes(app, opts) {
     const { store } = opts;
+
+    // Before any route: every non-GET request under /api passes the guard, including ones added
+    // by later slices, and including the wildcard 404 below.
+    await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
 
     await app.register(rateLimit, {
         max: Number(process.env.RATE_LIMIT_MAX ?? 120),

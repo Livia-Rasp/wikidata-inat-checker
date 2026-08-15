@@ -50,10 +50,11 @@ class ApiOnlyLogController extends LogController {
 }
 
 /**
- * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object}} opts
+ * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
+ *          allowedHosts?: string[]}} opts
  * @returns {import('fastify').FastifyInstance}
  */
-export function buildServer({ store, logger = false, rateLimit, staticOptions } = {}) {
+export function buildServer({ store, logger = false, rateLimit, staticOptions, allowedHosts } = {}) {
     const app = Fastify({
         logger,
         logController: new ApiOnlyLogController(),
@@ -125,7 +126,7 @@ export function buildServer({ store, logger = false, rateLimit, staticOptions } 
         ...staticOptions,
     });
 
-    app.register(findingsRoutes, { prefix: '/api', store, rateLimit });
+    app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts });
 
     // Fastify's default 404 echoes the requested route back; this one does not.
     app.setNotFoundHandler((_req, reply) => {

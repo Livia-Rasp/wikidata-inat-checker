@@ -1,8 +1,9 @@
 # Security notes and threat model
 
-**Status: written 2026-08-14 with the Fastify server (findings-db roadmap slice 3).** Background for
-`server/`'s configuration and the input-handling rules in `web/` — read on demand, and **read it
-before slice 4**, which adds the first write endpoints.
+**Status: written 2026-08-14 with the Fastify server (slice 3); extended 2026-08-15 when the first
+write endpoints landed (slice 4).** Background for `server/`'s configuration and the input-handling
+rules in `web/` — read on demand, and **read it before adding any endpoint that changes state or
+talks to an authenticated API.**
 
 ## What this app is, from a security standpoint
 
@@ -20,9 +21,12 @@ Three things follow.
 2. **Consumption is the realistic attack.** A synchronous SQLite driver means every request blocks
    the event loop, and the browser app spends the operator's IP against the iNaturalist, Commons and
    Wikidata APIs. Bounding requests matters more than protecting response contents.
-3. **Everything changes with write access.** Slice 4 adds `POST /api/findings/:id/confirm` and
-   `/skip`; slice 10 adds OAuth uploads and direct Wikidata edits. Every judgement below was made
-   about a **read-only** service and has to be re-made then.
+3. **Write access is now here, and it is why the write guard exists.** `POST /api/findings/:id/confirm`,
+   `/skip`, and the uploads and import endpoints change stored state. They change *this app's*
+   state only — no external edit is made, and nothing is destroyed: the worst an attacker achieves
+   is marking findings skipped or planting rows in `uploads`, which is vandalism of a personal
+   worklist rather than of Wikidata. That severity rises sharply at slice 10, when the same origin
+   gains an OAuth token that can edit Commons and Wikidata directly.
 
 ## Deployment posture today
 
@@ -30,11 +34,48 @@ The deployment is **private**: one operator, not published. The intention is tha
 browse view becomes public at some point — it shows exactly what the generated `output/drafts.html`
 already shows — and that write paths arrive later behind OAuth.
 
-- **The server binds `127.0.0.1` by default.** Exposing it is a deliberate act (`HOST=0.0.0.0`), not
-  a default anyone can drift into.
+- **The server binds `127.0.0.1`, and refuses to start bound anywhere else** unless
+  `ALLOW_REMOTE_WRITES` is set. Refused rather than warned about: a warning in a log nobody reads is
+  not a decision, and this API is unauthenticated. Setting that variable *is* the decision, made
+  explicitly and visibly.
 - `PORT` (8080), `FINDINGS_DB` (`data/findings.db`), `LOG_LEVEL`, `RATE_LIMIT_MAX`,
-  `RATE_LIMIT_WINDOW` and `TRUST_PROXY` are the knobs. All environment variables, never CLI
-  arguments — arguments are world-readable through `ps`, which matters once tokens exist.
+  `RATE_LIMIT_WINDOW`, `TRUST_PROXY`, `ALLOWED_HOSTS` and `ALLOW_REMOTE_WRITES` are the knobs. All
+  environment variables, never CLI arguments — arguments are world-readable through `ps`, which
+  matters once tokens exist.
+
+## Write endpoints (slice 4)
+
+The API is still unauthenticated, so nothing identifies *who* is calling. What `server/writeGuard.js`
+establishes, on every non-GET/HEAD/OPTIONS request under `/api`, is that the call came from this app
+in this browser or from a local tool — and not from a page on the internet that a browser was
+pointed at. Three checks, in order:
+
+1. **A `Host` allowlist** — the loopback names plus anything in `ALLOWED_HOSTS`, 403 otherwise.
+   This is the check people skip because "it's bound to 127.0.0.1". **A loopback bind is not a
+   defence.** DNS rebinding lets a public page resolve its own hostname to `127.0.0.1` and reach a
+   loopback server *through the victim's browser*; the `Host` header is the thing that still says
+   `evil.example` when it happens. `ALLOWED_HOSTS` exists because slice 9's Docker deployment is
+   reached by a different name and would otherwise be locked out of its own write endpoints.
+2. **Fetch metadata** — `Sec-Fetch-Site: same-origin|none` passes, `cross-site|same-site` is 403
+   (a sibling subdomain is still not us). These headers are *forbidden headers*: the browser sets
+   them and page script cannot forge them, which is what makes this the modern CSRF defence and why
+   there is no token, no session and no state to synchronise. When `Sec-Fetch-Site` is absent —
+   older browsers, and plain-http origins, which are not sent it — `Origin` is compared against
+   `Host` instead.
+3. **A JSON content type.** Fastify parses `text/plain` by default, and a cross-origin HTML form
+   can send exactly that with no preflight, so the content type is part of the defence rather than
+   a formality.
+
+**A request with neither `Sec-Fetch-Site` nor `Origin` is allowed on purpose.** A browser always
+sends one on a write, so such a request is not a browser — curl, a script, a test — and CSRF is a
+browser-only attack. Refusing it would break every local tool and protect nothing.
+
+Confirm and skip carry a **tighter rate limit** than the read API, because a confirm spends
+Wikimedia's API budget and not just ours.
+
+`test/writeGuard.test.js` covers each rejection, and re-runs every case against `GET` to prove the
+read path is untouched — the read view is meant to become public, and a guard that quietly broke it
+would be discovered by users rather than by tests.
 
 ## What is in place
 
@@ -97,23 +138,32 @@ already shows — and that write paths arrive later behind OAuth.
 
 ## What is deliberately not done
 
-- **No authentication.** The API is read-only over public facts, and the deployment is private by
-  binding to loopback. **Slice 4 must not merge without either authentication or an enforced
-  loopback-only bind** — that slice adds endpoints that change stored state, and "it only reads
-  public data" stops being true at that commit.
+- **No authentication.** The slice-3 note here said this must not survive slice 4 without *either*
+  authentication or an enforced loopback-only bind. Slice 4 took the second option, deliberately:
+  the bind is now enforced rather than defaulted, and the write guard above covers the rest. A
+  shared token was considered and rejected as the wrong shape — a static browser app cannot hold a
+  secret, and a per-deployment token is not the per-user identity that slice 10's OAuth becomes,
+  so building it would have meant building the wrong thing first.
+  **This is what expires at slice 10**, when the same origin gains a token that can edit Commons
+  and Wikidata: at that point CSRF protection stops being enough on its own, because the attacker's
+  target is no longer this app's worklist but the operator's edit rights.
 - **No TLS.** Whatever fronts this deployment terminates it. That decision is also why `hsts` is off
   here.
 - **No CORS plugin.** The app and the API are same-origin, so CORS is never consulted. If a separate
   origin ever needs access it gets an explicit allowlist — never a wildcard, and never a wildcard
   together with credentials.
-- **No read-only database handle.** `{ readOnly: true }` would be the theoretically right property
-  for a read-only service, and it was considered and dropped: a read-only connection to a WAL
-  database fails when the `-shm` file does not exist and cannot be created, it fails outright on a
-  database that has not been created yet, and slice 4 needs to write anyway. The server simply
-  contains no write statements.
-- **No per-user accounts, sessions or CSRF machinery.** Nothing to protect until there is a write
-  path; when there is, the OAuth work registers **this app's own** consumer rather than sharing one
-  with the sibling projects.
+- **No read-only database handle.** `{ readOnly: true }` would have been the theoretically right
+  property for a read-only service, and it was considered and dropped in slice 3: a read-only
+  connection to a WAL database fails when the `-shm` file does not exist and cannot be created, it
+  fails outright on a database that has not been created yet, and slice 4 needs to write anyway —
+  which it now does.
+- **No CSRF tokens, sessions or per-user accounts.** Token-based CSRF protection needs server-side
+  state and a session to bind the token to; fetch metadata needs neither and cannot be forged by
+  page script, so it is both stronger and simpler here. Accounts arrive with OAuth at slice 10,
+  which registers **this app's own** consumer rather than sharing one with the sibling projects.
+- **Uploads are never verified against Commons.** The `uploads` table records what the app was told
+  was uploaded; the app only ever pre-fills the upload form, so until slice 10 performs the upload
+  itself, every row there is the operator's own claim and nothing depends on it being true.
 
 ## Concurrency and data safety
 
