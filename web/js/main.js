@@ -1,13 +1,29 @@
-// Main view: loads the open image backlog from the server's /api/findings and
-// renders a drafts.html-like table of image-less taxa. Each row links out to Wikidata,
-// the iNat taxon, and the Commons category, shows the draft Wikitext (click to copy),
-// and opens the per-taxon photo gallery in a new tab.
+// Main view: loads the open image backlog from the server's /api/findings and renders a
+// drafts.html-like table of image-less taxa. Each row links out to Wikidata, the iNat taxon and
+// the Commons category, shows the draft Wikitext (click to copy), and opens the per-taxon photo
+// gallery in a new tab.
+//
+// The done state is **confirm-gated** (slice 4). A row is not marked done because you say so; it
+// is marked done because the server looked at live Wikidata and found both the image (P18) and the
+// Commons-category sitelink there. Before this, picking a photo marked the taxon done immediately
+// and copying the QuickStatements deleted the record of the pick — so the app claimed work was
+// finished while destroying the evidence of what the work was.
 
-import { uploaded, p18 } from './cache.js';
+import { getJson, postJson } from './api.js';
+import { state } from './state.js';
+import { legacy } from './cache.js';
 
 const $ = (id) => document.getElementById(id);
 const INAT_OBS = (id) =>
     `https://www.inaturalist.org/observations?taxon_id=${id}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`;
+
+/** The API's ceiling; past it the backlog is reported as truncated rather than silently cut. */
+const API = 'api/findings?kind=image&status=open&limit=2000';
+
+/** qid → taxon name, for the sitelink half of the QuickStatements. */
+const taxaByQid = new Map();
+/** qid → finding id, so a row can address its own endpoints. */
+const idByQid = new Map();
 
 function escapeHtml(s) {
     return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,9 +51,12 @@ function rowHtml(t) {
 
     // No inline onclick/onchange: the CSP forbids event-handler attributes (script-src-attr
     // 'none'), and this table is built from server data with innerHTML. Rows carry data-qid and
-    // #tbody delegates both events.
-    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}">
-      <td class="check-col"><input type="checkbox" class="done-cb"></td>
+    // data-id, and #tbody delegates every event.
+    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
+      <td class="check-col">
+        <button class="confirm-btn" title="Check live Wikidata for the image and the Commons category">Confirm</button>
+        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+      </td>
       <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
       <td class="inat-col">${inatCell}</td>
       <td class="commons-col">${commonsCell}</td>
@@ -45,11 +64,12 @@ function rowHtml(t) {
       <td class="draft-col">
         <pre class="draft">${escapeHtml(t.wikitext)}</pre>
         <span class="hint">Copied!</span>
+        <span class="row-msg"></span>
       </td>
     </tr>`;
 }
 
-// ---- copy + done helpers (browser-side reimplementation of htmlShared.js) ----
+// ---- copy helper (browser-side reimplementation of htmlShared.js) ----
 function copyDraft(el) {
     const text = el.textContent;
     const hint = el.nextElementSibling;
@@ -60,14 +80,8 @@ function copyDraft(el) {
 
 let hidingDone = localStorage.getItem('hide-done') === '1';
 
-function setDone(qid, done) {
-    localStorage.setItem('done-' + qid, done ? '1' : '');
-    const row = $('row-' + qid);
-    row.classList.toggle('done', done);
-    if (done && hidingDone) row.classList.add('hide-done');
-    if (!done) row.classList.remove('hide-done');
-    refreshQuickStatements(); // a done taxon with a picked P18 image gates into the panel
-}
+const rows = () => document.querySelectorAll('#tbody tr[data-qid]');
+const rowFor = (qid) => document.getElementById('row-' + qid);
 
 function toggleHideDone() {
     hidingDone = !hidingDone;
@@ -76,31 +90,69 @@ function toggleHideDone() {
     document.querySelectorAll('tr.done').forEach((row) => row.classList.toggle('hide-done', hidingDone));
 }
 
-/** Every rendered row, paired with its qid — the single place the DOM↔qid mapping is read. */
-const rows = () => document.querySelectorAll('#tbody tr[data-qid]');
+/** Why a confirm did not succeed, in words that say what to do about it. */
+const REASONS = {
+    missing_p18: 'No image on Wikidata yet — has the QuickStatements batch run?',
+    missing_sitelink: 'Image is live, but the Commons category sitelink is still missing.',
+    missing_p18_and_sitelink: 'Neither statement is live yet.',
+    gone: 'This Wikidata item has been deleted or merged away.',
+    not_found: 'This finding is no longer in the backlog — reload.',
+};
 
-function restoreState() {
-    rows().forEach((row) => {
-        if (!localStorage.getItem('done-' + row.dataset.qid)) return;
-        row.querySelector('.done-cb').checked = true;
+function applyResult(result) {
+    const row = rowFor(result.qid);
+    if (!row) return;
+    const msg = row.querySelector('.row-msg');
+
+    if (result.confirmed) {
         row.classList.add('done');
         if (hidingDone) row.classList.add('hide-done');
-    });
-    if (hidingDone) $('hide-done').textContent = 'Show done';
+        msg.textContent = 'Confirmed — it will leave the backlog on reload.';
+        msg.className = 'row-msg ok';
+        return;
+    }
+    row.classList.remove('done', 'hide-done');
+    msg.textContent = REASONS[result.reason] ?? result.reason;
+    msg.className = 'row-msg warn';
+}
+
+async function confirmIds(ids) {
+    if (ids.length === 0) return [];
+    try {
+        const { results } = await postJson('api/findings/confirm', { ids });
+        results.forEach(applyResult);
+        refreshQuickStatements();
+        return results;
+    } catch (e) {
+        $('status').textContent = `Could not confirm: ${e.message}`;
+        return [];
+    }
+}
+
+async function skipRow(row) {
+    const id = Number(row.dataset.id);
+    try {
+        await postJson(`api/findings/${id}/skip`, {});
+        row.classList.add('done');
+        if (hidingDone) row.classList.add('hide-done');
+        row.querySelector('.row-msg').textContent = 'Skipped — it will not be offered again.';
+        row.querySelector('.row-msg').className = 'row-msg ok';
+        refreshQuickStatements();
+    } catch (e) {
+        $('status').textContent = `Could not skip: ${e.message}`;
+    }
 }
 
 // ---- QuickStatements panel: P18 image + Commons-category sitelink ----
-// A taxon contributes two commands once it is both marked done and has a picked P18 image
-// (chosen in its gallery tab). Copying flushes the included picks so each edit runs only once.
-const taxaByQid = new Map();
-
+// A taxon contributes two commands as soon as a photo has been picked for it in a gallery tab.
+// Copying no longer clears the picks — confirmation does, because that is the point at which the
+// edit is known to exist. Copy, run the batch, then Confirm pending.
 function pendingQs() {
-    return Object.entries(p18.all())
-        .filter(([qid]) => localStorage.getItem('done-' + qid))
-        .map(([qid, { file, category }]) => ({
+    return Object.entries(state.allPicks())
+        .map(([qid, pick]) => ({
             qid,
-            file,
-            category: category || taxaByQid.get(qid) || '',
+            file: pick.destFile,
+            category: pick.taxonName || taxaByQid.get(qid) || '',
         }))
         .filter((q) => q.file && q.category);
 }
@@ -118,44 +170,35 @@ function refreshQuickStatements() {
         ? `${pending.length} taxa · ${pending.length * 2} statements`
         : '';
     $('qs-copy').disabled = pending.length === 0;
+    $('qs-confirm').disabled = pending.length === 0;
 }
 
 function copyQuickStatements() {
-    const pending = pendingQs();
-    if (pending.length === 0) return;
-    const text = qsLines(pending);
-    const flush = () => {
-        pending.forEach((q) => p18.clear(q.qid));
-        refreshQuickStatements();
-    };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(flush);
-    else {
-        const ta = $('qs-text');
-        ta.select();
-        document.execCommand('copy');
-        flush();
-    }
+    const text = qsLines(pendingQs());
+    if (!text) return;
+    const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
+    else { $('qs-text').select(); document.execCommand('copy'); done(); }
 }
 
-// Re-read done flags from localStorage onto the rows — picks made in a gallery tab auto-mark
-// the taxon done, so the checkbox/row must catch up when the main view regains focus.
-function syncDoneState() {
-    rows().forEach((row) => {
-        const done = !!localStorage.getItem('done-' + row.dataset.qid);
-        row.querySelector('.done-cb').checked = done;
-        row.classList.toggle('done', done);
-        row.classList.toggle('hide-done', done && hidingDone);
-    });
+/** Confirm every taxon that currently has a pick — the batch you just pasted. */
+async function confirmPending() {
+    const ids = pendingQs().map((q) => idByQid.get(q.qid)).filter((id) => id !== undefined);
+    const results = await confirmIds(ids);
+    const ok = results.filter((r) => r.confirmed).length;
+    $('qs-hint').textContent = results.length
+        ? `${ok} of ${results.length} confirmed.`
+        : 'Nothing to confirm.';
 }
 
-// ---- uploaded-files backfill list: download button + count (§7.2) ----
+// ---- uploaded-files backfill list: download button + count ----
 function refreshUploadedCount() {
-    const n = uploaded.count();
+    const n = state.uploadCount();
     $('uploaded-count').textContent = n ? `${n} marked uploaded` : '';
 }
 
 function downloadUploaded() {
-    const blob = new Blob([JSON.stringify(uploaded.exportObject(), null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(state.exportObject(), null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'uploaded-files.json';
@@ -163,50 +206,87 @@ function downloadUploaded() {
     URL.revokeObjectURL(a.href);
 }
 
+// ---- one-time import of what this browser profile still holds ----
+async function runImport(qids) {
+    const payload = legacy.read(qids);
+    $('import-msg').textContent = 'Importing…';
+    try {
+        const res = await postJson('api/import', payload);
+        await state.load();
+        // Imported "done" flags are not taken as truth — they were written when a QuickStatements
+        // line was copied, which is no evidence it was ever pasted. They come back as work to
+        // confirm, so the database only ever learns "done" from Wikidata itself.
+        const results = await confirmIds(res.toConfirm);
+        const ok = results.filter((r) => r.confirmed).length;
+        legacy.clear(qids);
+        $('import-banner').hidden = true;
+        $('status').textContent =
+            `Imported ${res.uploads} uploaded files and ${res.picks} picks; `
+            + `checked ${results.length} previously-done taxa against Wikidata, ${ok} confirmed.`;
+        refreshUploadedCount();
+        refreshQuickStatements();
+    } catch (e) {
+        $('import-msg').textContent = `Import failed: ${e.message}. Nothing was cleared.`;
+    }
+}
+
+function offerImport(qids) {
+    if (!legacy.has(qids)) return;
+    const { done, uploaded, picks } = legacy.read(qids);
+    $('import-msg').textContent =
+        `This browser still holds ${done.length} done marks, ${uploaded.length} uploaded files `
+        + `and ${Object.keys(picks).length} image picks from before they were stored server-side.`;
+    $('import-banner').hidden = false;
+}
+
+// ---- wiring ----
 $('download-uploaded').addEventListener('click', downloadUploaded);
 $('qs-copy').addEventListener('click', copyQuickStatements);
+$('qs-confirm').addEventListener('click', confirmPending);
 $('hide-done').addEventListener('click', toggleHideDone);
+$('import-run').addEventListener('click', () => runImport([...idByQid.keys()]));
 
 // Delegated on #tbody, so rows rendered later need no wiring of their own.
-$('tbody').addEventListener('change', (e) => {
+$('tbody').addEventListener('click', async (e) => {
     const row = e.target.closest('tr[data-qid]');
-    if (row && e.target.matches('.done-cb')) setDone(row.dataset.qid, e.target.checked);
-});
-$('tbody').addEventListener('click', (e) => {
+    if (row && e.target.matches('.confirm-btn')) {
+        e.target.disabled = true;
+        row.querySelector('.row-msg').textContent = 'Checking Wikidata…';
+        await confirmIds([Number(row.dataset.id)]);
+        e.target.disabled = false;
+        return;
+    }
+    if (row && e.target.matches('.skip-btn')) return skipRow(row);
+
     const draft = e.target.closest('.draft');
     if (draft) copyDraft(draft);
 });
 
-refreshUploadedCount();
-// Refresh after marking/picking in a gallery tab (which may auto-mark a taxon done).
+// Picks made in a gallery tab must show up here when this tab regains focus.
 window.addEventListener('focus', () => {
-    refreshUploadedCount();
-    syncDoneState();
-    refreshQuickStatements();
+    state.load().then(() => { refreshUploadedCount(); refreshQuickStatements(); }).catch(() => {});
 });
-
-// The URL is relative, like every other path here, so the app still works mounted under a
-// reverse-proxy subpath. limit is the API's ceiling: past that the backlog is reported as
-// truncated rather than silently cut short.
-const API = 'api/findings?kind=image&status=open&limit=2000';
 
 async function load() {
     try {
-        const r = await fetch(API, { cache: 'no-store' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
+        const [data] = await Promise.all([getJson(API), state.load()]);
         const taxa = data.taxa || [];
-        taxa.forEach((t) => { if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName); });
+        taxa.forEach((t) => {
+            if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName);
+            if (t.qid) idByQid.set(t.qid, t.id);
+        });
         $('count').textContent = data.total > taxa.length
             ? `${taxa.length} of ${data.total} taxa`
             : `${taxa.length} taxa`;
         if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
         $('tbody').innerHTML = taxa.map(rowHtml).join('\n');
+        if (hidingDone) $('hide-done').textContent = 'Show done';
         if (taxa.length === 0) {
             $('status').textContent = 'Nothing open in the backlog. Run `node checkImages.js` to find more taxa.';
         }
-        restoreState();
+        refreshUploadedCount();
         refreshQuickStatements();
+        offerImport([...idByQid.keys()]);
     } catch (e) {
         $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
     }

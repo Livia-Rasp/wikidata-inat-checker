@@ -50,10 +50,13 @@ class ApiOnlyLogController extends LogController {
 }
 
 /**
- * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object}} opts
+ * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
+ *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>}} opts
  * @returns {import('fastify').FastifyInstance}
  */
-export function buildServer({ store, logger = false, rateLimit, staticOptions } = {}) {
+export function buildServer({
+    store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
+} = {}) {
     const app = Fastify({
         logger,
         logController: new ApiOnlyLogController(),
@@ -118,14 +121,12 @@ export function buildServer({ store, logger = false, rateLimit, staticOptions } 
         // Nothing in web/ is content-hashed, so any positive max-age means a browser keeps running
         // last week's JavaScript against this week's API.
         maxAge: 0,
-        // web/data/ is gitignored generated content that nothing fetches over HTTP any more, and
-        // generateImagesJson writes taxa.json with a non-atomic writeFileSync a concurrent GET
-        // could catch mid-write.
-        allowedPath: (pathname) => !pathname.startsWith('/data/'),
         ...staticOptions,
     });
 
-    app.register(findingsRoutes, { prefix: '/api', store, rateLimit });
+    // fetchFn is the Wikidata seam lib/verify.js already established: injected here so the whole
+    // application can be exercised over an in-memory database with no network.
+    app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts, fetchFn });
 
     // Fastify's default 404 echoes the requested route back; this one does not.
     app.setNotFoundHandler((_req, reply) => {

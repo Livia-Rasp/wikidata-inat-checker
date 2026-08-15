@@ -71,14 +71,20 @@ The generated file description aims to be comprehensive but not overloaded:
 - an **author category** when the photographer has one (discovered via Commons'
   `{{Inaturalist user}}` template and Wikidata's iNaturalist-user-ID property).
 
-A **Mark as uploaded** checkbox on each photo records what you've uploaded (kept in your
-browser); the main page's **Download uploaded list** button exports that list as JSON. All
-the category/location lookups are cached locally so repeats are fast.
+A **Mark as uploaded** checkbox on each photo records what you've uploaded — in the findings
+database, so it survives a cleared browser profile; the main page's **Download uploaded list**
+button exports that list as JSON. All the category/location lookups are cached in your browser
+so repeats are fast.
 
 Picking **Use as Wikidata image (P18)** on the uploaded photo queues the two remaining
 Wikidata edits — the image (P18) and the Commons-category sitelink — into a
-**QuickStatements** panel on the main page, so you can apply them to many items in one batch;
-copying clears them so each edit runs only once.
+**QuickStatements** panel on the main page, so you can apply them to many items in one batch.
+
+Nothing is marked done because you said so. Copy the batch, run it in QuickStatements, then
+press **Confirm pending** (or a single row's **Confirm**): the server checks live Wikidata and
+marks the taxon done **only if both statements are actually there**. If only half the batch
+applied, the row stays on the worklist and tells you which half is missing. **Skip** is for a
+taxon you never want offered again.
 
 See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/README.md).
 
@@ -86,7 +92,7 @@ See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/REA
 
 - **Entry scripts** (`check*.js`, `draftCategory.js`) live at the repository root — these are what the `npm run …` commands invoke.
 - **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the local SQLite taxa index, Commons wikitext generation, and `paths.js` for the output/cache locations).
-- **`report/`** — the HTML report builders and the `web/data/taxa.json` exporter, sharing a common page skeleton in `report/htmlShared.js`.
+- **`report/`** — the HTML report builders, sharing a common page skeleton in `report/htmlShared.js`.
 - **`server/`** — the Fastify app behind `npm run web`: serves `web/` plus the read-only findings API ([docs/security.md](docs/security.md)).
 - **`web/`** — the browser upload app (plain HTML/JS/CSS, no build step).
 - **`test/`** — unit tests (`npm test`, using Node's built-in test runner — no dev dependencies).

@@ -8,7 +8,7 @@ Its companion is [security.md](security.md) — the threat model for `server/`, 
 
 Each entry script wires shared modules together; all data flows in memory.
 
-Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders, their shared `htmlShared`, and `generateImagesJson`). The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
+Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders and their shared `htmlShared`); the HTTP layer is in **`server/`**. The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
 
 ### Image checker (`checkImages.js`)
 ```
@@ -24,7 +24,7 @@ checkImages.js
        → open | no_draft | no_photos; a failed iNat batch records nothing so it retries
   └─ lib/db.js {openFindings()}: the WHOLE open backlog, not just this run
        └─ report/generateHTML.js: writes output/drafts.html
-       └─ report/generateImagesJson.js: writes web/data/taxa.json
+       (the web app needs no export — server/ reads the same database live)
 ```
 
 ### Vernacular names checker (`checkNames.js`)
@@ -84,7 +84,7 @@ All generated files go under two gitignored, auto-created top-level dirs, so not
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
 - **`cache/`** — `cache-images.json`, `cache-names.json`, `cache-links.json` (per-checker "already scanned" sets) and `cache-commons-cats.json` (Commons category existence). Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
 
-Two things deliberately live elsewhere: `web/data/taxa.json` (must be under `web/` for the static app to fetch it, written by `report/generateImagesJson.js`) and the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
+One thing deliberately lives elsewhere: the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
 
 ## Tests (`test/`, `npm test`)
 
@@ -100,7 +100,9 @@ The four review reports (`generateHTML` = drafts, `generateLinksHTML`, `generate
 - `renderReportPage({ title, heading, intro, css, thead, rows, script, aggregate?, trailing? })` — assembles the full document, injecting the shared `COPY_SCRIPT` plus the page script.
 - `doneScript({ segment, aggregate })` — the standard done/hide-done client logic, with an optional "copy all selected" aggregate panel (links + names). `segment` namespaces the `localStorage` keys per report (`''` → `done-<qid>`/`hide-done`; `'links'` → `done-links-<qid>`/`hide-done-links`; etc.) so each report remembers its own state.
 
-The ambiguous report keeps its own script (it hides rowspan-grouped candidate rows, which the standard `doneScript` doesn't model) but still uses `renderReportPage` + the shared CSS. `generateAreaHTML` is a different shape (sortable, no copy/done state) and does **not** use these helpers. `report/generateImagesJson.js` is the non-HTML sibling: it serialises the same image-checker drafts to `web/data/taxa.json` for the upload app.
+The ambiguous report keeps its own script (it hides rowspan-grouped candidate rows, which the standard `doneScript` doesn't model) but still uses `renderReportPage` + the shared CSS. `generateAreaHTML` is a different shape (sortable, no copy/done state) and does **not** use these helpers.
+
+Note that these reports still keep their done state in `localStorage`, per `segment`. The web app no longer does — its done state is confirm-gated in the database (see below) — so **a taxon ticked in `drafts.html` is not done as far as anything else is concerned.** Migrating the reports is not planned; they are a fallback view, and the app is the worklist.
 
 ## iNat taxa SQLite index (`lib/getInatTaxaDb.js`)
 
@@ -125,12 +127,14 @@ Schema v1 is `taxa` / `findings` / `runs`, all `STRICT`, with the version in `PR
 
 **Reading it: `listFindings({kind, status, limit, offset})`**, with `openFindings(kind)` as its unlimited `status: 'open'` case. Two details are load-bearing:
 
-- **The default limit is "no limit" (`LIMIT -1`).** `drafts.html` and `web/data/taxa.json` render the whole backlog off `openFindings()`, so a page size defaulted in the store would silently drop rows from both — a data-loss bug that looks like a display bug. HTTP callers cap it themselves, in their route schema.
+- **The default limit is "no limit" (`LIMIT -1`).** `drafts.html` renders the whole backlog off `openFindings()`, so a page size defaulted in the store would silently drop rows from it — a data-loss bug that looks like a display bug. HTTP callers cap it themselves, in their route schema.
 - **The tiebreak is `f.id`, not `f.qid`.** `qid` is TEXT, so `Q9` sorts after `Q10`, and `discovered_at` ties are the norm within one batch — paging over that ordering would repeat and skip rows.
 
 Rows carry `id` and `status` alongside the render fields, because the HTTP API addresses a finding by its id.
 
 **Two processes, one file.** Since the server reads the database while a checker writes it, `openFindingsDb` sets `busy_timeout` **before** `journal_mode = WAL` — the WAL switch itself takes a brief exclusive lock, and with no timeout in effect it fails outright with `SQLITE_BUSY` when another process is mid-write. For the same reason `migrate()` uses `BEGIN IMMEDIATE` and re-reads `user_version` *inside* the transaction: with a deferred `BEGIN` and the version read outside, two processes opening the same fresh database both see 0, both begin, and the loser dies on `table taxa already exists`.
+
+**Schema v2 adds `uploads`** — what has been uploaded to Commons, and which photo is a taxon's pending P18 pick. Both lived in `localStorage`, where no checker could see them and a cleared browser profile destroyed them; the pick was worse than that, being deleted the moment the QuickStatements were copied, so nothing recorded which file an edit was supposed to use. `dest_file` is the natural key (it is what the app computes for a photo and what Commons is asked to name the file), `qid` is nullable so an imported filename that does not parse back to a taxon is still kept, and a **partial unique index** (`ON uploads(qid) WHERE is_p18 = 1`) makes "at most one pick per taxon" a database guarantee rather than a convention. Nothing in this table is verified against Commons — the app only pre-fills the upload form, so every row is the user's own claim.
 
 **Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone` reserved for later slices. A taxon whose iNat batch *errored* gets no row at all, which is why `processInatIds` returns a `failed` set: recording an unanswered request as "no photos" would write the taxon off for the whole recheck window.
 
@@ -152,8 +156,37 @@ fires. `GET /api/findings?kind=&status=&limit=&offset=` returns `{generated, tot
 offset, taxa}`; `total` is the count *before* paging, so a truncated page cannot pass itself off as
 the whole backlog.
 
+**Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
+`{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
+a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
+`fetchFn` is threaded from `buildServer` down to `confirmFindings`, so the whole application can be
+driven over an in-memory database with no network.
+
 Everything about *why* the headers, limits and validation rules are what they are — including the
-CSP hosts that are easy to get wrong — is in [security.md](security.md).
+CSP hosts that are easy to get wrong, and what the write guard defends against — is in
+[security.md](security.md).
+
+### Confirming (`lib/confirm.js`) — and why it is not verification
+
+Both read the same `wbgetentities` response through `readImageFacts()`, and then ask **different
+questions of it**:
+
+| | `verifyOpenFindings` (`npm run verify`) | `confirmFindings` (the app's Confirm button) |
+|---|---|---|
+| Question | Does this taxon still need an image? | Did *my* edit land in full? |
+| Test | P18 present | P18 **and** the commonswiki sitelink present |
+| Resolves to | `fixed_upstream` | `done` |
+
+So a taxon whose P18 you added but whose sitelink statement failed will **refuse to confirm** and
+then be swept to `fixed_upstream` by the next verify run. That is not a bug: it no longer needs an
+image, so it is no longer this checker's work, even though your batch was half-applied. The confirm
+response names which half is missing (`missing_p18` / `missing_sitelink` /
+`missing_p18_and_sitelink`) so the difference is visible rather than mysterious.
+
+A failed confirm is a **no-op** — the finding keeps `open` and only `verified_at` moves — never an
+error state, because a QuickStatements batch can be queued and confirming too eagerly must be safe.
+An *upstream* failure is different again: it answers 503 and touches nothing, so retrying is safe.
+`skip` is the escape hatch for a taxon that will never have a Commons category.
 
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 

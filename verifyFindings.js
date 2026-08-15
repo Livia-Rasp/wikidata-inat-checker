@@ -3,7 +3,6 @@
 import { openFindingsDb } from './lib/db.js';
 import { verifyOpenFindings } from './lib/verify.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
-import { generateImagesJson } from './report/generateImagesJson.js';
 import { parseArgs, parseLimit } from './lib/utils.js';
 import { dataPath } from './lib/paths.js';
 
@@ -42,12 +41,12 @@ async function run() {
     if (result.gone.length > 0)
         console.log(`  gone: ${result.gone.join(', ')}`);
 
-    // Re-render, or the reports would keep offering the work until the next checkImages run.
+    // Re-render, or the report would keep offering the work until the next checkImages run. The
+    // web app needs no re-render: it reads the same database live.
     if (kind === 'image') {
         const backlog = store.openFindings(kind);
         await generateDraftsHTML(backlog);
-        generateImagesJson(backlog);
-        console.log(`Reports re-rendered (${backlog.length} open findings remain).`);
+        console.log(`Report re-rendered (${backlog.length} open findings remain).`);
     }
 
     store.finishRun(runId, { scanned: result.verified, found: result.stillOpen });

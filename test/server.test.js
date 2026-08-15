@@ -51,8 +51,9 @@ test('a finding row carries exactly the documented fields', async (t) => {
     // The response schema strips anything not listed in it, so this is what stops a future
     // migration — or a typo in the schema — silently dropping a column the app renders.
     assert.deepEqual(Object.keys(row).sort(),
-        ['id', 'inatTaxonId', 'iucn', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+        ['id', 'inatTaxonId', 'iucn', 'kind', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
     assert.equal(row.qid, 'Q1');
+    assert.equal(row.kind, 'image');
     assert.equal(row.status, 'open');
     assert.equal(row.iucn, 'VU');
     assert.equal(row.wdUri, 'http://www.wikidata.org/entity/Q1');
@@ -162,6 +163,197 @@ test('an unknown /api path answers as JSON', async (t) => {
     assert.match(res.headers['content-type'], /application\/json/);
 });
 
+// ---- write endpoints ----
+
+/** A wbgetentities fake; `state` is 'both' | 'imageOnly' | 'neither' | 'missing'. */
+function fakeApi(state = 'both') {
+    return async (qids) => ({
+        entities: Object.fromEntries(qids.map(qid => [qid,
+            state === 'missing' ? { id: qid, missing: '' } : {
+                id: qid,
+                claims: state === 'both' || state === 'imageOnly'
+                    ? { P18: [{ mainsnak: { datavalue: { value: `${qid}.jpg` } } }] } : {},
+                sitelinks: state === 'both' ? { commonswiki: { title: `Category:${qid}` } } : {},
+            }])),
+        success: 1,
+    });
+}
+
+/** Writes come from the app, so they carry what a browser would send. */
+const post = (app, url, payload) => app.inject({
+    method: 'POST',
+    url,
+    headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' },
+    payload: payload ?? {},
+});
+
+const firstId = (store) => store.listFindings({ kind: 'image' })[0].id;
+
+test('confirming a complete edit takes the finding off the backlog', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('both') });
+    seed(store, 'Q1');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/confirm`);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().results[0].confirmed, true);
+    assert.deepEqual((await app.inject('/api/findings')).json().taxa, []);
+});
+
+test('confirming a half-applied batch leaves the row open and says which half is missing', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('imageOnly') });
+    seed(store, 'Q1');
+
+    const [result] = (await post(app, `/api/findings/${firstId(store)}/confirm`)).json().results;
+    assert.equal(result.confirmed, false);
+    assert.equal(result.reason, 'missing_sitelink');
+    assert.equal((await app.inject('/api/findings')).json().total, 1, 'still work to do');
+});
+
+test('a bulk confirm answers per id', async (t) => {
+    const { app, store } = makeApp(t, { fetchFn: fakeApi('both') });
+    seed(store, 'Q1');
+    seed(store, 'Q2');
+    const ids = store.listFindings({ kind: 'image' }).map(f => f.id);
+
+    const res = await post(app, '/api/findings/confirm', { ids });
+    assert.deepEqual(res.json().results.map(r => r.id), ids);
+    assert.ok(res.json().results.every(r => r.confirmed));
+});
+
+test('when Wikidata cannot be reached the answer is 503 and nothing changes', async (t) => {
+    const { app, store } = makeApp(t, {
+        fetchFn: async () => { throw new Error('Wikidata API HTTP 503'); },
+    });
+    seed(store, 'Q1');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/confirm`);
+    // Distinguishable from "this server is broken": the client should try again, and the row is
+    // untouched so trying again is safe.
+    assert.equal(res.statusCode, 503);
+    assert.ok(!res.body.includes('HTTP 503') || !res.body.includes('at '), 'no stack trace');
+    assert.equal(store.listFindings({ kind: 'image' })[0].status, 'open');
+});
+
+test('skipping settles a finding and clears its pick', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1' });
+    store.setP18Pick('Q1', 'A.jpg');
+
+    const res = await post(app, `/api/findings/${firstId(store)}/skip`, { reason: 'no category' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().status, 'skipped');
+    assert.deepEqual(store.p18Picks(), {});
+    assert.ok(store.skipQids('image').has('Q1'), 'and discovery will not offer it again');
+});
+
+test('an unknown finding id is a 404, not a silent success', async (t) => {
+    const { app } = makeApp(t, { fetchFn: fakeApi('both') });
+    assert.equal((await post(app, '/api/findings/999999/skip')).statusCode, 404);
+    // Confirm reports it per-id rather than failing the whole batch.
+    const [result] = (await post(app, '/api/findings/999999/confirm')).json().results;
+    assert.equal(result.reason, 'not_found');
+});
+
+for (const [what, url, payload] of [
+    ['a non-numeric id', '/api/findings/abc/confirm', {}],
+    ['an empty bulk list', '/api/findings/confirm', { ids: [] }],
+    ['an over-long bulk list', '/api/findings/confirm', { ids: Array.from({ length: 201 }, (_, i) => i + 1) }],
+    ['an unknown body field', '/api/findings/confirm', { ids: [1], force: true }],
+    // Note ajv coerces "1" to 1 by default, and that coercion is what makes the querystring's
+    // integer limit/offset work at all — so the id cases worth pinning are the ones no coercion
+    // can rescue.
+    ['a zero id', '/api/findings/confirm', { ids: [0] }],
+    ['a non-numeric id in the list', '/api/findings/confirm', { ids: [{}] }],
+]) {
+    test(`${what} is rejected`, async (t) => {
+        const { app } = makeApp(t, { fetchFn: fakeApi('both') });
+        assert.equal((await post(app, url, payload)).statusCode, 400);
+    });
+}
+
+// ---- uploads and picks ----
+
+test('an upload and a pick round-trip through the database', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+
+    await post(app, '/api/uploads',
+        { destFile: 'Taxon Q1 - 42.jpg', qid: 'Q1', photoId: '42', taxonName: 'Taxon Q1', uploaded: true, p18: true });
+
+    const body = (await app.inject('/api/uploads')).json();
+    assert.equal(body.count, 1);
+    assert.equal(body.uploads[0].destFile, 'Taxon Q1 - 42.jpg');
+    assert.deepEqual(body.picks.Q1, { destFile: 'Taxon Q1 - 42.jpg', taxonName: 'Taxon Q1' });
+    assert.equal(store.p18Picks().Q1.destFile, 'Taxon Q1 - 42.jpg');
+});
+
+test('un-marking an upload also drops the pick that depended on it', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    await post(app, '/api/uploads', { destFile: 'A.jpg', qid: 'Q1', uploaded: true, p18: true });
+
+    await post(app, '/api/uploads', { destFile: 'A.jpg', qid: 'Q1', uploaded: false });
+
+    assert.deepEqual((await app.inject('/api/uploads')).json().uploads, []);
+    assert.deepEqual(store.p18Picks(), {}, 'a pick on a file no longer claimed uploaded is stale');
+});
+
+test('an upload for an unknown taxon is kept without the reference', async (t) => {
+    const { app } = makeApp(t);
+    // uploads.qid is a foreign key; a qid this database never had must not 500 the route, and
+    // the filename is still worth keeping.
+    const res = await post(app, '/api/uploads', { destFile: 'Orphan.jpg', qid: 'Q999999', uploaded: true });
+    assert.equal(res.statusCode, 200);
+    assert.equal((await app.inject('/api/uploads')).json().uploads[0].qid, null);
+});
+
+test('importing localStorage state never marks anything done by itself', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    seed(store, 'Q2');
+    const id = store.listFindings({ kind: 'image' }).find(f => f.qid === 'Q1').id;
+
+    const res = await post(app, '/api/import', {
+        done: ['Q1'],
+        picks: { Q1: { file: 'Taxon Q1 - 42.jpg', category: 'Taxon Q1' } },
+        uploaded: ['Taxon Q1 - 42.jpg', 'Taxon Q2 - 7.jpg'],
+    });
+
+    const body = res.json();
+    assert.equal(body.uploads, 2);
+    assert.equal(body.picks, 1);
+    // The locally-"done" flag was written when a QuickStatements line was *copied*, which is no
+    // evidence anyone pasted it. Importing it as truth would reproduce the very defect this
+    // slice removes, so it comes back as work to confirm instead.
+    assert.deepEqual(body.toConfirm, [id]);
+    assert.equal(store.listFindings({ kind: 'image' }).length, 2, 'both still open');
+});
+
+test('importing is idempotent and recovers the photo id from the filename', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    const payload = { uploaded: ['Ficus benjamina - 12345.jpg'] };
+
+    await post(app, '/api/import', payload);
+    await post(app, '/api/import', payload);
+
+    const uploads = (await app.inject('/api/uploads')).json().uploads;
+    assert.equal(uploads.length, 1, 'the same file imported twice is one row');
+    assert.equal(uploads[0].photoId, '12345');
+    assert.equal(uploads[0].taxonName, 'Ficus benjamina');
+    assert.equal(store.listUploads()[0].qid, null);
+});
+
+test('an unparseable legacy filename is imported rather than dropped', async (t) => {
+    const { app } = makeApp(t);
+    await post(app, '/api/import', { uploaded: ['some old name.jpg'] });
+
+    const [row] = (await app.inject('/api/uploads')).json().uploads;
+    assert.equal(row.destFile, 'some old name.jpg');
+    assert.equal(row.photoId, null, 'no photo id recoverable, and that is fine');
+});
+
 // ---- rate limiting ----
 
 test('the rate limit covers the API and leaves static assets alone', async (t) => {
@@ -210,13 +402,6 @@ test('paths outside the web root are not served', async (t) => {
         assert.notEqual(res.statusCode, 200, `${url} must not be served`);
         assert.ok(!res.body.includes('wikidata-inat-checker'), `${url} must not leak repo content`);
     }
-});
-
-test('the generated data directory is not served', async (t) => {
-    const { app } = makeApp(t);
-    // taxa.json is still written for now, but the app reads the API; serving a file that is
-    // rewritten with a non-atomic writeFileSync only offers a torn read.
-    assert.equal((await app.inject('/data/taxa.json')).statusCode, 404);
 });
 
 test('an unknown page 404s instead of falling back to the index', async (t) => {

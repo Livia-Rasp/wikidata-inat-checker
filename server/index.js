@@ -8,10 +8,22 @@
 import { openFindingsDb } from '../lib/db.js';
 import { dataPath } from '../lib/paths.js';
 import { buildServer } from './app.js';
+import { LOOPBACK_ONLY } from './writeGuard.js';
 
 const DB_FILE = process.env.FINDINGS_DB || dataPath('findings.db');
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
+
+// The API can change stored state and has no authentication, so reaching it must stay a deliberate
+// act. Binding beyond loopback is refused rather than warned about: a warning in a log nobody reads
+// is not a decision. Setting ALLOW_REMOTE_WRITES is that decision, made explicitly.
+if (!LOOPBACK_ONLY.includes(HOST) && !process.env.ALLOW_REMOTE_WRITES) {
+    console.error(
+        `Refusing to bind ${HOST}: this API is unauthenticated and can change stored state.\n` +
+        'Set ALLOW_REMOTE_WRITES=1 to do it anyway, and read docs/security.md first — you will\n' +
+        'also want ALLOWED_HOSTS set, or every write is rejected by the Host allowlist.');
+    process.exit(1);
+}
 
 const store = openFindingsDb(DB_FILE);
 const app = buildServer({

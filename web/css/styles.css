@@ -16,11 +16,22 @@ a { color: #36c; }
 #qs-panel .qs-head {
   display: flex; gap: 0.6em; align-items: center; margin-bottom: 0.3em; font-size: 0.9em;
 }
-#qs-copy {
+#qs-copy, #qs-confirm, #import-run {
   font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;
   border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
 }
-#qs-copy:disabled { opacity: 0.5; cursor: default; }
+#qs-copy:disabled, #qs-confirm:disabled { opacity: 0.5; cursor: default; }
+#qs-confirm { border-color: #5a5; background: #eef6ee; }
+
+/* ---- one-time import of pre-slice-4 localStorage state ---- */
+#import-banner {
+  display: flex; gap: 0.8em; align-items: center; margin: 0 0 1em;
+  padding: 0.6em 0.8em; font-size: 0.9em;
+  background: #fff8e5; border: 1px solid #e8d9a0; border-radius: 4px;
+}
+/* An author `display` beats the UA stylesheet's [hidden] rule, so the banner would otherwise
+   sit there empty forever once there is nothing left to import. */
+#import-banner[hidden] { display: none; }
 #qs-text {
   width: 100%; box-sizing: border-box; min-height: 4.5em; resize: vertical;
   font-family: monospace; font-size: 0.82em; line-height: 1.5;
@@ -32,7 +43,17 @@ table { border-collapse: collapse; width: 100%; }
 th { text-align: left; padding: 0.5em 0.75em; background: #f0f0f0;
      border-bottom: 2px solid #ccc; font-size: 0.85em; }
 td { vertical-align: top; padding: 0.4em 0.75em; border-bottom: 1px solid #e8e8e8; }
-.check-col { width: 2em; text-align: center; }
+.check-col { width: 5.5em; }
+.check-col button {
+  display: block; width: 100%; margin-bottom: 0.25em;
+  font-size: 0.78em; padding: 0.2em 0.4em; cursor: pointer;
+  border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
+}
+.confirm-btn { border-color: #5a5; background: #eef6ee; }
+.check-col button:disabled { opacity: 0.5; cursor: default; }
+.row-msg { display: block; margin-top: 0.35em; font-size: 0.8em; }
+.row-msg.ok { color: #2a2; }
+.row-msg.warn { color: #a60; }
 tr.done td { opacity: 0.35; }
 tr.done .draft { background: #f0f0f0; cursor: default; }
 tr.hide-done { display: none; }

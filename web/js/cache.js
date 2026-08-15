@@ -1,6 +1,12 @@
-// localStorage-backed helpers: persistent key/value caches for the enrichment lookups
-// (places, taxon ancestry, Commons category existence, author categories) and the
-// "uploaded files" backfill list. All survive reloads and sessions.
+// localStorage-backed helpers.
+//
+// Only two kinds of thing belong here now. **Lookup caches** (places, taxon ancestry, Commons
+// category existence, author categories) — derived from public APIs, regenerable, and worthless to
+// anyone else, so a browser profile is the right home. And the **legacy readers** below, which
+// exist solely to hand the old worklist state to the server once and then delete it.
+//
+// The worklist state itself — what was uploaded, which photo is a taxon's P18 pick, what is done —
+// moved to the findings database in slice 4. See state.js.
 
 /**
  * A namespaced JSON cache over localStorage. Stores one object under `winc-cache-<name>`.
@@ -21,48 +27,40 @@ export class Cache {
     }
 }
 
-// ---- uploaded-files backfill list (§7.2) -------------------------------------------
-// A set of Commons destFile names the user has confirmed uploading. Used to render the
-// "uploaded" badge and to export the JSON backfill record.
+// ---- the pre-slice-4 worklist state, for one-time import ------------------------------
 const UPLOADED_KEY = 'winc-uploaded';
-
-function readUploaded() {
-    try { return new Set(JSON.parse(localStorage.getItem(UPLOADED_KEY) || '[]')); }
-    catch { return new Set(); }
-}
-function writeUploaded(set) {
-    localStorage.setItem(UPLOADED_KEY, JSON.stringify([...set]));
-}
-
-export const uploaded = {
-    has(destFile) { return readUploaded().has(destFile); },
-    add(destFile) { const s = readUploaded(); s.add(destFile); writeUploaded(s); },
-    remove(destFile) { const s = readUploaded(); s.delete(destFile); writeUploaded(s); },
-    set(destFile, on) { on ? this.add(destFile) : this.remove(destFile); },
-    list() { return [...readUploaded()]; },
-    count() { return readUploaded().size; },
-    /** The wrapped JSON shape downloaded from the main page (§7.2). */
-    exportObject() { return { exported: new Date().toISOString(), uploaded: this.list() }; },
-};
-
-// ---- picked Wikidata image (P18) per taxon --------------------------------------------
-// Records, per taxon QID, the one Commons file the user picked as that item's image (P18)
-// and the taxon's category name (= taxonName). The main view turns these into QuickStatements
-// (P18 + commonswiki sitelink) and flushes a qid once its statement has been copied, so the
-// same edit can't be applied to Wikidata twice. Shape: { [qid]: { file, category } }.
 const P18_KEY = 'winc-p18';
 
-function readP18() {
-    try { return JSON.parse(localStorage.getItem(P18_KEY) || '{}'); }
-    catch { return {}; }
-}
-function writeP18(map) {
-    try { localStorage.setItem(P18_KEY, JSON.stringify(map)); } catch { /* quota */ }
+function readJson(key, fallback) {
+    try { return JSON.parse(localStorage.getItem(key) || '') ?? fallback; }
+    catch { return fallback; }
 }
 
-export const p18 = {
-    get(qid) { return readP18()[qid]; },
-    set(qid, file, category) { const m = readP18(); m[qid] = { file, category }; writeP18(m); },
-    clear(qid) { const m = readP18(); delete m[qid]; writeP18(m); },
-    all() { return readP18(); },
+export const legacy = {
+    /**
+     * Whatever this browser profile still holds. `done` is looked up per qid from the *current
+     * backlog* rather than by scanning localStorage for a prefix: the generated HTML reports write
+     * `done-<segment>-<qid>` keys for other finding kinds, and those are not ours to sweep up.
+     * @param {string[]} qids
+     */
+    read(qids) {
+        return {
+            done: qids.filter(qid => localStorage.getItem('done-' + qid)),
+            uploaded: readJson(UPLOADED_KEY, []),
+            picks: readJson(P18_KEY, {}),
+        };
+    },
+
+    /** Is there anything left to import? */
+    has(qids) {
+        const { done, uploaded, picks } = this.read(qids);
+        return done.length > 0 || uploaded.length > 0 || Object.keys(picks).length > 0;
+    },
+
+    /** Only ever called after the server has acknowledged the import. */
+    clear(qids) {
+        for (const qid of qids) localStorage.removeItem('done-' + qid);
+        localStorage.removeItem(UPLOADED_KEY);
+        localStorage.removeItem(P18_KEY);
+    },
 };

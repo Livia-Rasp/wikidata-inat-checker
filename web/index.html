@@ -18,13 +18,19 @@
     <button id="download-uploaded">Download uploaded list</button>
     <span id="uploaded-count" class="muted"></span>
   </div>
+  <section id="import-banner" hidden>
+    <span id="import-msg"></span>
+    <button id="import-run">Import into the database</button>
+  </section>
   <section id="qs-panel">
     <div class="qs-head">
       <strong>QuickStatements</strong>
       <span id="qs-count" class="muted"></span>
-      <button id="qs-copy" disabled>Copy &amp; clear</button>
+      <button id="qs-copy" disabled>Copy</button>
+      <button id="qs-confirm" disabled>Confirm pending</button>
+      <span id="qs-hint" class="muted"></span>
     </div>
-    <textarea id="qs-text" readonly placeholder="Pick a Wikidata image (P18) in a taxon's gallery (and mark it done) — its P18 and Commons-category sitelink statements appear here, ready to paste into QuickStatements. Copying clears them so each edit runs only once."></textarea>
+    <textarea id="qs-text" readonly placeholder="Pick a Wikidata image (P18) in a taxon's gallery — its P18 and Commons-category sitelink statements appear here, ready to paste into QuickStatements. Copy them, run the batch, then Confirm pending: a taxon is only marked done once both statements are live on Wikidata."></textarea>
   </section>
   <p id="status"></p>
   <table>
