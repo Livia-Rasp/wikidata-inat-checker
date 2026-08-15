@@ -29,6 +29,9 @@ a { color: #36c; }
   padding: 0.6em 0.8em; font-size: 0.9em;
   background: #fff8e5; border: 1px solid #e8d9a0; border-radius: 4px;
 }
+/* An author `display` beats the UA stylesheet's [hidden] rule, so the banner would otherwise
+   sit there empty forever once there is nothing left to import. */
+#import-banner[hidden] { display: none; }
 #qs-text {
   width: 100%; box-sizing: border-box; min-height: 4.5em; resize: vertical;
   font-family: monospace; font-size: 0.82em; line-height: 1.5;
