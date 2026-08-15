@@ -7,12 +7,14 @@ for what the app does and how to use it, see [commons-upload.md](commons-upload.
 API recipes, category-discovery patterns) are factored out into
 [commons-integration.md](commons-integration.md) for future Commons-upload tools.
 
-**Implementation map:** `checkImages.js` → `report/generateImagesJson.js` exports
-`web/data/taxa.json` (the data contract). The static app: `web/index.html` + `web/js/main.js`
-(taxa list), `web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery),
+**Implementation map:** `checkImages.js` records findings in `data/findings.db`, and
+`server/routes/findings.js` serves them as `GET /api/findings` (the data contract; the older
+`web/data/taxa.json` export still runs but nothing reads it). The app: `web/index.html` +
+`web/js/main.js` (taxa list), `web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery),
 `web/js/commonsUpload.js` (the `Special:Upload` prefill-URL builder, ported from
-inat2wiki — see `web/README.md` for attribution), `web/serve.js` (zero-dep static server,
-`npm run web`). Shared taxon-name parsing lives in `report/htmlShared.js` (`extractTaxonName`).
+inat2wiki — see `web/README.md` for attribution), served by `server/` (`npm run web`, see
+[security.md](security.md)). Shared taxon-name parsing lives in `report/htmlShared.js`
+(`extractTaxonName`).
 
 ---
 
@@ -311,13 +313,18 @@ client app** (`web/`):
    relies on. The **prefill upload URL** is built client-side (pure string assembly, §6).
    No server-side logic at any point.
 
-**Only a trivial static file server is needed**, and only because browsers won't `fetch()`
-a local JSON over `file://`. `web/serve.js` is a ~10-line zero-dependency Node static
-server (`npm run web`) — this is *not* an application backend.
+**Originally only a trivial static file server was needed**, and only because browsers won't
+`fetch()` a local JSON over `file://` — `web/serve.js`, a zero-dependency Node static server,
+explicitly *not* an application backend.
 
-A real backend (Express/Fastify) only earns its keep later for: on-demand re-scanning
-triggered from the UI, auth, or proxying/throttling external APIs. Out of scope for the
-initial implementation.
+**That changed with the findings database** (roadmap slice 3, 2026-08-15). The app now reads its
+worklist from `GET /api/findings` rather than a file, because the file was a snapshot every
+checker run overwrote. `server/` (Fastify) serves both it and `web/`; `web/serve.js` is gone. The
+things a backend was predicted to earn its keep for — on-demand re-scanning from the UI, auth,
+write access — are roadmap slices 5, 4 and 10, and they hang off this same server.
+
+Its configuration is security-relevant (a strict CSP the app has to stay inside, a rate limiter
+scoped to `/api`, sanitised errors); the reasoning is in [security.md](security.md).
 
 ---
 

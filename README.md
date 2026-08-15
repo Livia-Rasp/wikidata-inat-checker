@@ -40,7 +40,7 @@ The image checker also accepts `--taxon <name|id>` to restrict the scan to a sin
 
 ## iNaturalist → Commons upload app
 
-Running the image checker also writes `web/data/taxa.json`. Then:
+Run the image checker at least once so the findings database has a backlog. Then:
 
 ```sh
 npm run web        # serve the web/ app at http://localhost:8080

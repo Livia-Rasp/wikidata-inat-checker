@@ -1,4 +1,4 @@
-// Main view: loads the data contract (data/taxa.json) produced by checkImages.js and
+// Main view: loads the open image backlog from the server's /api/findings and
 // renders a drafts.html-like table of image-less taxa. Each row links out to Wikidata,
 // the iNat taxon, and the Commons category, shows the draft Wikitext (click to copy),
 // and opens the per-taxon photo gallery in a new tab.
@@ -185,20 +185,30 @@ window.addEventListener('focus', () => {
     refreshQuickStatements();
 });
 
+// The URL is relative, like every other path here, so the app still works mounted under a
+// reverse-proxy subpath. limit is the API's ceiling: past that the backlog is reported as
+// truncated rather than silently cut short.
+const API = 'api/findings?kind=image&status=open&limit=2000';
+
 async function load() {
     try {
-        const r = await fetch('data/taxa.json', { cache: 'no-store' });
+        const r = await fetch(API, { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const taxa = data.taxa || [];
         taxa.forEach((t) => { if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName); });
-        $('count').textContent = `${taxa.length} taxa`;
-        if (data.generated) $('generated').textContent = `generated ${new Date(data.generated).toLocaleString()}`;
+        $('count').textContent = data.total > taxa.length
+            ? `${taxa.length} of ${data.total} taxa`
+            : `${taxa.length} taxa`;
+        if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
         $('tbody').innerHTML = taxa.map(rowHtml).join('\n');
+        if (taxa.length === 0) {
+            $('status').textContent = 'Nothing open in the backlog. Run `node checkImages.js` to find more taxa.';
+        }
         restoreState();
         refreshQuickStatements();
     } catch (e) {
-        $('status').textContent = `Could not load data/taxa.json (${e.message}). Run \`node checkImages.js\` first.`;
+        $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
     }
 }
 

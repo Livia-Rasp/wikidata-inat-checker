@@ -118,6 +118,10 @@ export function buildServer({ store, logger = false, rateLimit, staticOptions } 
         // Nothing in web/ is content-hashed, so any positive max-age means a browser keeps running
         // last week's JavaScript against this week's API.
         maxAge: 0,
+        // web/data/ is gitignored generated content that nothing fetches over HTTP any more, and
+        // generateImagesJson writes taxa.json with a non-atomic writeFileSync a concurrent GET
+        // could catch mid-write.
+        allowedPath: (pathname) => !pathname.startsWith('/data/'),
         ...staticOptions,
     });
 
