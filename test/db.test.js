@@ -273,3 +273,59 @@ test('statusCounts and the runs log record what a run did', () => {
     store.finishRun(id, { scanned: 3, found: 1 });
     assert.equal(typeof id, 'number');
 });
+
+test('a run records how it ended, not just that it stopped', () => {
+    const { store } = makeStore();
+    const ok = store.startRun('images', { limit: 10 });
+    store.finishRun(ok, { scanned: 10, found: 2 });
+    assert.equal(store.latestRun('images').state, 'done');
+
+    const bad = store.startRun('images', {});
+    store.finishRun(bad, { scanned: 1, found: 0, state: 'failed', error: 'Wikidata HTTP 503' });
+    const row = store.latestRun('images');
+    assert.equal(row.state, 'failed');
+    assert.equal(row.error, 'Wikidata HTTP 503');
+    assert.deepEqual(row.scope, {});
+});
+
+test('a run left running is reconciled at startup, not left looking alive', () => {
+    const { store } = makeStore();
+    const orphan = store.startRun('images', {});
+    assert.equal(store.latestRun().state, 'running');
+
+    // Nothing survives a process restart, so a `running` row found at boot died without saying so.
+    assert.equal(store.reconcileRuns(), 1);
+    const row = store.latestRun();
+    assert.equal(row.state, 'interrupted');
+    assert.ok(row.finishedAt, 'and it stops looking in-progress forever');
+    assert.equal(row.id, orphan);
+
+    assert.equal(store.reconcileRuns(), 0, 'reconciling twice changes nothing');
+});
+
+test('latestRun is null before anything has run', () => {
+    const { store } = makeStore();
+    assert.equal(store.latestRun(), null);
+    assert.equal(store.latestRun('images'), null);
+});
+
+test('the v3 migration classifies the runs that predate it', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(`
+        CREATE TABLE runs (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, scope TEXT,
+            started_at TEXT NOT NULL, finished_at TEXT, n_scanned INTEGER, n_found INTEGER) STRICT;
+        CREATE TABLE taxa (qid TEXT PRIMARY KEY, inat_id TEXT, taxon_name TEXT, rank TEXT, iucn TEXT, first_seen TEXT NOT NULL) STRICT;
+        CREATE TABLE findings (id INTEGER PRIMARY KEY, qid TEXT NOT NULL REFERENCES taxa(qid), kind TEXT NOT NULL,
+            payload TEXT, status TEXT NOT NULL, discovered_at TEXT NOT NULL, checked_at TEXT NOT NULL,
+            verified_at TEXT, resolved_at TEXT, resolution TEXT, UNIQUE (qid, kind)) STRICT;
+        CREATE INDEX idx_findings_worklist ON findings(kind, status);
+        INSERT INTO runs (tool, scope, started_at, finished_at) VALUES ('images', NULL, '2026-01-01', '2026-01-02');
+        INSERT INTO runs (tool, scope, started_at) VALUES ('images', NULL, '2026-01-03');
+        PRAGMA user_version = 1;
+    `);
+    migrate(db);
+
+    const states = db.prepare('SELECT state FROM runs ORDER BY id').all().map(r => r.state);
+    assert.deepEqual(states, ['done', 'interrupted'],
+        'a finished run is done; one that never finished never will');
+});
