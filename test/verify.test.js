@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { verifyOpenFindings } from '../lib/verify.js';
+import { verifyOpenFindings, readImageFacts } from '../lib/verify.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -150,4 +150,20 @@ test('verifying an empty backlog makes no requests at all', async () => {
 
     assert.equal(res.verified, 0);
     assert.equal(calls.length, 0);
+});
+
+test('readImageFacts reports facts, not verdicts', () => {
+    // The batch pass and a confirm ask different questions of the same entity, so this must stay
+    // free of any judgement about what the answer means.
+    assert.deepEqual(readImageFacts(undefined), { missing: true, image: null, commonsCategory: null });
+    assert.deepEqual(readImageFacts({ id: 'Q1', missing: '' }), { missing: true, image: null, commonsCategory: null });
+    assert.deepEqual(readImageFacts({ id: 'Q1', claims: {}, sitelinks: {} }),
+        { missing: false, image: null, commonsCategory: null });
+    assert.deepEqual(
+        readImageFacts({
+            id: 'Q1',
+            claims: { P18: [{ mainsnak: { datavalue: { value: 'Lion.jpg' } } }] },
+            sitelinks: { commonswiki: { title: 'Category:Panthera leo' } },
+        }),
+        { missing: false, image: 'Lion.jpg', commonsCategory: 'Category:Panthera leo' });
 });
