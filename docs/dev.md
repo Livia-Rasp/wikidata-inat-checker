@@ -159,6 +159,9 @@ the whole backlog.
 **Discovery** (slice 5) is `POST /api/discover`, `GET /api/discover/status` and
 `POST /api/discover/cancel` — see [Discovery](#discovery-libdiscoverjs-serverjobsjs) below.
 
+**Search** (slice 5c) is `GET /api/search?taxon=&iucn=&limit=&offset=` and
+`GET /api/taxa/suggest?q=&limit=` — see [Searching the backlog](#searching-the-backlog-libbacklogindexjs).
+
 **Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
 `{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
 a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
@@ -197,6 +200,48 @@ only thing that stops it outliving a parent that was killed outright — verifie
 
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
+
+### Searching the backlog (`lib/backlogIndex.js`)
+
+Which taxa *already on the worklist* are in a clade. The findings database knows each taxon's iNat
+id and nothing about the tree; the taxa index knows the tree and nothing about the backlog. This is
+the join, kept out of the route so it can be tested without HTTP.
+
+**It walks up, not down** — the one place this deliberately departs from the roadmap, which called
+for `descendantInatIds()` and a set intersection. Measured against the real index:
+
+| | |
+|---|---|
+| `descendantInatIds('47217')` (Orchidaceae) | **452 ms**, 21,973 ids |
+| 5,000 `ancestorIds()` lookups | **24.8 ms** |
+| Orchidaceae search, cold memo → warm | **4.9 ms → 0.14 ms** |
+
+Three reasons, in order of weight. `descendantInatIds` is an unindexed four-way `LIKE` over ~3M
+rows, so it is a **full scan whatever the clade size**, and `node:sqlite` is synchronous — in the
+server process that is half a second of blocked event loop, which is the exact thing slice 5 forked
+a child to avoid. Cost scales with the **backlog** rather than the tree (Insecta is ~1M ids, and
+`WHERE inat_id IN (…)` would blow past SQLite's variable limit long before that). And the memo is
+keyed by *backlog taxon*, so it warms once and every later clade is set membership, where a
+per-clade cache pays the full price again for each new clade searched.
+
+Discovery is untouched: it still needs the descendant set, still resolves it in the child.
+
+Two things that are easy to get wrong here:
+
+- **The row list is not cached.** It was, invalidated on run completion — which misses skips and
+  confirms, because those settle a finding without any run being involved, so the page kept offering
+  work that had just been resolved. Re-reading is one indexed query; the memo is what is expensive.
+- **The composition strip descends past a single child.** Every plant in a botanical backlog is a
+  vascular flowering plant, so one rank below Plantae is a dead end — a fact about botany, not a way
+  through the worklist. It walks down to the first branch point and reports where it got to, which
+  is why the response carries `composition.under` as well as `composition.entries`.
+
+`resolveTaxonId` (split out of `resolveTaxonScope`) resolves a name without the descendant scan.
+The `^\d+$` test stays on that path: it is the guard keeping a `%` out of the LIKE patterns, not
+parsing. And `suggest()` ranks by **rank**, not by ancestry depth — depth was the vocabulary-free
+proxy and it fails, because lineages differ wildly in how many intermediate ranks they carry, so a
+genus in a shallow group outranks a family in a deep one and `Orch` answers *Orchesellaria* before
+*Orchidaceae*.
 
 ### Confirming (`lib/confirm.js`) — and why it is not verification
 

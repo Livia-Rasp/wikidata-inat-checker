@@ -98,6 +98,30 @@ LIKE patterns, so an unguarded wildcard matches a 3M-row table and becomes hundr
 queries. And `POST /api/discover` **never builds the taxa index**: `openTaxaDb()` throws where the
 CLI's `ensureTaxaDb()` would download 189 MB and rebuild for minutes.
 
+### The search routes (slice 5c) — unprivileged, and the first public reads over the taxa index
+
+`GET /api/search` and `GET /api/taxa/suggest` are deliberately **not** privileged: they are reads
+over data this server already serves, they make no outbound request, and they cannot start anything.
+That is the property the whole page is built around — looking is free, fetching is the button.
+
+Three things about them are load-bearing:
+
+- **The same `TAXON_PATTERN` guard as discovery**, for a reason that no longer looks obvious: search
+  never calls `descendantInatIds`, so the LIKE-injection argument above does not apply to it
+  directly. It keeps the pattern anyway because there is one input validator for taxon names
+  (`resolveTaxonId`), used by both, and a route that relaxed its own copy would be the one that
+  eventually got wired to something that does scan.
+- **`suggest` is a bounded range over `idx_name`**, `name >= ? AND name < ?`, never a `LIKE` — an
+  unbounded or leading-wildcard pattern on a 3M-row table is a denial-of-service primitive on a
+  synchronous driver. The prefix must start with a letter, and `limit` is capped at 10.
+- **A missing taxa index degrades rather than 503s.** Discovery cannot run without it; search can
+  still match the names in the findings database. This matters here because the read view is the
+  part meant to go public: it must not be takeable down by the state of a file in `~/.cache`. The
+  response says `degraded: true` rather than quietly answering a different question.
+
+Both routes still sit behind the write guard's `Host` allowlist and a rate limiter, and still send
+`cache-control: no-store` — a cached backlog is a worklist someone has already worked through.
+
 Runs happen in a forked child, which is a security property as much as a performance one: a wedged
 or malicious-input run cannot take the API down with it, and both a wall-clock cap and a progress
 watchdog exist because Node's `fetch` has no default timeout. Every outbound request now carries a

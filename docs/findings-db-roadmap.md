@@ -336,7 +336,7 @@ leaving no orphan (child 456050 died with parent 456032).
 **Known rough edge, fixed in 5c:** the scope form fetches into the list rather than filtering it, so
 searching for a clade shows the whole backlog with the new taxa mixed in.
 
-### 5c. A search page over the backlog
+### 5c. A search page over the backlog — **done**
 Added 2026-08-16, from using slice 5: the scope form asks for a taxon and then shows the *whole*
 backlog with the new taxa mixed in, so there is no way to look at just the orchids you went and
 fetched. Searching and fetching were conflated into one box that only did the fetching half.
@@ -352,6 +352,34 @@ fetched. Searching and fetching were conflated into one box that only did the fe
 - **Offer, never act.** Thin results prompt ("12 orchids in the backlog. Find more?") and start a
   scoped discovery *only if clicked*. A typo or an idle browse must never turn into minutes of
   Wikimedia and iNaturalist traffic.
+
+**One decision was reversed in the build: filtering walks *up* the tree, not down.** This slice
+specified `descendantInatIds` plus a per-taxon cache; measured, that is 452 ms and 21,973 ids for
+Orchidaceae — an unindexed scan of 3M rows whatever the clade size, on a synchronous driver, in the
+process slice 5 forked a child to keep free. Reading each *backlog* row's ancestry instead is 4.9 ms
+cold and 0.14 ms warm, and the memo warms over the backlog rather than per clade searched. Written
+up in [dev.md](dev.md#searching-the-backlog-libbacklogindexjs).
+
+Four more things turned out differently, all found by using it rather than by testing it:
+
+- **A missing taxa index degrades instead of 503ing.** Discovery cannot run without the index;
+  search can still match the names the findings database holds. The read surface is the part meant
+  to go public, so it must not be takeable down by a file in `~/.cache`.
+- **Ambiguous names are the common case, not an edge one.** `Bulbophyllum` is a genus *and* a
+  section; `Iris` is four taxa. The disambiguation prompt earns its place on the first real search.
+- **Suggestions rank by taxonomic rank, not ancestry depth.** Depth was the vocabulary-free proxy
+  and it does not work — lineages differ wildly in how many intermediate ranks they carry, so `Orch`
+  answered *Orchesellaria* before *Orchidaceae*. A misspelling also needs a **shorter** prefix to
+  fall back to, because typos land at the end of the word, which is exactly where a prefix search
+  gives up.
+- **The row list must not be cached.** Caching it and invalidating on run completion misses skips
+  and confirms, which settle findings with no run involved — so the page offered work already done.
+
+**Verified.** 209 unit tests, and in Chrome against a real 153-finding backlog: the full loop
+(2 findings in Cypripedioideae → Find more → 5, staying on the query rather than reloading),
+widening and narrowing through the rail and the composition strip with Back undoing each step,
+clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
+scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,

@@ -52,9 +52,17 @@ default — exposing it on a network is a deliberate act (`HOST=…`), and the t
 and what is deliberately *not* done are in [docs/security.md](docs/security.md). Other environment
 variables: `PORT`, `FINDINGS_DB`, `LOG_LEVEL`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `TRUST_PROXY`.
 
-Start it with `DISCOVER_ENABLED=1` and the app gains a **Find more taxa** control that runs a scoped
-discovery without a terminal — the same work `npm run images` does, in a forked child, with progress
-you can watch and a cancel that keeps whatever it already found. It is off by default and refused
+The app has two pages. `index.html` is the worklist you are working through; **Search the backlog**
+(`search.html`) is where you go to find work in it — type a clade or an iNat id and the page answers
+with the taxon's position in the tree, what its slice of the backlog is made of one rank down, and
+the matching rows. Ancestors widen the search, the clades under it narrow it, and the nine Red List
+chips compose with any of that. Searching is a read: it asks nothing of iNaturalist or Wikidata.
+
+Start it with `DISCOVER_ENABLED=1` and the search page gains a **Find more** control that runs a
+discovery scoped to whatever you just searched, without a terminal — the same work `npm run images`
+does, in a forked child, with progress you can watch and a cancel that keeps whatever it already
+found. It is **offered, never automatic**: nothing on the page starts a run until that button is
+clicked, because a typo must not turn into minutes of traffic. It is off by default and refused
 from anything but a local connection, because a run spends *your* Wikidata and iNaturalist API
 budget for minutes at a time.
 
