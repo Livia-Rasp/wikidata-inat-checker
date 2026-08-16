@@ -141,16 +141,15 @@ test('nameLike is the fallback when there is no index to resolve a clade with', 
     assert.deepEqual(idx.search({ nameLike: 'ghost' }).composition, { under: null, entries: [] });
 });
 
-test('the row list is re-read when a run finishes, and not before', () => {
+test('a change to the backlog is visible on the next search', () => {
+    // Skipping and confirming change the backlog without any run finishing, so anything keyed on
+    // run completion serves work that has already been settled.
     const store = makeStore([...FINDINGS]);
     const idx = createBacklogIndex({ store, taxaDb: makeTaxaDb(TAXA) });
     assert.equal(idx.search({}).total, 6);
 
     store.push({ id: 7, qid: 'Q7', inatTaxonId: '9001', taxonName: 'Late arrival', iucn: null });
-    assert.equal(idx.search({}).total, 6, 'a run in flight is not visible yet');
-
-    store.setRunAt('2026-08-17T00:00:00Z');
-    assert.equal(idx.search({}).total, 7, 'a finished run is');
+    assert.equal(idx.search({}).total, 7, 'with no run involved at all');
 });
 
 test('the ancestor memo warms over the backlog, not over the queries', () => {

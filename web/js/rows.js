@@ -73,12 +73,24 @@ export function rowHtml(t) {
 }
 
 // ---- copy helper (browser-side reimplementation of htmlShared.js) ----
+function copyViaTextarea(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+}
+
 export function copyDraft(el) {
     const text = el.textContent;
     const hint = el.nextElementSibling;
     const show = () => { hint.style.display = 'inline'; setTimeout(() => { hint.style.display = 'none'; }, 1500); };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(show);
-    else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); show(); }
+    if (!navigator.clipboard) { copyViaTextarea(text); show(); return; }
+    // The rejection branch is not theoretical: writeText throws NotAllowedError whenever the
+    // document is not focused, which is every click that lands while another window has focus.
+    // Without the catch there was no copy *and* no hint — the click just did nothing.
+    navigator.clipboard.writeText(text).then(show, () => { copyViaTextarea(text); show(); });
 }
 
 /**

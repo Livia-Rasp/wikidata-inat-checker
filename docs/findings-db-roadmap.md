@@ -444,6 +444,74 @@ handling once tokens exist — getting the tool onto the home server earlier is 
 The ordered plan ends here. Slice 9 is the last thing needed to have the tool running; what follows
 is deliberately outside it.
 
+## Known: `skipped` does not survive more than one user
+
+Raised 2026-08-16. `Skip` writes `status = 'skipped'` on the finding itself, and `skipped` is a
+sticky status — `skipQids()` excludes it from **every** future discovery run, permanently, with no
+recheck window and no un-skip in the UI. That is right for one operator: it means "this taxon will
+never have a usable photo, stop offering it".
+
+It is wrong the moment two people share the deployment. A skip is one person's judgement written
+into a **shared, global** row, so the second user never sees the taxon at all and has no way to know
+it was ever there, let alone disagree. The failure is silent in the direction that matters: work
+that someone would have done simply never appears.
+
+Not fixed now, because today's deployment is loopback-only and single-user, and guessing at the
+shape of multi-user state before there is a user model is how you get a schema you have to migrate
+twice. What the fix has to reckon with when it comes:
+
+- **A skip becomes per-user, not per-finding** — which needs the identity OAuth brings, so this is
+  naturally the same piece of work. `resolution` already carries JSON and could hold who, but the
+  *exclusion* lives in `skipQids`, which is global by construction.
+- **Discovery must still not resurface a taxon everyone has skipped**, or the backlog fills with
+  work every user has already refused. So the exclusion is probably "skipped by *this* viewer" for
+  display and "skipped by *everyone*" for discovery — two different questions on the same rows.
+- **Some skips really are global facts** ("this taxon has no photo and never will") rather than
+  personal ones ("not my area"). Worth capturing the difference at skip time — the `reason` field
+  exists and is currently always `null`, because nothing ever sends one.
+- **Un-skip has to exist** before any of this is safe. Today reversing a skip means an UPDATE
+  against `data/findings.db` by hand.
+
+**Rejected: keeping skips in `localStorage`.** Proposed 2026-08-16 as the cheap way to make them
+per-user, and it does solve the stated problem — one person's skip stops hiding work from everyone
+else. It is still the wrong shape, for the reason this whole document exists:
+
+- It is **the defect being removed, put back**. The "Why" section above is about state that lived in
+  `localStorage` (`winc-uploaded`, `winc-p18`), keyed per browser profile, invisible to the checkers
+  and dying with the profile. Slice 4 was largely the work of moving it out. Skips are not a
+  smaller case: a skip is a judgement about a taxon, worth as much as a confirm.
+- **Discovery cannot read a browser.** `skipQids()` is what stops a skipped taxon being fetched
+  again, and it runs in a forked child against SQLite. Move the state client-side and every run
+  re-discovers taxa the user already refused, forever — the backlog fills with exactly the work
+  someone said no to, and the server has no way to stop.
+- The CLI reports and `output/drafts.html` would keep offering skipped taxa too, because they render
+  from the database.
+
+**The shape that works, and works now:** keep the state server-side and give it a *key*. A random
+opaque id in `localStorage` — a browser identifier, not a judgement — lets skip rows be scoped per
+client immediately, with no user model and no OAuth. Discovery excludes a taxon once *every* known
+client has skipped it (or once one marks it a global fact), and when identity does arrive the id is
+replaced by a real user id without moving any data. That keeps `localStorage` holding one thing it
+is actually good for: which client this is.
+
+## Wanted: an interface for ambiguous matches
+
+Raised 2026-08-16. Two different ambiguities, both currently under-served, and worth solving once:
+
+- **Ambiguous taxon names**, which slice 5c hit immediately: `Bulbophyllum` is a genus *and* a
+  section, `Iris` is four taxa. The search page now offers the candidates as chips with their ranks,
+  which is enough to pick when you know the group and not enough when you do not — it says nothing
+  about where each sits or which has backlog behind it. Lineage per candidate, and a count, would
+  make it a decision rather than a guess.
+- **Ambiguous iNat↔Wikidata link matches**, which the links checker already produces and dumps into
+  `output/links-ambiguous.html` and `output/inat-links-conflicts.json` — files nothing in the app
+  reads. Slice 7 brings links into the findings database, and these are the rows a human has to
+  adjudicate, so they need a real view: the candidates side by side with the evidence that
+  distinguishes them (`compareAncestorTrees` already computes exactly that for `--auto`).
+
+The second is the substantial one and belongs in slice 7; the first is a smaller improvement to
+5c's existing prompt.
+
 ## Beyond the plan: OAuth upload and direct editing
 
 **Removed from the slice list 2026-08-16 and not scheduled.** It was slice 10, and being last was
