@@ -23,6 +23,22 @@ const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 /** Methods that cannot change state, and so are never guarded. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/**
+ * Some routes are not just writes — they spend the operator's Wikimedia and iNaturalist API
+ * reputation. Those are marked `config: { privileged: true }` and additionally require a **loopback
+ * peer address**, which is unforgeable, unlike `Host`: `curl -H 'Host: localhost'` forges that from
+ * anywhere, so the Host allowlist below stops DNS rebinding and nothing else.
+ *
+ * The point is the day the read view goes public: nobody but a local user should be able to make
+ * this server go and hammer Wikidata under the operator's identity.
+ * @param {string|undefined} addr
+ */
+function isLoopback(addr) {
+    if (!addr) return false;
+    const a = addr.replace(/^::ffff:/, '');
+    return a === '::1' || a === '127.0.0.1' || /^127\./.test(a);
+}
+
 /** `example.com:8080` → `example.com`. IPv6 literals keep their brackets. */
 function hostname(hostHeader) {
     if (!hostHeader) return '';
@@ -42,6 +58,11 @@ async function writeGuard(app, opts) {
     const allowed = new Set([...LOOPBACK_HOSTS, ...extra]);
 
     app.addHook('onRequest', async (req, reply) => {
+        // Checked before the safe-method exit: a privileged route is privileged whatever the verb.
+        if (req.routeOptions?.config?.privileged && !isLoopback(req.socket?.remoteAddress)) {
+            return reject(req, reply, 'not_local',
+                'This endpoint spends the operator\'s API budget and is available locally only.');
+        }
         if (SAFE_METHODS.has(req.method)) return;
 
         const host = String(req.headers.host ?? '');

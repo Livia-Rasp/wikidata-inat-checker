@@ -26,7 +26,13 @@ if (!LOOPBACK_ONLY.includes(HOST) && !process.env.ALLOW_REMOTE_WRITES) {
 }
 
 const store = openFindingsDb(DB_FILE);
+// Nothing in-memory survives a restart, so a run still marked `running` in the database died
+// without saying so. Say so for it, rather than leaving a row that looks alive forever.
+const stale = store.reconcileRuns();
+
 const app = buildServer({
+    dbFile: DB_FILE,
+    discoverEnabled: Boolean(process.env.DISCOVER_ENABLED),
     store,
     logger: {
         level: process.env.LOG_LEVEL || 'info',
@@ -51,7 +57,10 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 try {
     await app.listen({ port: PORT, host: HOST });
-    app.log.info(`serving web/ and /api/findings from ${DB_FILE}`);
+    if (stale > 0) app.log.warn({ runs: stale }, 'marked interrupted runs from a previous process');
+    app.log.info(
+        { discovery: process.env.DISCOVER_ENABLED ? 'enabled (local only)' : 'disabled' },
+        `serving web/ and /api from ${DB_FILE}`);
 } catch (err) {
     app.log.error(err);
     store.close();

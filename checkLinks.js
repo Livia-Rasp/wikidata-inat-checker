@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'fs';
-import { loadTaxaDb } from './lib/getInatTaxaDb.js';
+import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { generateLinksHTML } from './report/generateLinksHTML.js';
 import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
@@ -20,7 +20,7 @@ async function run() {
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
 
     // Load the local iNat taxa DB first — its names drive the Wikidata query.
-    const taxaDb = await loadTaxaDb();
+    const taxaDb = await ensureTaxaDb();
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
 

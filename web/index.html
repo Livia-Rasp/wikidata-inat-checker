@@ -18,6 +18,24 @@
     <button id="download-uploaded">Download uploaded list</button>
     <span id="uploaded-count" class="muted"></span>
   </div>
+  <section id="topup" hidden>
+    <div class="topup-head">
+      <strong>Find more taxa</strong>
+      <span class="muted">Fetches new taxa and <em>adds</em> them to the list below — it does not filter it.</span>
+      <label>In taxon <input id="topup-taxon" type="text" placeholder="Orchidaceae or 47217" size="18"></label>
+      <label>IUCN
+        <select id="topup-iucn">
+          <option value="">any</option>
+          <option>CR</option><option>EN</option><option>VU</option><option>NT</option>
+          <option>LC</option><option>DD</option><option>EW</option><option>EX</option><option>NE</option>
+        </select>
+      </label>
+      <label>Limit <input id="topup-limit" type="number" value="200" min="1" max="5000" size="5"></label>
+      <button id="topup-run">Fetch</button>
+      <button id="topup-cancel" hidden>Cancel</button>
+      <span id="topup-msg" class="muted"></span>
+    </div>
+  </section>
   <section id="import-banner" hidden>
     <span id="import-msg"></span>
     <button id="import-run">Import into the database</button>

@@ -37,6 +37,7 @@ npm run web                                 # Fastify: serves web/ + the finding
                                             # bind needs ALLOW_REMOTE_WRITES + ALLOWED_HOSTS),
                                             # FINDINGS_DB, LOG_LEVEL, TRUST_PROXY,
                                             # RATE_LIMIT_MAX / RATE_LIMIT_WRITE_MAX / _WINDOW
+DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
 
 npm test                                    # run the unit suite (Node's built-in runner)
 ```
@@ -58,7 +59,7 @@ Six entry scripts (five tools), each wiring together shared modules; data flows 
 
 - **`lib/`** — core data + domain logic: `utils.js` (SPARQL/CirrusSearch/Commons helpers, arg parsing, IUCN maps), `cache.js`, `paths.js` (the `output/` + `cache/` path helpers), `getInatTaxaDb.js`, `getFromInat.js`, `getInatNames.js`, `generateWikitext.js` (Commons category wikitext + `fetchEntities`).
 - **`report/`** — output rendering: the `generate*HTML.js` report builders and their shared `htmlShared.js` (base CSS, `renderReportPage`/`doneScript`, tree-pair + copy helpers).
-- **`server/`** — the Fastify app (`npm run web`): `app.js` (`buildServer({store})`, which never listens and never closes the store it is handed — the same injection seam `verifyOpenFindings` uses), `routes/findings.js` (the read-only `GET /api/findings`, encapsulated so its rate limiter covers the API and not the static assets), `index.js` (opens `data/findings.db`, binds **127.0.0.1 by default**, owns shutdown). Threat model and the reason behind every header in [docs/security.md](docs/security.md) — **read it before adding a write endpoint.**
+- **`server/`** — the Fastify app (`npm run web`): `app.js` (`buildServer({store})`, which never listens and never closes the store it is handed — the same injection seam `verifyOpenFindings` uses), `routes/findings.js` (`GET /api/findings` plus the confirm/skip/uploads writes, encapsulated so its rate limiter covers the API and not the static assets), `routes/discover.js` + `jobs.js` + `discoverChild.js` (topping up the backlog, which runs in a **forked child** — an in-process run would block the event loop for ~1 s per taxa-index load and hold a ~650 MB spike), `index.js` (opens `data/findings.db`, binds **127.0.0.1 by default**, owns shutdown). Threat model and the reason behind every header in [docs/security.md](docs/security.md) — **read it before adding a write endpoint.**
 - **`web/`** — the browser upload app (its own `web/js/*`, see below), served by `server/`.
 - **`test/`** — `node:test` unit suite (`*.test.js`), run via `npm test`.
 - **`output/`, `cache/`** — gitignored, auto-created generated artifacts (deliverables and cross-run caches respectively); see the Outputs/Caches bullets above.
@@ -75,7 +76,8 @@ All paths are relative to the working directory (the repo root, where the tools 
 | Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `web/` + `server/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
-| Server | `server/index.js` (`npm run web`) | serves `web/`, `GET /api/findings`, and the confirm/skip/uploads writes | [docs/security.md](docs/security.md) |
+| Server | `server/index.js` (`npm run web`) | serves `web/`, `GET /api/findings`, the confirm/skip/uploads writes, and `POST /api/discover` | [docs/security.md](docs/security.md) |
+| Discovery | `lib/discover.js` (CLI: `checkImages.js`; app: `POST /api/discover`) | tops up the backlog, scoped by taxon/IUCN | [docs/dev.md](docs/dev.md#discovery-libdiscoverjs-serverjobsjs) |
 
 The upload app is a build-step-free `web/` folder (plain HTML/JS/CSS), served by `server/` together with the findings API. It reads its worklist from `GET /api/findings` and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/api.js` + `web/js/state.js` talk to this app's own backend and mirror the uploads/picks it holds; `web/js/cache.js` keeps only the enrichment lookup caches in `localStorage` (regenerable derived data) plus the legacy readers the one-time import uses. See [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
 

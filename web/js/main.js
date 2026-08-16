@@ -239,12 +239,95 @@ function offerImport(qids) {
     $('import-banner').hidden = false;
 }
 
+// ---- topping up the backlog ----
+// A run takes minutes in a forked child on the server, so this starts one and then polls: no
+// long-lived connection to keep alive, and a reload or a second tab picks up a run in progress.
+let poller = null;
+
+/** Human-readable progress. The counts differ per phase, so each says only what it knows. */
+function describe(s) {
+    if (s.state === 'running') {
+        const c = s.counts ?? {};
+        if (s.phase === 'querying') return 'Asking Wikidata which taxa still need an image…';
+        if (s.phase === 'checking') {
+            return c.batches
+                ? `Checking iNaturalist for photos — batch ${c.batch} of ${c.batches}, ${c.matched ?? 0} with photos so far.`
+                : `Checking ${c.taxa ?? '…'} taxa against iNaturalist…`;
+        }
+        if (s.phase === 'recording') return `Recording batch ${c.batch} of ${c.batches} — ${c.open ?? 0} to work on so far.`;
+        return 'Starting…';
+    }
+    if (s.state === 'done') return `Done: ${s.counts?.open ?? 0} new taxa to work on. Reloading…`;
+    if (s.state === 'cancelled') return `Cancelled — ${s.counts?.open ?? 0} found before stopping. Reloading…`;
+    if (s.state === 'error') return `Failed: ${s.error?.message ?? 'unknown error'}`;
+    return '';
+}
+
+function renderTopup(s) {
+    $('topup').hidden = !s.enabled;
+    const running = s.state === 'running';
+    $('topup-run').disabled = running;
+    $('topup-cancel').hidden = !running;
+    $('topup-msg').textContent = describe(s);
+    return running;
+}
+
+async function pollTopup() {
+    try {
+        const s = await getJson('api/discover/status');
+        if (!renderTopup(s)) {
+            clearInterval(poller);
+            poller = null;
+            // The table is a snapshot of the backlog, and the run just changed it.
+            if (s.state === 'done' || s.state === 'cancelled') setTimeout(() => location.reload(), 1200);
+        }
+    } catch {
+        // A poll that fails is not worth a message of its own; the next one usually works.
+    }
+}
+
+function watchTopup() {
+    if (poller) return;
+    poller = setInterval(pollTopup, 2000);
+    pollTopup();
+}
+
+async function startTopup() {
+    const body = { limit: Number($('topup-limit').value) || 200 };
+    const taxon = $('topup-taxon').value.trim();
+    const iucn = $('topup-iucn').value;
+    if (taxon) body.taxon = taxon;
+    if (iucn) body.iucn = iucn;
+
+    $('topup-run').disabled = true;
+    $('topup-msg').textContent = 'Starting…';
+    try {
+        await postJson('api/discover', body);
+        watchTopup();
+    } catch (e) {
+        $('topup-run').disabled = false;
+        $('topup-msg').textContent = e.message;
+    }
+}
+
+async function cancelTopup() {
+    try {
+        const s = await getJson('api/discover/status');
+        await postJson('api/discover/cancel', s.runId ? { runId: s.runId } : {});
+        $('topup-msg').textContent = 'Stopping — the taxa already checked are kept.';
+    } catch (e) {
+        $('topup-msg').textContent = e.message;
+    }
+}
+
 // ---- wiring ----
 $('download-uploaded').addEventListener('click', downloadUploaded);
 $('qs-copy').addEventListener('click', copyQuickStatements);
 $('qs-confirm').addEventListener('click', confirmPending);
 $('hide-done').addEventListener('click', toggleHideDone);
 $('import-run').addEventListener('click', () => runImport([...idByQid.keys()]));
+$('topup-run').addEventListener('click', startTopup);
+$('topup-cancel').addEventListener('click', cancelTopup);
 
 // Delegated on #tbody, so rows rendered later need no wiring of their own.
 $('tbody').addEventListener('click', async (e) => {
@@ -287,6 +370,8 @@ async function load() {
         refreshUploadedCount();
         refreshQuickStatements();
         offerImport([...idByQid.keys()]);
+        // Adopts a run started in another tab, or before a reload.
+        pollTopup().then(() => { if ($('topup-run').disabled) watchTopup(); });
     } catch (e) {
         $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
     }
