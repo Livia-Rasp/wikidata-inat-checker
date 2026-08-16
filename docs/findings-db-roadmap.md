@@ -393,6 +393,25 @@ the "Known limitation" section in `docs/area.md` are gone. `docs/area.md`'s "How
 table are also stale about the latest-date column and the real sort order; tidy them in the same
 pass.
 
+**What the shell has to be, decided 2026-08-16 while building 5c** — three requirements that turn
+"navigation" from a nav bar into a real piece of design, and that slices 7 and 8 then inherit rather
+than each inventing:
+
+- **A place to choose which checker to run.** Images, links, names and area are four workflows over
+  one database, and there is currently no page whose job is picking between them. Not a start page
+  you pass through once: it is where a session begins, so it should say what each one currently has
+  open — the counts are one `statusCounts(kind)` per kind.
+- **Switching workflow from inside one**, never by going back to a start page. Whatever the shell
+  is, it stays present on every subpage, so `/links` is one control away from `/names`.
+- **Each kind gets the same search page**, not a bespoke one. `GET /api/search` is already
+  kind-agnostic apart from its default (`createBacklogIndex` takes `kind`), and clade and IUCN mean
+  the same thing for a link finding as for an image one — so 5c's page becomes `?kind=link` with a
+  different row renderer, and `web/js/rows.js` grows a per-kind row rather than being copied.
+- **Links and names need the background runner too.** Discovery is `kind=image`-only today
+  (`lib/discover.js` hardcodes `KIND`); slices 7 and 8 each need their own run to be startable from
+  the app, through the same forked child, the same single-flight lock and the same status polling.
+  That is one runner taking a `tool` argument, not three runners — `runs.tool` already records which.
+
 ### 7. Links checker → `kind=link` and a `/links` subpage
 Migrates `checkLinks.js` onto the findings table with P3151 as the verification predicate, keeping
 the `--auto` QuickStatements output. Simplest payload of the three, so it is the right one to prove
