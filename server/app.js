@@ -12,6 +12,8 @@ import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import findingsRoutes from './routes/findings.js';
+import discoverRoutes from './routes/discover.js';
+import { createJobs } from './jobs.js';
 
 const WEB_ROOT = fileURLToPath(new URL('../web/', import.meta.url));
 
@@ -51,11 +53,13 @@ class ApiOnlyLogController extends LogController {
 
 /**
  * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
- *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>}} opts
+ *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
+ *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any}} opts
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({
     store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
+    jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
 } = {}) {
     const app = Fastify({
         logger,
@@ -127,6 +131,17 @@ export function buildServer({
     // fetchFn is the Wikidata seam lib/verify.js already established: injected here so the whole
     // application can be exercised over an in-memory database with no network.
     app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts, fetchFn });
+
+    // Runs live in a forked child, so the server owns starting and stopping them but never does
+    // the work. Injected in tests; created here otherwise.
+    const runner = jobs ?? createJobs({ log: app.log });
+    app.register(discoverRoutes, {
+        prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex,
+        rateLimit, allowedHosts,
+    });
+    // Before the store closes in server/index.js: a child still holding a write handle would
+    // outlive the thing that is supposed to own it.
+    app.addHook('onClose', () => runner.close());
 
     // Fastify's default 404 echoes the requested route back; this one does not.
     app.setNotFoundHandler((_req, reply) => {

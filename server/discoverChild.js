@@ -24,8 +24,8 @@ function makeReporter() {
         if (!changed && Date.now() - last < 1000) return;
         last = Date.now();
         lastPhase = p.phase;
-        const { phase, ...counts } = p;
-        process.send?.({ type: 'progress', phase, runId: counts.runId, counts });
+        const { phase, runId, ...counts } = p;
+        process.send?.({ type: 'progress', phase, runId, counts });
     };
 }
 

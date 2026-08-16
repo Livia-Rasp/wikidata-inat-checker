@@ -193,3 +193,34 @@ test('a run is recorded even when it throws partway', async () => {
 function countRows(store) {
     return Object.values(store.statusCounts('image')).reduce((a, b) => a + b, 0);
 }
+
+test('every progress event carries the run id', async () => {
+    const { store } = makeStore();
+    const seen = [];
+    const result = await run(store, makeTaxaDb(), { onProgress: (p) => seen.push(p) });
+
+    // Without this the server cannot offer a targeted cancel: it would only ever be able to stop
+    // "whatever is running", which is a different thing from "the run I started".
+    assert.ok(seen.length > 0);
+    assert.ok(seen.every(p => p.runId === result.runId), 'including the very first one');
+});
+
+test('the run row says what became of the run', async () => {
+    const { store } = makeStore();
+    const controller = new AbortController();
+    const ids = Array.from({ length: 250 }, (_, i) => String(i + 1));
+    await run(store, makeTaxaDb(), {
+        ids, signal: controller.signal,
+        onProgress: (p) => { if (p.phase === 'recording') controller.abort(); },
+    });
+    // A cancelled run recorded as `done` would misreport a partial top-up as a complete one.
+    assert.equal(store.latestRun('images').state, 'cancelled');
+
+    await assert.rejects(() => run(store, makeTaxaDb(), {
+        inatOptions: { fetchPage: async () => { throw new Error('/home/livia/secret/path'); }, rateLimit: noWait },
+        onProgress: (p) => { if (p.phase === 'querying') throw new DiscoveryError('boom', 'x'); },
+    }));
+    const failed = store.latestRun('images');
+    assert.equal(failed.state, 'failed');
+    assert.equal(failed.error, 'boom', 'a code we chose, never a raw message with a path in it');
+});
