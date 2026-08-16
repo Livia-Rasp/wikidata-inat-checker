@@ -23,6 +23,23 @@ a { color: #36c; }
 #qs-copy:disabled, #qs-confirm:disabled { opacity: 0.5; cursor: default; }
 #qs-confirm { border-color: #5a5; background: #eef6ee; }
 
+/* ---- top up the backlog ---- */
+#topup { margin: 0 0 1em; }
+#topup[hidden] { display: none; }
+#topup .topup-head {
+  display: flex; gap: 0.7em; align-items: center; flex-wrap: wrap; font-size: 0.9em;
+  padding: 0.6em 0.8em; background: #f4f7fb; border: 1px solid #d6e0ec; border-radius: 4px;
+}
+#topup label { display: flex; gap: 0.3em; align-items: center; color: #555; }
+#topup input, #topup select { font-size: 0.95em; padding: 0.15em 0.3em; }
+#topup button {
+  font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;
+  border: 1px solid #36c; background: #eaf0fb; border-radius: 4px;
+}
+#topup button:disabled { opacity: 0.5; cursor: default; }
+#topup-cancel { border-color: #ccc; background: #f6f6f6; }
+#topup-cancel[hidden] { display: none; }
+
 /* ---- one-time import of pre-slice-4 localStorage state ---- */
 #import-banner {
   display: flex; gap: 0.8em; align-items: center; margin: 0 0 1em;
