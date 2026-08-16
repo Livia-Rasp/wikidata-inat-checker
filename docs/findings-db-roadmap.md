@@ -300,16 +300,81 @@ marking anything done.
 
 **Not in this slice:** discovery from the UI.
 
-### 5. On-demand scoped discovery from the app
-Extracts `lib/discover.js` from `checkImages.js`, leaving the entry script a thin CLI wrapper over
-it, and adds `POST /api/discover { scope, limit }` with progress reporting. UI gains a "top up
-backlog" control with scope inputs.
+### 5. On-demand scoped discovery from the app — **done**
+`lib/discover.js` extracted from `checkImages.js` (now a thin CLI wrapper), `POST /api/discover`
+with a polled status endpoint and a cancel, and a scope form in the app. Runs happen in a **forked
+child**, which the plan did not call for and the measurements demanded: `allInatIds()` is 1.4M rows,
+~1.0 s of blocked event loop and a ~650 MB heap spike, and `node:sqlite` is synchronous throughout,
+so an in-process run would freeze the API for a second at a time and keep the memory.
 
-**Working means:** the full loop — top up, work through, top up again, scoped to a family or an IUCN
-status — runs without touching a terminal.
+Five things worth carrying forward:
 
-**The trap to test here:** top-up must exclude findings of *every* status, not just `open`. Get it
-wrong and every taxon deliberately skipped comes straight back.
+- **The pipeline had to be inverted before it could be exposed.** `checkImages.js` recorded nothing
+  until every HTTP call was done, so a run that was killed or cancelled had nothing to show for the
+  API budget it had already spent. Findings are now written per iNat batch, which is what makes
+  progress real and `cancel` mean "stop here, keep what is done".
+- **`process.exit(1)` on bad input was the highest-severity finding of the audit.** An unknown taxon
+  or IUCN code killed the process; over HTTP that is an unauthenticated remote kill. Those are typed
+  errors now, resolved *before* the run row is opened so a rejected scope leaves no trace.
+- **The server must never build the taxa index.** `loadTaxaDb()` downloads 189 MB and rebuilds on a
+  30-day-old cache. Split into `ensureTaxaDb()` (CLI) and `openTaxaDb()` (server, throws instead) —
+  two functions rather than a boolean the server could pass wrong.
+- **Privilege is checked on the peer address, not `Host`.** `curl -H 'Host: localhost'` forges the
+  header from anywhere, so the Host allowlist stops DNS rebinding and nothing else. Discovery is
+  loopback-only *and* off unless `DISCOVER_ENABLED`, because it spends the operator's Wikimedia and
+  iNaturalist reputation and the read view is meant to go public.
+- **The trap held:** top-up excludes findings of every status, not just `open`, so nothing
+  deliberately skipped comes back. `test/discover.test.js` pins it.
+
+**Verified.** 181 unit tests, the job state machine driven through every lifecycle path against a
+fake spawn. Live: a 400-taxon Orchidaceae run over HTTP (116 open), a 900-taxon run cancelled
+mid-flight keeping its completed batches, a stale run id refused, and `kill -9` on the parent
+leaving no orphan (child 456050 died with parent 456032).
+
+**Known rough edge, fixed in 5c:** the scope form fetches into the list rather than filtering it, so
+searching for a clade shows the whole backlog with the new taxa mixed in.
+
+### 5c. A search page over the backlog
+Added 2026-08-16, from using slice 5: the scope form asks for a taxon and then shows the *whole*
+backlog with the new taxa mixed in, so there is no way to look at just the orchids you went and
+fetched. Searching and fetching were conflated into one box that only did the fetching half.
+
+- **Its own page** (`web/search.html`), not a control bolted onto the list. Searching is a read —
+  instant, free, and nothing to do with spending API budget. This is also the second page that makes
+  slice 6's app shell worth building, so the two are natural neighbours; after searching you land
+  back on the normal list.
+- **One box filters and scopes**, for taxon and IUCN alike: type `Orchidaceae`, see orchids, and a
+  top-up from there fetches more of the same. The server resolves the clade through the taxa index
+  and filters findings by descendant iNat ids, caching the descendant set per taxon — the scan is
+  ~0.5 s for a large clade, so only the first search of one should pay for it.
+- **Offer, never act.** Thin results prompt ("12 orchids in the backlog. Find more?") and start a
+  scoped discovery *only if clicked*. A typo or an idle browse must never turn into minutes of
+  Wikimedia and iNaturalist traffic.
+
+### 5b. Scheduled top-up when the backlog runs low
+Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
+which builds everything it needs: the child-process job runner, the single-flight lock, the status
+record and the outbound caps. This slice is the trigger and the condition, nothing else.
+
+Decisions made when it was planned, so they do not have to be re-argued:
+
+- **It only runs when the backlog is low** — below a configured threshold of open findings. This is
+  what keeps it compatible with "the findings table is never meant to be complete": work through
+  nothing and it stops fetching, rather than growing a worklist nobody is touching.
+- **Timing is adaptive on measured request volume**, not a fixed hour. Recommended against at
+  planning time and chosen anyway, so the concerns belong here: it needs traffic history, a
+  definition of "low" and hysteresis to avoid flapping, and it makes the outbound traffic time
+  unpredictable, which is the opposite of what a shared API prefers. Start by recording request
+  volume and only then decide the rule; a fixed hour is the fallback if the signal proves too noisy
+  on a single-user tool.
+- **Off unless configured, with one fixed scope from the environment.** An unattended job that
+  spends Wikimedia and iNaturalist reputation must never be a default, and what it does should be
+  written down rather than inherited from whatever was last clicked in the UI.
+- **On-demand still works exactly as before.** The schedule is another caller of the same runner, so
+  a manual top-up and a scheduled one cannot overlap — the lock already refuses the second.
+
+**Working means:** a machine left running accumulates candidates on its own, and a work session
+starts with a backlog already there.
 
 ### 6. App shell, plus area as a discovery scope
 Introduces the multi-page shell and navigation (the first slice with a second page to justify it),
@@ -358,27 +423,3 @@ id synchronously — which lands in the `resolution` column that has been there 
 **Register the consumer early, not when the code is ready.** A full consumer needs admin approval,
 and that lead time is the long pole; the toolbox's note records the same warning.
 
-### 5b. Scheduled top-up when the backlog runs low
-Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
-which builds everything it needs: the child-process job runner, the single-flight lock, the status
-record and the outbound caps. This slice is the trigger and the condition, nothing else.
-
-Decisions made when it was planned, so they do not have to be re-argued:
-
-- **It only runs when the backlog is low** — below a configured threshold of open findings. This is
-  what keeps it compatible with "the findings table is never meant to be complete": work through
-  nothing and it stops fetching, rather than growing a worklist nobody is touching.
-- **Timing is adaptive on measured request volume**, not a fixed hour. Recommended against at
-  planning time and chosen anyway, so the concerns belong here: it needs traffic history, a
-  definition of "low" and hysteresis to avoid flapping, and it makes the outbound traffic time
-  unpredictable, which is the opposite of what a shared API prefers. Start by recording request
-  volume and only then decide the rule; a fixed hour is the fallback if the signal proves too noisy
-  on a single-user tool.
-- **Off unless configured, with one fixed scope from the environment.** An unattended job that
-  spends Wikimedia and iNaturalist reputation must never be a default, and what it does should be
-  written down rather than inherited from whatever was last clicked in the UI.
-- **On-demand still works exactly as before.** The schedule is another caller of the same runner, so
-  a manual top-up and a scheduled one cannot overlap — the lock already refuses the second.
-
-**Working means:** a machine left running accumulates candidates on its own, and a work session
-starts with a backlog already there.

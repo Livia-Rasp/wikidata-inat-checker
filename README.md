@@ -47,10 +47,16 @@ npm run web        # serve the web/ app at http://localhost:8080
 ```
 
 That command starts a small [Fastify](https://fastify.dev) server (`server/`) which serves the app
-and a read-only findings API over the same database the checkers write. It binds `127.0.0.1` by
+and the findings API over the same database the checkers write. It binds `127.0.0.1` by
 default — exposing it on a network is a deliberate act (`HOST=…`), and the threat model, the headers
 and what is deliberately *not* done are in [docs/security.md](docs/security.md). Other environment
 variables: `PORT`, `FINDINGS_DB`, `LOG_LEVEL`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `TRUST_PROXY`.
+
+Start it with `DISCOVER_ENABLED=1` and the app gains a **Find more taxa** control that runs a scoped
+discovery without a terminal — the same work `npm run images` does, in a forked child, with progress
+you can watch and a cancel that keeps whatever it already found. It is off by default and refused
+from anything but a local connection, because a run spends *your* Wikidata and iNaturalist API
+budget for minutes at a time.
 
 The app lists the image-less taxa, and for each one shows its research-grade,
 Commons-compatibly-licensed iNaturalist photos. Selecting a photo opens the Wikimedia

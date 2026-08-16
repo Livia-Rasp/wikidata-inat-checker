@@ -40,7 +40,7 @@ checkNames.js
 ### iNat links checker (`checkLinks.js`)
 ```
 checkLinks.js
-  └─ lib/getInatTaxaDb.js: SQLite taxa index (~124 MB, built from iNat open-data S3 dump)
+  └─ lib/getInatTaxaDb.js: SQLite taxa index (~236 MB, built from iNat open-data S3 dump)
        → get(name) → {inatId, rank} | undefined   (undefined = not found or homonym)
        → getAll(name) → [{inatId, rank}]           (all active taxa sharing the name)
        → allNames() → all distinct iNat names       (drives the Wikidata query)
@@ -84,13 +84,13 @@ All generated files go under two gitignored, auto-created top-level dirs, so not
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
 - **`cache/`** — `cache-images.json`, `cache-names.json`, `cache-links.json` (per-checker "already scanned" sets) and `cache-commons-cats.json` (Commons category existence). Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
 
-One thing deliberately lives elsewhere: the ~124 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`).
+One thing deliberately lives elsewhere: the ~236 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`). **Only the CLI may build it** — `ensureTaxaDb()` downloads ~189 MB and rebuilds; `openTaxaDb()` is the server's counterpart and throws instead.
 
 ## Tests (`test/`, `npm test`)
 
 `node --test` runs `test/*.test.js` — a dependency-free unit suite for the pure logic, no network, sub-second. Coverage: arg parsing (`parseArgs` incl. `--key=value`, `parseLimit`, `parseIucnArg`), `chunk`/`qidFromUri`/`escapeHtml`, `compareAncestorTrees`, the IUCN code↔QID inverse, the taxa-index queries (`descendantInatIds`/`getAncestors`/`get`), and the report scaffold (`extractTaxonName`, `doneScript` key namespacing, `renderReportPage`). Add cases here when you touch that logic.
 
-The taxa-index tests don't download the 180 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from `loadTaxaDb`), so a test builds an in-memory `node:sqlite` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
+The taxa-index tests don't download the 189 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from the loaders), so a test builds an in-memory `node:sqlite` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
 
 ## Report page rendering (`report/htmlShared.js`)
 
@@ -156,6 +156,9 @@ fires. `GET /api/findings?kind=&status=&limit=&offset=` returns `{generated, tot
 offset, taxa}`; `total` is the count *before* paging, so a truncated page cannot pass itself off as
 the whole backlog.
 
+**Discovery** (slice 5) is `POST /api/discover`, `GET /api/discover/status` and
+`POST /api/discover/cancel` — see [Discovery](#discovery-libdiscoverjs-serverjobsjs) below.
+
 **Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
 `{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
 a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
@@ -165,6 +168,35 @@ driven over an in-memory database with no network.
 Everything about *why* the headers, limits and validation rules are what they are — including the
 CSP hosts that are easy to get wrong, and what the write guard defends against — is in
 [security.md](security.md).
+
+### Discovery (`lib/discover.js`, `server/jobs.js`)
+
+`discover({store, taxaDb, scope, limit, recheckAfter, onProgress, signal})` is the work; `checkImages.js`
+is argument parsing and HTML rendering around it. Four things about it are load-bearing:
+
+- **It runs in a forked child, never in the server process.** `allInatIds()` materialises 1.4M rows —
+  ~1.0 s of blocked event loop and a ~650 MB heap spike — `descendantInatIds()` is an unindexed LIKE
+  scan (~0.5 s), and `node:sqlite` is synchronous. In-process, every run would freeze the API in
+  bursts and keep the memory; the child also gives crash isolation and makes cancelling a signal.
+- **Findings are recorded per iNat batch.** A run is minutes long and spends API budget throughout,
+  so writing only at the end meant a killed or cancelled run kept nothing. This is why
+  `inatBatches()` is a generator and why `createWikitextContext()` exists — batch-wise generation
+  would otherwise re-walk the same lineages and re-fetch the Commons template map every batch.
+- **Scope resolution throws, and happens before the run row is opened.** The CLI called
+  `process.exit(1)` on an unknown taxon or IUCN code, which over HTTP is a remote kill. The digits
+  test in `resolveTaxonScope` is also a guard, not just parsing: `descendantInatIds` interpolates the
+  id into LIKE patterns, so `%` would match a 3M-row table.
+- **Every scope reduces to a candidate stream.** `candidateSource` is the seam; slice 6's area scope
+  is a third source over the same tail, not a third branch through it.
+
+`server/jobs.js` is the state machine: one child at a time (claimed synchronously — an `await`
+between the check and the set would let two POSTs both fork), a wall-clock cap *and* a progress
+watchdog (Node's `fetch` has no default timeout, so "wedged but alive" is real), and `spawn`
+injected so all of it is testable without a process. The child exits on `disconnect`, which is the
+only thing that stops it outliving a parent that was killed outright — verified, not assumed.
+
+`SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
+a plausible target for it.
 
 ### Confirming (`lib/confirm.js`) — and why it is not verification
 

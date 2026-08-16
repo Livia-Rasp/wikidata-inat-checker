@@ -73,6 +73,36 @@ browser-only attack. Refusing it would break every local tool and protect nothin
 Confirm and skip carry a **tighter rate limit** than the read API, because a confirm spends
 Wikimedia's API budget and not just ours.
 
+### Privileged routes (slice 5)
+
+Discovery is the most expensive thing this server can be asked to do: minutes of Wikidata,
+iNaturalist and Commons traffic under the operator's identity. WDQS bans clients that ignore its
+limits and iNaturalist blocks above 10,000 requests a day, so the thing being protected here is not
+data — it is the **ability to keep using those APIs at all**.
+
+`POST /api/discover` and `/api/discover/cancel` are therefore marked `config: { privileged: true }`,
+which adds two requirements on top of the write guard:
+
+1. **A loopback peer address.** Not `Host` — that is client-controlled, and `curl -H 'Host: localhost'`
+   forges it from anywhere. `req.socket.remoteAddress` cannot be forged by the caller, so it is what
+   gates a route whose cost lands on the operator. (The `Host` allowlist keeps its own job: stopping
+   DNS rebinding, where a *browser* sets the header honestly.) **This is the check that still holds
+   when the read view goes public.**
+2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
+   not be live merely because nobody turned it off.
+
+Two more limits belong to the same reasoning. The taxon scope is schema-validated as either digits
+or a name — `%` and `_` are LIKE metacharacters and `descendantInatIds` interpolates the id into
+LIKE patterns, so an unguarded wildcard matches a 3M-row table and becomes hundreds of SPARQL
+queries. And `POST /api/discover` **never builds the taxa index**: `openTaxaDb()` throws where the
+CLI's `ensureTaxaDb()` would download 189 MB and rebuild for minutes.
+
+Runs happen in a forked child, which is a security property as much as a performance one: a wedged
+or malicious-input run cannot take the API down with it, and both a wall-clock cap and a progress
+watchdog exist because Node's `fetch` has no default timeout. Every outbound request now carries a
+timeout and a `User-Agent` — the iNaturalist calls, which are the bulk of a run, previously carried
+neither.
+
 `test/writeGuard.test.js` covers each rejection, and re-runs every case against `GET` to prove the
 read path is untouched — the read view is meant to become public, and a guard that quietly broke it
 would be discovered by users rather than by tests.
