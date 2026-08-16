@@ -21,6 +21,10 @@ const DEBOUNCE_MS = 300;
 /** Below this, the backlog is thin enough that offering to fetch more is the helpful thing. */
 const THIN_RESULTS = 25;
 
+/** Rows per page. A row carries a block of draft wikitext, so it is tall: a hundred of them is
+ *  already a long scroll, and the API's 2000 ceiling would be a page nobody reaches the end of. */
+const PAGE_SIZE = 100;
+
 const table = createRowTable({
     tbody: $('tbody'),
     postJson,
@@ -35,12 +39,14 @@ function renderRows(taxa) {
 }
 
 /** The last query the server answered, so the offer always scopes to what is on screen. */
-let current = { taxon: '', iucn: '' };
+let current = { taxon: '', iucn: '', offset: 0 };
 let timer = null;
 let seq = 0;
 
 // ---- reading and writing the query ----
 
+/** No offset, deliberately: changing what you searched for puts you back on page 1, because page 4
+ *  of the orchids is not a meaningful place to land in the beetles. */
 function readForm() {
     return {
         taxon: $('q').value.trim(),
@@ -54,11 +60,36 @@ function writeForm({ taxon, iucn }) {
     if (chip) chip.checked = true;
 }
 
-function queryString({ taxon, iucn }) {
+function queryString({ taxon, iucn, offset }) {
     const p = new URLSearchParams();
     if (taxon) p.set('taxon', taxon);
     if (iucn) p.set('iucn', iucn);
+    // Named for the API parameter it is, so a URL from the address bar and a URL from the app mean
+    // the same thing. Absent on the first page, which is the overwhelmingly common link to share.
+    if (offset) p.set('offset', String(offset));
     return p.toString();
+}
+
+/**
+ * The API request for a query. Built from the same fields as the address-bar URL but separately,
+ * because they differ: this one always carries `limit` and `offset`, and appending them to
+ * `queryString`'s output would send `offset` twice — which the schema rejects as an array, so the
+ * page just stops updating with a 400 nobody looks at.
+ */
+function apiQuery({ taxon, iucn, offset }) {
+    const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset ?? 0) });
+    if (taxon) p.set('taxon', taxon);
+    if (iucn) p.set('iucn', iucn);
+    return p.toString();
+}
+
+/** @param {URLSearchParams} p */
+function queryFromUrl(p) {
+    return {
+        taxon: p.get('taxon') ?? '',
+        iucn: p.get('iucn') ?? '',
+        offset: Math.max(0, Number(p.get('offset')) || 0),
+    };
 }
 
 // ---- rendering ----
@@ -123,17 +154,34 @@ function renderChipCounts(counts) {
 }
 
 function renderCount(body) {
-    const { total, count, degraded } = body;
+    const { total, count, offset, degraded } = body;
     const where = current.taxon ? ` in ${body.resolved?.name ?? current.taxon}` : '';
     const status = current.iucn ? ` · ${current.iucn}` : '';
-    const shown = count < total ? ` (showing ${count})` : '';
+    // The range, not "showing 100": a page has to say *which* hundred, or the pager underneath is
+    // the only thing that knows where you are.
+    const range = count < total ? ` — showing ${offset + 1}–${offset + count}` : '';
     $('result-count').textContent = total === 0
         ? `Nothing in the backlog${where}${status}.`
-        : `${total} open ${total === 1 ? 'finding' : 'findings'}${where}${status}${shown}.`;
+        : `${total} open ${total === 1 ? 'finding' : 'findings'}${where}${status}${range}.`;
     $('status').textContent = degraded
         ? 'The iNat taxa index is not built, so this matched names rather than clades. '
           + 'Run a checker from a terminal to search by clade.'
         : '';
+}
+
+function renderPager({ total, count, offset }) {
+    const pager = $('pager');
+    if (total <= count && offset === 0) { pager.hidden = true; pager.innerHTML = ''; return; }
+
+    const page = Math.floor(offset / PAGE_SIZE) + 1;
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    pager.innerHTML = `
+        <button type="button" class="pager-btn" data-offset="${Math.max(0, offset - PAGE_SIZE)}"
+                ${offset === 0 ? 'disabled' : ''}>← Previous</button>
+        <span class="pager-where">Page ${page} of ${pages}</span>
+        <button type="button" class="pager-btn" data-offset="${offset + PAGE_SIZE}"
+                ${offset + count >= total ? 'disabled' : ''}>Next →</button>`;
+    pager.hidden = false;
 }
 
 async function suggestFor(prefix) {
@@ -239,7 +287,7 @@ async function startOffer() {
  *   otherwise bury the page you came from under a history entry per word.
  */
 async function search(query, { history: mode = 'replace' } = {}) {
-    current = { taxon: query.taxon ?? '', iucn: query.iucn ?? '' };
+    current = { taxon: query.taxon ?? '', iucn: query.iucn ?? '', offset: query.offset ?? 0 };
     $('clear').hidden = !current.taxon && !current.iucn;
 
     const qs = queryString(current);
@@ -249,8 +297,16 @@ async function search(query, { history: mode = 'replace' } = {}) {
 
     const mine = ++seq;
     try {
-        const body = await getJson(`api/search?${qs}${qs ? '&' : ''}limit=500`);
+        const body = await getJson(`api/search?${apiQuery(current)}`);
         if (mine !== seq) return; // a later keystroke already won
+
+        // A page can outlive its results: skip the last row of the last page, or bookmark page 4
+        // of something that has since shrunk, and the server correctly answers with nothing at
+        // all. Fall back to the last page that exists rather than showing an empty table.
+        if (body.count === 0 && body.total > 0 && current.offset > 0) {
+            const lastPage = (Math.ceil(body.total / PAGE_SIZE) - 1) * PAGE_SIZE;
+            return search({ ...current, offset: lastPage }, { history: 'replace' });
+        }
 
         $('suggestions').hidden = true;
         renderRail(body.resolved);
@@ -258,6 +314,7 @@ async function search(query, { history: mode = 'replace' } = {}) {
         renderChipCounts(body.iucnCounts);
         renderCount(body);
         renderRows(body.taxa);
+        renderPager(body);
         lastResult = { total: body.total, resolved: body.resolved };
         renderOffer(body.total, body.resolved);
     } catch (e) {
@@ -321,10 +378,23 @@ $('clear').addEventListener('click', () => {
     $('q').focus();
 });
 
+/** Changing page keeps the query and moves within it, so Back steps a page rather than leaving. */
+function goToPage(offset) {
+    search({ ...current, offset: Number(offset) }, { history: 'push' });
+    // The pager sits under the table, so a click on Next leaves you at the bottom of a page you
+    // have not read. Go back to the top of the results, not of the document — the search box and
+    // the rail are worth keeping in view.
+    $('result-count').scrollIntoView({ block: 'start', behavior: 'auto' });
+}
+
 // One delegated listener for every "go to this taxon" control on the page.
 document.addEventListener('click', (e) => {
     const jump = e.target.closest('[data-taxon]');
     if (jump) return goToTaxon(jump.dataset.taxon, jump.dataset.name ?? jump.textContent.trim().split('\n')[0]);
+
+    const page = e.target.closest('[data-offset]');
+    if (page) return goToPage(page.dataset.offset);
+
     if (e.target.id === 'offer-run') return startOffer();
     if (e.target.id === 'offer-cancel') {
         $('offer-msg').textContent = 'Stopping — the taxa already checked are kept.';
@@ -333,16 +403,17 @@ document.addEventListener('click', (e) => {
 });
 
 window.addEventListener('popstate', () => {
-    const p = new URLSearchParams(location.search);
-    const q = { taxon: p.get('taxon') ?? '', iucn: p.get('iucn') ?? '' };
+    const q = queryFromUrl(new URLSearchParams(location.search));
     writeForm(q);
     search(q, { history: 'none' });
 });
 
 // ---- boot ----
-const initial = new URLSearchParams(location.search);
-writeForm({ taxon: initial.get('taxon') ?? '', iucn: initial.get('iucn') ?? '' });
+const initial = queryFromUrl(new URLSearchParams(location.search));
+writeForm(initial);
 // Status first: the offer cannot render honestly until it knows whether discovery exists, and it
 // also adopts a run someone started in another tab.
 topup.poll().then((s) => { if (s?.state === 'running') topup.watch(); });
-search(readForm(), { history: 'none' });
+// `initial`, not readForm(): the form cannot carry an offset, and a bookmarked page must open on
+// the page it names.
+search(initial, { history: 'none' });

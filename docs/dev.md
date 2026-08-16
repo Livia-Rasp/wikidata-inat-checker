@@ -236,6 +236,16 @@ Two things that are easy to get wrong here:
   through the worklist. It walks down to the first branch point and reports where it got to, which
   is why the response carries `composition.under` as well as `composition.entries`.
 
+The page requests 100 rows at a time and pages through the rest — a row carries a block of draft
+wikitext, so it is tall, and the API's 2000 ceiling would be a page nobody reaches the end of.
+`offset` rides in the URL next to `taxon` and `iucn`, so a page is linkable and Back steps through
+pages, but it is built by a **separate** `apiQuery()` rather than by appending to the address-bar
+query string: emitting `offset` from both sends it twice, Fastify parses a repeated parameter as an
+array, and the schema rejects it — a 400 that shows up only as a page that quietly stops updating.
+Changing what you searched for drops the offset (page 4 of the orchids is not a place to land in
+the beetles), and an offset past the end falls back to the last page that exists, because skipping
+the last row of the last page would otherwise leave an empty table.
+
 `resolveTaxonId` (split out of `resolveTaxonScope`) resolves a name without the descendant scan.
 The `^\d+$` test stays on that path: it is the guard keeping a `%` out of the LIKE patterns, not
 parsing. And `suggest()` ranks by **rank**, not by ancestry depth — depth was the vocabulary-free

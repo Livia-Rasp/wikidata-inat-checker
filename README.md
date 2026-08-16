@@ -56,7 +56,9 @@ The app has two pages. `index.html` is the worklist you are working through; **S
 (`search.html`) is where you go to find work in it — type a clade or an iNat id and the page answers
 with the taxon's position in the tree, what its slice of the backlog is made of one rank down, and
 the matching rows. Ancestors widen the search, the clades under it narrow it, and the nine Red List
-chips compose with any of that. Searching is a read: it asks nothing of iNaturalist or Wikidata.
+chips compose with any of that. Results are paged 100 at a time, and the page is part of the URL,
+so a search is linkable and Back steps through it. Searching is a read: it asks nothing of
+iNaturalist or Wikidata.
 
 Start it with `DISCOVER_ENABLED=1` and the search page gains a **Find more** control that runs a
 discovery scoped to whatever you just searched, without a terminal — the same work `npm run images`

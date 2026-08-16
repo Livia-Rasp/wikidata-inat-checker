@@ -110,6 +110,29 @@ test('total counts the matches, not the page', async (t) => {
     assert.equal(body.taxa[0].qid, 'Q2');
 });
 
+test('paging walks the whole result exactly once', async (t) => {
+    const { app } = makeApp(t);
+    const seen = [];
+    for (let offset = 0; ; offset += 2) {
+        const body = (await get(app, `/api/search?limit=2&offset=${offset}`)).json();
+        assert.equal(body.total, 4, 'total is the same on every page');
+        assert.equal(body.offset, offset, 'the page says where it is, so a pager can be drawn');
+        if (body.count === 0) break;
+        seen.push(...body.taxa.map(r => r.qid));
+    }
+    assert.deepEqual(seen, ['Q1', 'Q2', 'Q3', 'Q4'], 'no row is skipped and none is repeated');
+});
+
+test('an offset past the end is empty, not an error', async (t) => {
+    // A bookmarked page 4 of something that has since shrunk, or the last row of the last page
+    // being skipped. The client falls back to the last page that exists; the server just answers.
+    const { app } = makeApp(t);
+    const body = (await get(app, '/api/search?limit=2&offset=500')).json();
+    assert.equal(body.count, 0);
+    assert.equal(body.total, 4, 'and still says how much there is to fall back to');
+    assert.deepEqual(body.taxa, []);
+});
+
 test('an unknown or ambiguous taxon is a 400 the app can act on', async (t) => {
     const { app } = makeApp(t);
 

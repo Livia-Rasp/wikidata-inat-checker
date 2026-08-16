@@ -229,6 +229,22 @@ a { color: #36c; }
 
 .status:empty { display: none; }
 
+/* Paging, under the table. The count line above says which rows these are; this says where in the
+   result you are and moves you. */
+.pager {
+  display: flex; gap: 0.6em; align-items: center; justify-content: center;
+  margin: 1em 0 2em; font-size: 0.9em;
+}
+.pager[hidden] { display: none; }
+.pager-btn {
+  font: inherit; font-size: 0.9em; padding: 0.35em 0.8em; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
+  color: var(--accent-ink);
+}
+.pager-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-wash); }
+.pager-btn:disabled { opacity: 0.4; cursor: default; color: var(--muted-ink); }
+.pager-where { color: var(--muted-ink); font-variant-numeric: tabular-nums; }
+
 /* Seven columns of taxonomy and wikitext do not fit a narrow window; the table scrolls inside its
    own box rather than making the whole page scroll sideways. */
 .table-scroll { overflow-x: auto; }
