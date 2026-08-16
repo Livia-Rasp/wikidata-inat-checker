@@ -131,7 +131,7 @@ wasted.
 
 ## 7. Migration plan
 
-**Superseded** by the ten slices in [findings-db-roadmap.md](findings-db-roadmap.md#slices), which
+**Superseded** by the slices in [findings-db-roadmap.md](findings-db-roadmap.md#slices), which
 is the sequencing of record. The staged table that used to sit here disagreed with it on both order
 and content.
 
@@ -141,8 +141,9 @@ rather than fast.
 
 ## 8. Deferred / open questions
 
-- **OAuth Commons uploads** — **no longer open**: it is slice 10 of the roadmap, deliberately last,
-  with this app registering its own consumer rather than sharing one.
+- **OAuth Commons uploads** — **no longer open, and no longer scheduled**: taken out of the
+  roadmap's ordered plan on 2026-08-16 so the tool can be deployed and run by hand first. See
+  [Beyond the plan](findings-db-roadmap.md#beyond-the-plan-oauth-upload-and-direct-editing).
 - **Per-tool file caches** (`cache/cache-images.json` etc.) — **no longer open**: folding them into
   SQLite is the whole point of the roadmap, images first in slice 1.
 - **Background jobs + live progress** — still open; revisit if minute-long runs in the UI feel too

@@ -25,8 +25,9 @@ Three things follow.
    `/skip`, and the uploads and import endpoints change stored state. They change *this app's*
    state only — no external edit is made, and nothing is destroyed: the worst an attacker achieves
    is marking findings skipped or planting rows in `uploads`, which is vandalism of a personal
-   worklist rather than of Wikidata. That severity rises sharply at slice 10, when the same origin
-   gains an OAuth token that can edit Commons and Wikidata directly.
+   worklist rather than of Wikidata. That severity rises sharply **whenever OAuth lands**, when the
+   same origin gains a token that can edit Commons and Wikidata directly — which is one reason that
+   work is now outside the roadmap's ordered plan rather than merely at the end of it.
 
 ## Deployment posture today
 
@@ -157,7 +158,7 @@ would be discovered by users rather than by tests.
   reading. Fastify's default serialiser logs no headers, so nothing is exposed today; `redact`
   covers `cookie`, `authorization` and `set-cookie` anyway, because the sibling project leaked a
   foreign `localhost` cookie into its logs by adding a serialiser later, and this process will hold
-  OAuth tokens at slice 10.
+  OAuth tokens once that work happens.
 - **No caching of worklists.** `cache-control: no-store` on every `/api` response: a cached backlog
   is a worklist someone has already worked through. Static assets are served with `maxAge: 0`
   because nothing in `web/` is content-hashed, so a positive max-age would run last week's
@@ -172,11 +173,13 @@ would be discovered by users rather than by tests.
   authentication or an enforced loopback-only bind. Slice 4 took the second option, deliberately:
   the bind is now enforced rather than defaulted, and the write guard above covers the rest. A
   shared token was considered and rejected as the wrong shape — a static browser app cannot hold a
-  secret, and a per-deployment token is not the per-user identity that slice 10's OAuth becomes,
-  so building it would have meant building the wrong thing first.
-  **This is what expires at slice 10**, when the same origin gains a token that can edit Commons
-  and Wikidata: at that point CSRF protection stops being enough on its own, because the attacker's
-  target is no longer this app's worklist but the operator's edit rights.
+  secret, and a per-deployment token is not the per-user identity OAuth becomes, so building it
+  would have meant building the wrong thing first.
+  **This is what expires when OAuth lands**, when the same origin gains a token that can edit
+  Commons and Wikidata: at that point CSRF protection stops being enough on its own, because the
+  attacker's target is no longer this app's worklist but the operator's edit rights. That work is
+  deliberately outside the roadmap's ordered plan, so this posture is good for the whole of the
+  initial deployment and no further.
 - **No TLS.** Whatever fronts this deployment terminates it. That decision is also why `hsts` is off
   here.
 - **No CORS plugin.** The app and the API are same-origin, so CORS is never consulted. If a separate
@@ -189,10 +192,10 @@ would be discovered by users rather than by tests.
   which it now does.
 - **No CSRF tokens, sessions or per-user accounts.** Token-based CSRF protection needs server-side
   state and a session to bind the token to; fetch metadata needs neither and cannot be forged by
-  page script, so it is both stronger and simpler here. Accounts arrive with OAuth at slice 10,
-  which registers **this app's own** consumer rather than sharing one with the sibling projects.
+  page script, so it is both stronger and simpler here. Accounts arrive with OAuth, whenever that
+  happens, registering **this app's own** consumer rather than sharing one with the sibling projects.
 - **Uploads are never verified against Commons.** The `uploads` table records what the app was told
-  was uploaded; the app only ever pre-fills the upload form, so until slice 10 performs the upload
+  was uploaded; the app only ever pre-fills the upload form, so until the app performs the upload
   itself, every row there is the operator's own claim and nothing depends on it being true.
 
 ## Concurrency and data safety

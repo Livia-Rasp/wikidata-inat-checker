@@ -99,7 +99,7 @@ See [docs/commons-upload.md](docs/commons-upload.md) and [web/README.md](web/REA
 - **Entry scripts** (`check*.js`, `draftCategory.js`) live at the repository root — these are what the `npm run …` commands invoke.
 - **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the local SQLite taxa index, Commons wikitext generation, and `paths.js` for the output/cache locations).
 - **`report/`** — the HTML report builders, sharing a common page skeleton in `report/htmlShared.js`.
-- **`server/`** — the Fastify app behind `npm run web`: serves `web/` plus the read-only findings API ([docs/security.md](docs/security.md)).
+- **`server/`** — the Fastify app behind `npm run web`: serves `web/`, the findings API, the confirm/skip writes, and (opt-in, local only) discovery ([docs/security.md](docs/security.md)).
 - **`web/`** — the browser upload app (plain HTML/JS/CSS, no build step).
 - **`test/`** — unit tests (`npm test`, using Node's built-in test runner — no dev dependencies).
 - **`output/`, `cache/`** — generated reports and cross-run caches (gitignored, created on first run).

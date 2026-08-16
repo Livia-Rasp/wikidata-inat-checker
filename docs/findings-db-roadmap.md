@@ -65,9 +65,11 @@ profile.
 - **One checker migrates at a time, each getting its own subpage.** The app stays multi-page and
   Fastify-served rather than gaining a client router — "no build step" is a property of this repo
   worth defending for four mostly-static views.
-- **OAuth comes last, with its own consumer.** Each of the three apps
-  (this, `commons-describe-upload-toolbox`, `vue-commons-gallery`) registers its own token; the
-  toolbox's logic is a model to orient on, not a dependency to wait for.
+- **OAuth is out of this plan entirely** (2026-08-16), not merely last. It is not part of the initial
+  deployment: the tool should be run by hand first and its bugs found while an edit can still do
+  nothing. See [Beyond the plan](#beyond-the-plan-oauth-upload-and-direct-editing). Each of the three
+  apps (this, `commons-describe-upload-toolbox`, `vue-commons-gallery`) registers its own token when
+  the time comes; the toolbox's logic is a model to orient on, not a dependency to wait for.
 
 ## Schema (v1)
 
@@ -278,7 +280,7 @@ Five things worth keeping:
 - **The security gate was met by enforcing the loopback bind**, not by adding auth: the server now
   refuses to start bound elsewhere without `ALLOW_REMOTE_WRITES`. A shared token was rejected as the
   wrong shape — a static app cannot hold a secret, and a per-deployment token is not the per-user
-  identity slice 10 needs. What did get built is `server/writeGuard.js` (Host allowlist against DNS
+  identity OAuth needs. What did get built is `server/writeGuard.js` (Host allowlist against DNS
   rebinding, fetch-metadata CSRF checks, JSON-only bodies), because a loopback bind is not a defence
   on its own.
 - **Two `lib/db.js` details paid for themselves:** `getFinding(id)` (the write endpoints address
@@ -414,12 +416,32 @@ the database is gitignored, so nothing else is protecting it.
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
 
-### 10. OAuth upload and direct editing
-Registers **this app's own** consumer at `Special:OAuthConsumerRegistration`, orienting on
-`commons-describe-upload-toolbox`'s OAuth2 work rather than depending on it. Uploads and statement
-edits happen in-app; confirmation collapses into the edit itself, because the API returns a revision
-id synchronously — which lands in the `resolution` column that has been there since slice 1.
+The ordered plan ends here. Slice 9 is the last thing needed to have the tool running; what follows
+is deliberately outside it.
 
-**Register the consumer early, not when the code is ready.** A full consumer needs admin approval,
-and that lead time is the long pole; the toolbox's note records the same warning.
+## Beyond the plan: OAuth upload and direct editing
+
+**Removed from the slice list 2026-08-16 and not scheduled.** It was slice 10, and being last was
+not enough — it should not be part of the initial deployment at all. The reasoning is about
+sequencing risk, not about wanting it less:
+
+- The whole tool has so far only been driven by hand. It should **run manually for a while first**,
+  on real data, so the bugs that only appear in use are found while the worst an edit can do is
+  nothing.
+- Every other slice is reversible. OAuth is the point where this stops being a worklist that
+  *suggests* edits and becomes software that *makes* them, under the operator's own account, on
+  Wikidata and Commons. That step is worth taking only once the rest is tight.
+- `docs/security.md` says the current no-auth posture "expires" here, and it means it: today's
+  protection is a loopback bind plus a CSRF guard, which is adequate for a personal worklist and
+  not for a token that can edit Commons.
+
+When it does happen, three things already decided are worth not re-arguing:
+
+- **Register the consumer early, not when the code is ready.** A full consumer at
+  `Special:OAuthConsumerRegistration` needs admin approval, and that lead time is the long pole;
+  `commons-describe-upload-toolbox`'s note records the same warning from its own experience.
+- **This app registers its own consumer** rather than sharing one with the sibling projects; the
+  toolbox's OAuth2 work is a model to orient on, not a dependency to wait for.
+- **Confirmation collapses into the edit**, because the API returns a revision id synchronously —
+  which lands in the `resolution` column that has been written since slice 1, so no migration.
 
