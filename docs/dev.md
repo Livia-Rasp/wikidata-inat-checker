@@ -159,6 +159,9 @@ the whole backlog.
 **Discovery** (slice 5) is `POST /api/discover`, `GET /api/discover/status` and
 `POST /api/discover/cancel` — see [Discovery](#discovery-libdiscoverjs-serverjobsjs) below.
 
+**Search** (slice 5c) is `GET /api/search?taxon=&iucn=&limit=&offset=` and
+`GET /api/taxa/suggest?q=&limit=` — see [Searching the backlog](#searching-the-backlog-libbacklogindexjs).
+
 **Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
 `{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
 a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
@@ -197,6 +200,71 @@ only thing that stops it outliving a parent that was killed outright — verifie
 
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
+
+### Searching the backlog (`lib/backlogIndex.js`)
+
+Which taxa *already on the worklist* are in a clade. The findings database knows each taxon's iNat
+id and nothing about the tree; the taxa index knows the tree and nothing about the backlog. This is
+the join, kept out of the route so it can be tested without HTTP.
+
+**It walks up, not down** — the one place this deliberately departs from the roadmap, which called
+for `descendantInatIds()` and a set intersection. Measured against the real index:
+
+| | |
+|---|---|
+| `descendantInatIds('47217')` (Orchidaceae) | **452 ms**, 21,973 ids |
+| 5,000 `ancestorIds()` lookups | **24.8 ms** |
+| Orchidaceae search, cold memo → warm | **4.9 ms → 0.14 ms** |
+
+Three reasons, in order of weight. `descendantInatIds` is an unindexed four-way `LIKE` over ~3M
+rows, so it is a **full scan whatever the clade size**, and `node:sqlite` is synchronous — in the
+server process that is half a second of blocked event loop, which is the exact thing slice 5 forked
+a child to avoid. Cost scales with the **backlog** rather than the tree (Insecta is ~1M ids, and
+`WHERE inat_id IN (…)` would blow past SQLite's variable limit long before that). And the memo is
+keyed by *backlog taxon*, so it warms once and every later clade is set membership, where a
+per-clade cache pays the full price again for each new clade searched.
+
+Discovery is untouched: it still needs the descendant set, still resolves it in the child.
+
+Two things that are easy to get wrong here:
+
+- **The row list is not cached.** It was, invalidated on run completion — which misses skips and
+  confirms, because those settle a finding without any run being involved, so the page kept offering
+  work that had just been resolved. Re-reading is one indexed query; the memo is what is expensive.
+- **The composition strip descends past a single child.** Every plant in a botanical backlog is a
+  vascular flowering plant, so one rank below Plantae is a dead end — a fact about botany, not a way
+  through the worklist. It walks down to the first branch point and reports where it got to, which
+  is why the response carries `composition.under` as well as `composition.entries`.
+
+Both table pages request 100 rows at a time through `web/js/pager.js` — a row carries a block of
+draft wikitext, so it is tall, and the API's 2000 ceiling would be a page nobody reaches the end of.
+An offset past the end falls back to the last page that exists, because confirming the last rows of
+the last page would otherwise leave an empty table.
+
+On the search page `offset` also rides in the URL next to `taxon` and `iucn`, so a page is linkable
+and Back steps through pages, but it is built by a **separate** `apiQuery()` rather than by
+appending to the address-bar query string: emitting `offset` from both sends it twice, Fastify
+parses a repeated parameter as an array, and the schema rejects it — a 400 that shows up only as a
+page that quietly stops updating. Changing what you searched for drops the offset, because page 4
+of the orchids is not a place to land in the beetles.
+
+**Paging the worklist required moving one lookup to the server**, and the shape of the bug is worth
+keeping: `main.js` built a `qid → finding id` map from the rows it had rendered, and "Confirm
+pending" resolved the P18 picks through it. Paged, that silently skips every pick whose taxon is not
+on the visible page — a wrong answer wearing the shape of a right one, since the panel would still
+report "0 of 1 confirmed". `p18Picks()` now joins `findings` and `taxa`, so each pick carries its own
+`findingId` and a `taxonName` that falls back to the taxa table, and the client resolves nothing.
+Both joins are `LEFT`: a pick whose finding was skipped or confirmed away must stay listed, or it
+can never be withdrawn. For the same reason `legacy.read()` scans `localStorage` for `^done-Q\d+$`
+instead of testing the loaded qids — anchored so the other reports' `done-<segment>-<qid>` keys
+still fail it.
+
+`resolveTaxonId` (split out of `resolveTaxonScope`) resolves a name without the descendant scan.
+The `^\d+$` test stays on that path: it is the guard keeping a `%` out of the LIKE patterns, not
+parsing. And `suggest()` ranks by **rank**, not by ancestry depth — depth was the vocabulary-free
+proxy and it fails, because lineages differ wildly in how many intermediate ranks they carry, so a
+genus in a shallow group outranks a family in a deep one and `Orch` answers *Orchesellaria* before
+*Orchidaceae*.
 
 ### Confirming (`lib/confirm.js`) — and why it is not verification
 

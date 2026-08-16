@@ -74,6 +74,68 @@ test('get returns a lone match, undefined for a homonym or a miss', () => {
     assert.equal(db.getAll('Iris').length, 2);
 });
 
+test('ancestorIds is the ancestry path, and the inverse of descendantInatIds', () => {
+    const db = makeAccessor(ROWS);
+    assert.deepEqual(db.ancestorIds('99001'), ['48460', '1', '2', '41962', '41970']);
+    assert.deepEqual(db.ancestorIds('1'), ['48460']);
+    assert.deepEqual(db.ancestorIds('48460'), [], 'the root has no ancestry');
+    assert.deepEqual(db.ancestorIds('999999'), [], 'an unknown id has no ancestry');
+
+    // The property the backlog filter depends on: walking up finds the same membership as
+    // scanning down, so swapping one for the other cannot change which taxa a clade contains.
+    for (const id of ['41970', '42048', '99001']) {
+        assert.ok(db.ancestorIds(id).includes('41962'), `${id} is inside Panthera`);
+    }
+    assert.ok(!db.ancestorIds('70000').includes('41962'), 'Puma is not inside Panthera');
+});
+
+test('byId and lineage carry the ids a rail needs to navigate', () => {
+    const db = makeAccessor(ROWS);
+    assert.deepEqual(db.byId('41962'), { inatId: '41962', name: 'Panthera', rank: 'genus' });
+    assert.equal(db.byId('999999'), undefined);
+
+    assert.deepEqual(db.lineage('41970'), [
+        { inatId: '1', name: 'Animalia', rank: 'kingdom' },
+        { inatId: '2', name: 'Felidae', rank: 'family' },
+        { inatId: '41962', name: 'Panthera', rank: 'genus' },
+    ]);
+    assert.deepEqual(db.lineage('999999'), []);
+    // An ancestor that is no longer active is absent from the index and must be skipped, not
+    // rendered as a hole in the path.
+    const gappy = makeAccessor([['9', 'Orphan', 'species', '48460/1/404404']]);
+    assert.deepEqual(gappy.lineage('9'), []);
+});
+
+test('suggest is a bounded prefix range, and stops at the prefix', () => {
+    const db = makeAccessor([
+        ['1', 'Orchidaceae', 'family', '48460/47126'],
+        ['2', 'Orchis', 'genus', '48460/47126/1'],
+        ['3', 'Orchidantha', 'genus', '48460/47126'],
+        ['4', 'Ordo', 'genus', null],          // sorts after 'Orchis' but outside the prefix
+        ['5', 'Quercus', 'genus', null],
+    ]);
+    // Higher rank first, then the shorter name: the family leads, and between two genera the one
+    // the prefix nearly spells out comes first.
+    assert.deepEqual(db.suggest('Orchi').map(r => r.name), ['Orchidaceae', 'Orchis', 'Orchidantha']);
+    assert.deepEqual(db.suggest('Orchi', 2).map(r => r.name), ['Orchidaceae', 'Orchis']);
+    assert.deepEqual(db.suggest('Quercus'), [{ inatId: '5', name: 'Quercus', rank: 'genus' }]);
+    assert.deepEqual(db.suggest('Zz'), []);
+    assert.deepEqual(db.suggest(''), [], 'an empty prefix has no range to scan');
+});
+
+test('suggest surfaces a clade the alphabet would have buried', () => {
+    // The real failure this ordering exists for: 'Panth' matched two dozen Panthalis and Panthea
+    // *species* alphabetically before ever reaching Panthera, so widening the window never helped.
+    const rows = [['9000', 'Panthera', 'genus', '48460/1']];
+    for (let i = 0; i < 40; i++) {
+        rows.push([`${i}`, `Panthalis species${String(i).padStart(2, '0')}`, 'species', '48460/1/8000']);
+    }
+    const db = makeAccessor(rows);
+    const names = db.suggest('Panth', 5).map(r => r.name);
+    assert.equal(names[0], 'Panthera', 'the genus must come first, whatever the alphabet says');
+    assert.equal(names.length, 5, 'the species still fill the rest');
+});
+
 test('openTaxaDb refuses rather than downloading 189MB', async () => {
     const { openTaxaDb, TaxaIndexUnavailable } = await import('../lib/getInatTaxaDb.js');
     // Only meaningful when the real index is absent; when a developer has one, the accessor path

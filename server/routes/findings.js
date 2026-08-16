@@ -41,7 +41,8 @@ const WRITE_RATE_LIMIT = {
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
 };
 
-const findingSchema = {
+/** The row contract, exported so /api/search answers with the same shape rather than its own. */
+export const findingSchema = {
     type: 'object',
     properties: {
         id: { type: 'integer' },

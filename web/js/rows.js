@@ -1,0 +1,177 @@
+// One backlog row, rendered and wired the same way wherever it appears — the worklist on
+// index.html and the search results on search.html. Extracted from main.js when the second page
+// arrived; both pages must offer the same actions on a finding, or "search then work" turns into
+// "search, go back to the list, find it again".
+//
+// Nothing here reaches for an element by id: the table is passed in. That is what lets two pages
+// hold one of these each without their rows fighting over `document`.
+
+const INAT_OBS = (id) =>
+    `https://www.inaturalist.org/observations?taxon_id=${id}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`;
+
+export function escapeHtml(s) {
+    return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+export function commonsCategoryUrl(name) {
+    return `https://commons.wikimedia.org/w/index.php?title=Category:${encodeURIComponent(name).replace(/%20/g, '_')}&action=edit`;
+}
+
+export function galleryUrl(t) {
+    const q = new URLSearchParams({ taxon_id: t.inatTaxonId || '', name: t.taxonName || '', qid: t.qid || '' });
+    return `taxon.html?${q}`;
+}
+
+/** The Red List's own category codes. Colours live in the stylesheet, as classes: the CSP forbids
+ *  the inline `style=` the HTML reports use, and a class is the better answer anyway. */
+const IUCN_CODES = new Set(['EX', 'EW', 'CR', 'EN', 'VU', 'NT', 'LC', 'DD', 'NE']);
+
+export function iucnBadge(code) {
+    if (!code || !IUCN_CODES.has(code)) return '—';
+    return `<span class="iucn iucn-${code.toLowerCase()}">${escapeHtml(code)}</span>`;
+}
+
+/** Why a confirm did not succeed, in words that say what to do about it. */
+export const REASONS = {
+    missing_p18: 'No image on Wikidata yet — has the QuickStatements batch run?',
+    missing_sitelink: 'Image is live, but the Commons category sitelink is still missing.',
+    missing_p18_and_sitelink: 'Neither statement is live yet.',
+    gone: 'This Wikidata item has been deleted or merged away.',
+    not_found: 'This finding is no longer in the backlog — reload.',
+};
+
+export function rowHtml(t) {
+    const inatCell = t.inatTaxonId
+        ? `<a href="${escapeHtml(INAT_OBS(t.inatTaxonId))}" target="_blank">${escapeHtml(t.inatTaxonId)}</a>`
+        : '—';
+    const commonsCell = t.taxonName
+        ? `<a href="${escapeHtml(commonsCategoryUrl(t.taxonName))}" target="_blank">${escapeHtml(t.taxonName)}</a>`
+        : '—';
+    const photosCell = t.inatTaxonId
+        ? `<a class="photos-btn" href="${escapeHtml(galleryUrl(t))}" target="_blank">View photos ↗</a>`
+        : '—';
+
+    // No inline onclick/onchange: the CSP forbids event-handler attributes (script-src-attr
+    // 'none'), and this table is built from server data with innerHTML. Rows carry data-qid and
+    // data-id, and the tbody delegates every event.
+    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
+      <td class="check-col">
+        <button class="confirm-btn" title="Check live Wikidata for the image and the Commons category">Confirm</button>
+        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+      </td>
+      <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
+      <td class="iucn-col">${iucnBadge(t.iucn)}</td>
+      <td class="inat-col">${inatCell}</td>
+      <td class="commons-col">${commonsCell}</td>
+      <td class="photos-col">${photosCell}</td>
+      <td class="draft-col">
+        <pre class="draft">${escapeHtml(t.wikitext)}</pre>
+        <span class="hint">Copied!</span>
+        <span class="row-msg"></span>
+      </td>
+    </tr>`;
+}
+
+// ---- copy helper (browser-side reimplementation of htmlShared.js) ----
+function copyViaTextarea(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+}
+
+export function copyDraft(el) {
+    const text = el.textContent;
+    const hint = el.nextElementSibling;
+    const show = () => { hint.style.display = 'inline'; setTimeout(() => { hint.style.display = 'none'; }, 1500); };
+    if (!navigator.clipboard) { copyViaTextarea(text); show(); return; }
+    // The rejection branch is not theoretical: writeText throws NotAllowedError whenever the
+    // document is not focused, which is every click that lands while another window has focus.
+    // Without the catch there was no copy *and* no hint — the click just did nothing.
+    navigator.clipboard.writeText(text).then(show, () => { copyViaTextarea(text); show(); });
+}
+
+/**
+ * A table of findings: renders rows, delegates their events, and applies confirm/skip results.
+ *
+ * @param {{
+ *   tbody: HTMLElement,
+ *   postJson: (path: string, body?: object) => Promise<any>,
+ *   hidingDone?: () => boolean,
+ *   onStatus?: (msg: string) => void,
+ *   onChange?: () => void,
+ * }} opts
+ */
+export function createRowTable({ tbody, postJson, hidingDone = () => false, onStatus = () => {}, onChange = () => {} }) {
+    const rowFor = (qid) => tbody.querySelector(`[data-qid="${CSS.escape(qid)}"]`);
+
+    function applyResult(result) {
+        const row = rowFor(result.qid);
+        if (!row) return;
+        const msg = row.querySelector('.row-msg');
+
+        if (result.confirmed) {
+            row.classList.add('done');
+            if (hidingDone()) row.classList.add('hide-done');
+            msg.textContent = 'Confirmed — it will leave the backlog on reload.';
+            msg.className = 'row-msg ok';
+            return;
+        }
+        row.classList.remove('done', 'hide-done');
+        msg.textContent = REASONS[result.reason] ?? result.reason;
+        msg.className = 'row-msg warn';
+    }
+
+    async function confirm(ids) {
+        if (ids.length === 0) return [];
+        try {
+            const { results } = await postJson('api/findings/confirm', { ids });
+            results.forEach(applyResult);
+            onChange();
+            return results;
+        } catch (e) {
+            onStatus(`Could not confirm: ${e.message}`);
+            return [];
+        }
+    }
+
+    async function skip(row) {
+        const id = Number(row.dataset.id);
+        try {
+            await postJson(`api/findings/${id}/skip`, {});
+            row.classList.add('done');
+            if (hidingDone()) row.classList.add('hide-done');
+            row.querySelector('.row-msg').textContent = 'Skipped — it will not be offered again.';
+            row.querySelector('.row-msg').className = 'row-msg ok';
+            onChange();
+        } catch (e) {
+            onStatus(`Could not skip: ${e.message}`);
+        }
+    }
+
+    // Delegated, so rows rendered later need no wiring of their own.
+    tbody.addEventListener('click', async (e) => {
+        const row = e.target.closest('tr[data-qid]');
+        if (row && e.target.matches('.confirm-btn')) {
+            e.target.disabled = true;
+            row.querySelector('.row-msg').textContent = 'Checking Wikidata…';
+            await confirm([Number(row.dataset.id)]);
+            e.target.disabled = false;
+            return;
+        }
+        if (row && e.target.matches('.skip-btn')) return skip(row);
+
+        const draft = e.target.closest('.draft');
+        if (draft) copyDraft(draft);
+    });
+
+    return {
+        render(taxa) { tbody.innerHTML = taxa.map(rowHtml).join('\n'); },
+        applyResult,
+        confirm,
+        skip,
+        rowFor,
+    };
+}

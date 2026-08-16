@@ -19,11 +19,16 @@ npm run web                # serve the app at http://localhost:8080
 
 Then open <http://localhost:8080/>:
 
-1. **Main view** — a table of image-less taxa (Wikidata item, iNat taxon, Commons category,
-   draft category Wikitext). Click a draft to copy it. Each row has **Confirm** (check live
-   Wikidata and mark the taxon done if the edit is there) and **Skip** (never offer it again).
-   A **Download uploaded list** button exports what you've marked uploaded (see
-   [Tracking uploads](#tracking-uploads)).
+1. **Main view** — a table of image-less taxa (Wikidata item, IUCN status, iNat taxon, Commons
+   category, draft category Wikitext). Click a draft to copy it. Each row has **Confirm** (check
+   live Wikidata and mark the taxon done if the edit is there) and **Skip** (never offer it again —
+   permanent, and there is no un-skip in the UI). A **Download uploaded list** button exports what
+   you've marked uploaded (see [Tracking uploads](#tracking-uploads)).
+   **Search the backlog →** opens the search page.
+1b. **Search** (`search.html`) — type a scientific name or an iNat id to see only that clade's part
+   of the backlog, with its position in the tree above it and what it contains one rank below.
+   Ancestors widen, the clades below narrow, and the nine Red List chips compose with either.
+   When a clade is thin the page *offers* to fetch more of exactly it — and only ever on a click.
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
@@ -170,6 +175,10 @@ otherwise never confirm.
 
 - `checkImages.js` records findings in `data/findings.db`; the server serves them as
   `GET /api/findings` — the only link between the core tools and the app.
+- The app is three pages: **`index.html`** the worklist, **`taxon.html`** one taxon's photos, and
+  **`search.html`** the backlog search — which clade a finding is in, what a clade holds, and the
+  only place a scoped discovery can be started (`GET /api/search`, and `POST /api/discover` behind
+  a button). Both table pages render their rows through the same `web/js/rows.js`.
 - The `web/` app has **no build step** (plain HTML/JS/CSS): it reads the open backlog from
   `GET /api/findings` and, from the browser, queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service

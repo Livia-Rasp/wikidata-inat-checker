@@ -64,8 +64,39 @@ test('a taxon can have only one P18 pick, enforced by the database', () => {
     store.setP18Pick('Q1', 'A.jpg');
     store.setP18Pick('Q1', 'B.jpg'); // changing your mind must not collide with the unique index
 
-    assert.deepEqual(store.p18Picks(), { Q1: { destFile: 'B.jpg', taxonName: 'Taxon Q1' } });
+    const picks = store.p18Picks();
+    assert.equal(picks.Q1.destFile, 'B.jpg');
+    assert.equal(picks.Q1.taxonName, 'Taxon Q1');
     assert.equal(store.listUploads().filter(u => u.isP18).length, 1);
+});
+
+test('a pick carries the finding id and name, so no caller has to look them up', () => {
+    // The app used to derive both from the rows it had rendered, which made "Confirm pending"
+    // silently skip every pick that was not on the visible page once the worklist was paged.
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    const [finding] = store.openFindings('image');
+
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1' }); // no taxonName from the caller
+    store.setP18Pick('Q1', 'A.jpg');
+
+    assert.deepEqual(store.p18Picks(), {
+        Q1: { destFile: 'A.jpg', taxonName: 'Taxon Q1', findingId: finding.id },
+    }, 'the name falls back to the taxa table rather than coming back null');
+});
+
+test('a pick outlives the finding it was made against', () => {
+    // Skipping or confirming a taxon must not make its pending pick invisible — it would then be
+    // impossible to withdraw, and the QuickStatements panel would quietly lose a line.
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    store.recordUpload({ destFile: 'A.jpg', qid: 'Q1', taxonName: 'Taxon Q1' });
+    store.setP18Pick('Q1', 'A.jpg');
+    store.markSkipped('Q1', 'image', 'not mine');
+
+    const picks = store.p18Picks();
+    assert.equal(picks.Q1.destFile, 'A.jpg');
+    assert.ok(picks.Q1.findingId > 0, 'the finding is still addressable');
 });
 
 test('uploads round-trip and are removable, and an upsert never blanks known fields', () => {

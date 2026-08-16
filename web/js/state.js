@@ -10,7 +10,12 @@ import { getJson, postJson } from './api.js';
 /** @type {Set<string>} destFile names */
 const uploads = new Set();
 
-/** @type {Record<string, {destFile: string, taxonName: string|null}>} qid → pick */
+/**
+ * qid → pick. `findingId` and `taxonName` are resolved server-side against the database, so the
+ * QuickStatements panel never has to look them up in the rows it happens to have rendered — which
+ * is what makes paging the worklist safe.
+ * @type {Record<string, {destFile: string, taxonName: string|null, findingId: number|null}>}
+ */
 let picks = {};
 
 export const state = {

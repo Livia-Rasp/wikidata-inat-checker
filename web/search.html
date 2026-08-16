@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iNat → Commons — search the backlog</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="search-page">
+  <h1>Search the backlog</h1>
+  <p>
+    Which taxa already on the worklist are in a clade, or carry a Red List status. Searching is
+    instant and asks nothing of iNaturalist or Wikidata — fetching more does, and only ever when
+    you say so. <a class="page-link" href="index.html">← Back to the worklist</a>
+  </p>
+
+  <section class="finder" role="search" aria-label="Search the backlog by taxon">
+    <div class="finder-box">
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Orchidaceae, Lepidoptera, 47217…"
+             aria-label="Scientific name or iNaturalist taxon id"
+             aria-describedby="result-count">
+      <button id="clear" type="button" hidden>Clear</button>
+    </div>
+
+    <fieldset id="iucn-chips" class="chips">
+      <legend class="visually-hidden">Red List status</legend>
+      <label class="chip chip-any"><input type="radio" name="iucn" value="" checked><span>Any</span></label>
+      <label class="chip iucn-ex"><input type="radio" name="iucn" value="EX"><span>EX</span></label>
+      <label class="chip iucn-ew"><input type="radio" name="iucn" value="EW"><span>EW</span></label>
+      <label class="chip iucn-cr"><input type="radio" name="iucn" value="CR"><span>CR</span></label>
+      <label class="chip iucn-en"><input type="radio" name="iucn" value="EN"><span>EN</span></label>
+      <label class="chip iucn-vu"><input type="radio" name="iucn" value="VU"><span>VU</span></label>
+      <label class="chip iucn-nt"><input type="radio" name="iucn" value="NT"><span>NT</span></label>
+      <label class="chip iucn-lc"><input type="radio" name="iucn" value="LC"><span>LC</span></label>
+      <label class="chip iucn-dd"><input type="radio" name="iucn" value="DD"><span>DD</span></label>
+      <label class="chip iucn-ne"><input type="radio" name="iucn" value="NE"><span>NE</span></label>
+    </fieldset>
+  </section>
+
+  <!-- The lineage of the resolved clade: where the search sits in the tree, and one click per
+       ancestor to widen it. -->
+  <nav id="rail" class="rail" aria-label="Taxonomic position" hidden></nav>
+
+  <!-- Announces the count only. Announcing the result list on every keystroke is the classic
+       live-region failure. -->
+  <p id="result-count" class="result-count" role="status" aria-live="polite"></p>
+
+  <div id="suggestions" class="suggestions" hidden></div>
+
+  <section id="composition" class="composition" hidden>
+    <span class="composition-label"></span>
+    <span class="composition-bars"></span>
+  </section>
+
+  <section id="offer" class="offer" hidden></section>
+
+  <p id="status" class="status"></p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th class="check-col"></th>
+          <th>Wikidata item</th>
+          <th class="iucn-col">IUCN</th>
+          <th>iNat taxon</th>
+          <th>Commons category</th>
+          <th>Photos</th>
+          <th>Draft Wikitext (click to copy)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <nav id="pager" class="pager" aria-label="Result pages" hidden></nav>
+
+  <script type="module" src="js/search.js"></script>
+</body>
+</html>

@@ -336,7 +336,7 @@ leaving no orphan (child 456050 died with parent 456032).
 **Known rough edge, fixed in 5c:** the scope form fetches into the list rather than filtering it, so
 searching for a clade shows the whole backlog with the new taxa mixed in.
 
-### 5c. A search page over the backlog
+### 5c. A search page over the backlog — **done**
 Added 2026-08-16, from using slice 5: the scope form asks for a taxon and then shows the *whole*
 backlog with the new taxa mixed in, so there is no way to look at just the orchids you went and
 fetched. Searching and fetching were conflated into one box that only did the fetching half.
@@ -352,6 +352,34 @@ fetched. Searching and fetching were conflated into one box that only did the fe
 - **Offer, never act.** Thin results prompt ("12 orchids in the backlog. Find more?") and start a
   scoped discovery *only if clicked*. A typo or an idle browse must never turn into minutes of
   Wikimedia and iNaturalist traffic.
+
+**One decision was reversed in the build: filtering walks *up* the tree, not down.** This slice
+specified `descendantInatIds` plus a per-taxon cache; measured, that is 452 ms and 21,973 ids for
+Orchidaceae — an unindexed scan of 3M rows whatever the clade size, on a synchronous driver, in the
+process slice 5 forked a child to keep free. Reading each *backlog* row's ancestry instead is 4.9 ms
+cold and 0.14 ms warm, and the memo warms over the backlog rather than per clade searched. Written
+up in [dev.md](dev.md#searching-the-backlog-libbacklogindexjs).
+
+Four more things turned out differently, all found by using it rather than by testing it:
+
+- **A missing taxa index degrades instead of 503ing.** Discovery cannot run without the index;
+  search can still match the names the findings database holds. The read surface is the part meant
+  to go public, so it must not be takeable down by a file in `~/.cache`.
+- **Ambiguous names are the common case, not an edge one.** `Bulbophyllum` is a genus *and* a
+  section; `Iris` is four taxa. The disambiguation prompt earns its place on the first real search.
+- **Suggestions rank by taxonomic rank, not ancestry depth.** Depth was the vocabulary-free proxy
+  and it does not work — lineages differ wildly in how many intermediate ranks they carry, so `Orch`
+  answered *Orchesellaria* before *Orchidaceae*. A misspelling also needs a **shorter** prefix to
+  fall back to, because typos land at the end of the word, which is exactly where a prefix search
+  gives up.
+- **The row list must not be cached.** Caching it and invalidating on run completion misses skips
+  and confirms, which settle findings with no run involved — so the page offered work already done.
+
+**Verified.** 209 unit tests, and in Chrome against a real 153-finding backlog: the full loop
+(2 findings in Cypripedioideae → Find more → 5, staying on the query rather than reloading),
+widening and narrowing through the rail and the composition strip with Back undoing each step,
+clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
+scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
@@ -393,6 +421,31 @@ the "Known limitation" section in `docs/area.md` are gone. `docs/area.md`'s "How
 table are also stale about the latest-date column and the real sort order; tidy them in the same
 pass.
 
+**What the shell has to be, decided 2026-08-16 while building 5c** — three requirements that turn
+"navigation" from a nav bar into a real piece of design, and that slices 7 and 8 then inherit rather
+than each inventing:
+
+- **A place to choose which checker to run.** Images, links, names and area are four workflows over
+  one database, and there is currently no page whose job is picking between them. Not a start page
+  you pass through once: it is where a session begins, so it should say what each one currently has
+  open — the counts are one `statusCounts(kind)` per kind.
+- **Switching workflow from inside one**, never by going back to a start page. Whatever the shell
+  is, it stays present on every subpage, so `/links` is one control away from `/names`.
+- **Each kind gets the same search page**, not a bespoke one. `GET /api/search` is already
+  kind-agnostic apart from its default (`createBacklogIndex` takes `kind`), and clade and IUCN mean
+  the same thing for a link finding as for an image one — so 5c's page becomes `?kind=link` with a
+  different row renderer, and `web/js/rows.js` grows a per-kind row rather than being copied.
+- **A dark/light toggle**, as `vue-commons-gallery`, the blog and `commons-describe-upload-toolbox`
+  all have. Deliberately *not* done in 5c: one page dressed differently from the rest reads as a
+  bug, so this is worth doing once, in the shell, for every page at once. Slice 5c laid the
+  groundwork by moving the palette into `:root` custom properties in `web/css/styles.css` — a theme
+  is then a second block, not a rewrite. The remaining literals in that file are what has to be
+  tokenised first.
+- **Links and names need the background runner too.** Discovery is `kind=image`-only today
+  (`lib/discover.js` hardcodes `KIND`); slices 7 and 8 each need their own run to be startable from
+  the app, through the same forked child, the same single-flight lock and the same status polling.
+  That is one runner taking a `tool` argument, not three runners — `runs.tool` already records which.
+
 ### 7. Links checker → `kind=link` and a `/links` subpage
 Migrates `checkLinks.js` onto the findings table with P3151 as the verification predicate, keeping
 the `--auto` QuickStatements output. Simplest payload of the three, so it is the right one to prove
@@ -418,6 +471,74 @@ handling once tokens exist — getting the tool onto the home server earlier is 
 
 The ordered plan ends here. Slice 9 is the last thing needed to have the tool running; what follows
 is deliberately outside it.
+
+## Known: `skipped` does not survive more than one user
+
+Raised 2026-08-16. `Skip` writes `status = 'skipped'` on the finding itself, and `skipped` is a
+sticky status — `skipQids()` excludes it from **every** future discovery run, permanently, with no
+recheck window and no un-skip in the UI. That is right for one operator: it means "this taxon will
+never have a usable photo, stop offering it".
+
+It is wrong the moment two people share the deployment. A skip is one person's judgement written
+into a **shared, global** row, so the second user never sees the taxon at all and has no way to know
+it was ever there, let alone disagree. The failure is silent in the direction that matters: work
+that someone would have done simply never appears.
+
+Not fixed now, because today's deployment is loopback-only and single-user, and guessing at the
+shape of multi-user state before there is a user model is how you get a schema you have to migrate
+twice. What the fix has to reckon with when it comes:
+
+- **A skip becomes per-user, not per-finding** — which needs the identity OAuth brings, so this is
+  naturally the same piece of work. `resolution` already carries JSON and could hold who, but the
+  *exclusion* lives in `skipQids`, which is global by construction.
+- **Discovery must still not resurface a taxon everyone has skipped**, or the backlog fills with
+  work every user has already refused. So the exclusion is probably "skipped by *this* viewer" for
+  display and "skipped by *everyone*" for discovery — two different questions on the same rows.
+- **Some skips really are global facts** ("this taxon has no photo and never will") rather than
+  personal ones ("not my area"). Worth capturing the difference at skip time — the `reason` field
+  exists and is currently always `null`, because nothing ever sends one.
+- **Un-skip has to exist** before any of this is safe. Today reversing a skip means an UPDATE
+  against `data/findings.db` by hand.
+
+**Rejected: keeping skips in `localStorage`.** Proposed 2026-08-16 as the cheap way to make them
+per-user, and it does solve the stated problem — one person's skip stops hiding work from everyone
+else. It is still the wrong shape, for the reason this whole document exists:
+
+- It is **the defect being removed, put back**. The "Why" section above is about state that lived in
+  `localStorage` (`winc-uploaded`, `winc-p18`), keyed per browser profile, invisible to the checkers
+  and dying with the profile. Slice 4 was largely the work of moving it out. Skips are not a
+  smaller case: a skip is a judgement about a taxon, worth as much as a confirm.
+- **Discovery cannot read a browser.** `skipQids()` is what stops a skipped taxon being fetched
+  again, and it runs in a forked child against SQLite. Move the state client-side and every run
+  re-discovers taxa the user already refused, forever — the backlog fills with exactly the work
+  someone said no to, and the server has no way to stop.
+- The CLI reports and `output/drafts.html` would keep offering skipped taxa too, because they render
+  from the database.
+
+**The shape that works, and works now:** keep the state server-side and give it a *key*. A random
+opaque id in `localStorage` — a browser identifier, not a judgement — lets skip rows be scoped per
+client immediately, with no user model and no OAuth. Discovery excludes a taxon once *every* known
+client has skipped it (or once one marks it a global fact), and when identity does arrive the id is
+replaced by a real user id without moving any data. That keeps `localStorage` holding one thing it
+is actually good for: which client this is.
+
+## Wanted: an interface for ambiguous matches
+
+Raised 2026-08-16. Two different ambiguities, both currently under-served, and worth solving once:
+
+- **Ambiguous taxon names**, which slice 5c hit immediately: `Bulbophyllum` is a genus *and* a
+  section, `Iris` is four taxa. The search page now offers the candidates as chips with their ranks,
+  which is enough to pick when you know the group and not enough when you do not — it says nothing
+  about where each sits or which has backlog behind it. Lineage per candidate, and a count, would
+  make it a decision rather than a guess.
+- **Ambiguous iNat↔Wikidata link matches**, which the links checker already produces and dumps into
+  `output/links-ambiguous.html` and `output/inat-links-conflicts.json` — files nothing in the app
+  reads. Slice 7 brings links into the findings database, and these are the rows a human has to
+  adjudicate, so they need a real view: the candidates side by side with the evidence that
+  distinguishes them (`compareAncestorTrees` already computes exactly that for `--auto`).
+
+The second is the substantial one and belongs in slice 7; the first is a smaller improvement to
+5c's existing prompt.
 
 ## Beyond the plan: OAuth upload and direct editing
 
