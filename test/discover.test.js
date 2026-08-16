@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
 import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
-import { discover, resolveTaxonScope, resolveIucn, DiscoveryError } from '../lib/discover.js';
+import { discover, resolveTaxonScope, resolveTaxonId, resolveIucn, DiscoveryError } from '../lib/discover.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -100,6 +100,22 @@ test('a wildcard scope cannot become a whole-table scan', () => {
     // '%' is a LIKE metacharacter, and descendantInatIds interpolates the id into LIKE patterns.
     // Unguarded it matches every row, turning one request into hundreds of SPARQL queries.
     assert.throws(() => resolveTaxonScope('%', taxaDb), /not in the iNat taxa index/);
+});
+
+test('resolveTaxonId names a clade without scanning for its descendants', () => {
+    // The search route resolves names on every keystroke, so it must not touch descendantInatIds —
+    // an unindexed scan of 3M rows, half a second of blocked event loop in the server process.
+    const taxaDb = makeTaxaDb();
+    let scanned = false;
+    const guarded = { ...taxaDb, descendantInatIds: () => { scanned = true; return []; } };
+
+    assert.equal(resolveTaxonId('Panthera', guarded), '41962');
+    assert.equal(resolveTaxonId('41962', guarded), '41962');
+    assert.equal(scanned, false, 'resolving a name must not scan for descendants');
+
+    // The same guard and the same typed errors as the scope path — one validator, not two.
+    assert.throws(() => resolveTaxonId('%', guarded), /not in the iNat taxa index/);
+    assert.throws(() => resolveTaxonId('Ambigua', guarded), (err) => err.code === 'ambiguous_taxon');
 });
 
 test('IUCN codes resolve through the closed map, and nothing else does', () => {
