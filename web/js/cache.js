@@ -36,30 +36,45 @@ function readJson(key, fallback) {
     catch { return fallback; }
 }
 
+/**
+ * The main report's own done marks and nobody else's. This used to take the current backlog's qids
+ * and test each one, which stopped working when that page started showing a hundred rows at a time
+ * rather than all of them — the banner would then only offer to import what was on screen.
+ *
+ * The anchoring is what replaces that filter, and it is the whole point: the generated HTML reports
+ * write `done-<segment>-<qid>` for other finding kinds (`done-links-Q123`), and the segment makes
+ * those fail this pattern. They are not ours to sweep up.
+ */
+const DONE_KEY = /^done-(Q[0-9]+)$/;
+
+function doneQids() {
+    const out = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const m = DONE_KEY.exec(localStorage.key(i) ?? '');
+        if (m) out.push(m[1]);
+    }
+    return out;
+}
+
 export const legacy = {
-    /**
-     * Whatever this browser profile still holds. `done` is looked up per qid from the *current
-     * backlog* rather than by scanning localStorage for a prefix: the generated HTML reports write
-     * `done-<segment>-<qid>` keys for other finding kinds, and those are not ours to sweep up.
-     * @param {string[]} qids
-     */
-    read(qids) {
+    /** Whatever this browser profile still holds. */
+    read() {
         return {
-            done: qids.filter(qid => localStorage.getItem('done-' + qid)),
+            done: doneQids(),
             uploaded: readJson(UPLOADED_KEY, []),
             picks: readJson(P18_KEY, {}),
         };
     },
 
     /** Is there anything left to import? */
-    has(qids) {
-        const { done, uploaded, picks } = this.read(qids);
+    has() {
+        const { done, uploaded, picks } = this.read();
         return done.length > 0 || uploaded.length > 0 || Object.keys(picks).length > 0;
     },
 
     /** Only ever called after the server has acknowledged the import. */
-    clear(qids) {
-        for (const qid of qids) localStorage.removeItem('done-' + qid);
+    clear() {
+        for (const qid of doneQids()) localStorage.removeItem('done-' + qid);
         localStorage.removeItem(UPLOADED_KEY);
         localStorage.removeItem(P18_KEY);
     },

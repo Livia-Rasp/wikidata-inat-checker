@@ -284,7 +284,11 @@ test('an upload and a pick round-trip through the database', async (t) => {
     const body = (await app.inject('/api/uploads')).json();
     assert.equal(body.count, 1);
     assert.equal(body.uploads[0].destFile, 'Taxon Q1 - 42.jpg');
-    assert.deepEqual(body.picks.Q1, { destFile: 'Taxon Q1 - 42.jpg', taxonName: 'Taxon Q1' });
+    // findingId comes over the wire because the app confirms picks by it: deriving it from the
+    // rendered rows meant a paged worklist silently skipped every pick not on the visible page.
+    const [finding] = store.openFindings('image');
+    assert.deepEqual(body.picks.Q1,
+        { destFile: 'Taxon Q1 - 42.jpg', taxonName: 'Taxon Q1', findingId: finding.id });
     assert.equal(store.p18Picks().Q1.destFile, 'Taxon Q1 - 42.jpg');
 });
 

@@ -12,6 +12,7 @@
 import { getJson, postJson } from './api.js';
 import { createRowTable, escapeHtml } from './rows.js';
 import { createTopup, describe } from './topup.js';
+import { createPager, PAGE_SIZE } from './pager.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,9 +22,12 @@ const DEBOUNCE_MS = 300;
 /** Below this, the backlog is thin enough that offering to fetch more is the helpful thing. */
 const THIN_RESULTS = 25;
 
-/** Rows per page. A row carries a block of draft wikitext, so it is tall: a hundred of them is
- *  already a long scroll, and the API's 2000 ceiling would be a page nobody reaches the end of. */
-const PAGE_SIZE = 100;
+const pager = createPager({
+    el: $('pager'),
+    scrollTo: $('result-count'),
+    // Changing page keeps the query and moves within it, so Back steps a page rather than leaving.
+    onPage: (offset) => search({ ...current, offset }, { history: 'push' }),
+});
 
 const table = createRowTable({
     tbody: $('tbody'),
@@ -169,20 +173,6 @@ function renderCount(body) {
         : '';
 }
 
-function renderPager({ total, count, offset }) {
-    const pager = $('pager');
-    if (total <= count && offset === 0) { pager.hidden = true; pager.innerHTML = ''; return; }
-
-    const page = Math.floor(offset / PAGE_SIZE) + 1;
-    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    pager.innerHTML = `
-        <button type="button" class="pager-btn" data-offset="${Math.max(0, offset - PAGE_SIZE)}"
-                ${offset === 0 ? 'disabled' : ''}>← Previous</button>
-        <span class="pager-where">Page ${page} of ${pages}</span>
-        <button type="button" class="pager-btn" data-offset="${offset + PAGE_SIZE}"
-                ${offset + count >= total ? 'disabled' : ''}>Next →</button>`;
-    pager.hidden = false;
-}
 
 async function suggestFor(prefix) {
     if (!/^[\p{L}]/u.test(prefix)) return [];
@@ -301,12 +291,9 @@ async function search(query, { history: mode = 'replace' } = {}) {
         if (mine !== seq) return; // a later keystroke already won
 
         // A page can outlive its results: skip the last row of the last page, or bookmark page 4
-        // of something that has since shrunk, and the server correctly answers with nothing at
-        // all. Fall back to the last page that exists rather than showing an empty table.
-        if (body.count === 0 && body.total > 0 && current.offset > 0) {
-            const lastPage = (Math.ceil(body.total / PAGE_SIZE) - 1) * PAGE_SIZE;
-            return search({ ...current, offset: lastPage }, { history: 'replace' });
-        }
+        // of something that has since shrunk, and the server correctly answers with nothing at all.
+        const fallback = pager.fallbackOffset(body);
+        if (fallback !== null) return search({ ...current, offset: fallback }, { history: 'replace' });
 
         $('suggestions').hidden = true;
         renderRail(body.resolved);
@@ -314,7 +301,7 @@ async function search(query, { history: mode = 'replace' } = {}) {
         renderChipCounts(body.iucnCounts);
         renderCount(body);
         renderRows(body.taxa);
-        renderPager(body);
+        pager.render(body);
         lastResult = { total: body.total, resolved: body.resolved };
         renderOffer(body.total, body.resolved);
     } catch (e) {
@@ -378,22 +365,11 @@ $('clear').addEventListener('click', () => {
     $('q').focus();
 });
 
-/** Changing page keeps the query and moves within it, so Back steps a page rather than leaving. */
-function goToPage(offset) {
-    search({ ...current, offset: Number(offset) }, { history: 'push' });
-    // The pager sits under the table, so a click on Next leaves you at the bottom of a page you
-    // have not read. Go back to the top of the results, not of the document — the search box and
-    // the rail are worth keeping in view.
-    $('result-count').scrollIntoView({ block: 'start', behavior: 'auto' });
-}
-
-// One delegated listener for every "go to this taxon" control on the page.
+// One delegated listener for every "go to this taxon" control on the page. The pager wires its
+// own clicks, so nothing here needs to know about offsets.
 document.addEventListener('click', (e) => {
     const jump = e.target.closest('[data-taxon]');
     if (jump) return goToTaxon(jump.dataset.taxon, jump.dataset.name ?? jump.textContent.trim().split('\n')[0]);
-
-    const page = e.target.closest('[data-offset]');
-    if (page) return goToPage(page.dataset.offset);
 
     if (e.target.id === 'offer-run') return startOffer();
     if (e.target.id === 'offer-cancel') {

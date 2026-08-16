@@ -52,7 +52,8 @@ default — exposing it on a network is a deliberate act (`HOST=…`), and the t
 and what is deliberately *not* done are in [docs/security.md](docs/security.md). Other environment
 variables: `PORT`, `FINDINGS_DB`, `LOG_LEVEL`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`, `TRUST_PROXY`.
 
-The app has two pages. `index.html` is the worklist you are working through; **Search the backlog**
+The app has two main pages, both paged 100 rows at a time. `index.html` is the worklist you are
+working through; **Search the backlog**
 (`search.html`) is where you go to find work in it — type a clade or an iNat id and the page answers
 with the taxon's position in the tree, what its slice of the backlog is made of one rank down, and
 the matching rows. Ancestors widen the search, the clades under it narrow it, and the nine Red List

@@ -236,15 +236,28 @@ Two things that are easy to get wrong here:
   through the worklist. It walks down to the first branch point and reports where it got to, which
   is why the response carries `composition.under` as well as `composition.entries`.
 
-The page requests 100 rows at a time and pages through the rest — a row carries a block of draft
-wikitext, so it is tall, and the API's 2000 ceiling would be a page nobody reaches the end of.
-`offset` rides in the URL next to `taxon` and `iucn`, so a page is linkable and Back steps through
-pages, but it is built by a **separate** `apiQuery()` rather than by appending to the address-bar
-query string: emitting `offset` from both sends it twice, Fastify parses a repeated parameter as an
-array, and the schema rejects it — a 400 that shows up only as a page that quietly stops updating.
-Changing what you searched for drops the offset (page 4 of the orchids is not a place to land in
-the beetles), and an offset past the end falls back to the last page that exists, because skipping
-the last row of the last page would otherwise leave an empty table.
+Both table pages request 100 rows at a time through `web/js/pager.js` — a row carries a block of
+draft wikitext, so it is tall, and the API's 2000 ceiling would be a page nobody reaches the end of.
+An offset past the end falls back to the last page that exists, because confirming the last rows of
+the last page would otherwise leave an empty table.
+
+On the search page `offset` also rides in the URL next to `taxon` and `iucn`, so a page is linkable
+and Back steps through pages, but it is built by a **separate** `apiQuery()` rather than by
+appending to the address-bar query string: emitting `offset` from both sends it twice, Fastify
+parses a repeated parameter as an array, and the schema rejects it — a 400 that shows up only as a
+page that quietly stops updating. Changing what you searched for drops the offset, because page 4
+of the orchids is not a place to land in the beetles.
+
+**Paging the worklist required moving one lookup to the server**, and the shape of the bug is worth
+keeping: `main.js` built a `qid → finding id` map from the rows it had rendered, and "Confirm
+pending" resolved the P18 picks through it. Paged, that silently skips every pick whose taxon is not
+on the visible page — a wrong answer wearing the shape of a right one, since the panel would still
+report "0 of 1 confirmed". `p18Picks()` now joins `findings` and `taxa`, so each pick carries its own
+`findingId` and a `taxonName` that falls back to the taxa table, and the client resolves nothing.
+Both joins are `LEFT`: a pick whose finding was skipped or confirmed away must stay listed, or it
+can never be withdrawn. For the same reason `legacy.read()` scans `localStorage` for `^done-Q\d+$`
+instead of testing the loaded qids — anchored so the other reports' `done-<segment>-<qid>` keys
+still fail it.
 
 `resolveTaxonId` (split out of `resolveTaxonScope`) resolves a name without the descendant scan.
 The `^\d+$` test stays on that path: it is the guard keeping a `%` out of the LIKE patterns, not

@@ -16,18 +16,12 @@ import { getJson, postJson } from './api.js';
 import { state } from './state.js';
 import { legacy } from './cache.js';
 import { createRowTable } from './rows.js';
+import { createPager, PAGE_SIZE } from './pager.js';
 
 const $ = (id) => document.getElementById(id);
 
-/** The API's ceiling; past it the backlog is reported as truncated rather than silently cut. */
-const API = 'api/findings?kind=image&status=open&limit=2000';
-
-/** qid → taxon name, for the sitelink half of the QuickStatements. */
-const taxaByQid = new Map();
-/** qid → finding id, so a row can address its own endpoints. */
-const idByQid = new Map();
-
 let hidingDone = localStorage.getItem('hide-done') === '1';
+let offset = 0;
 
 const table = createRowTable({
     tbody: $('tbody'),
@@ -35,6 +29,12 @@ const table = createRowTable({
     hidingDone: () => hidingDone,
     onStatus: (msg) => { $('status').textContent = msg; },
     onChange: refreshQuickStatements,
+});
+
+const pager = createPager({
+    el: $('pager'),
+    scrollTo: $('controls'),
+    onPage: (to) => { offset = to; load(); },
 });
 
 function toggleHideDone() {
@@ -48,12 +48,17 @@ function toggleHideDone() {
 // A taxon contributes two commands as soon as a photo has been picked for it in a gallery tab.
 // Copying no longer clears the picks — confirmation does, because that is the point at which the
 // edit is known to exist. Copy, run the batch, then Confirm pending.
+// Every field comes from the pick itself, which the server resolves against the database — not from
+// the rows on screen. That is what lets this page be paged at all: deriving the finding id from the
+// rendered table meant Confirm pending silently skipped every pick that was not on the visible page,
+// which is a wrong answer wearing the shape of a right one.
 function pendingQs() {
     return Object.entries(state.allPicks())
         .map(([qid, pick]) => ({
             qid,
+            id: pick.findingId,
             file: pick.destFile,
-            category: pick.taxonName || taxaByQid.get(qid) || '',
+            category: pick.taxonName || '',
         }))
         .filter((q) => q.file && q.category);
 }
@@ -82,11 +87,14 @@ function copyQuickStatements() {
     else { $('qs-text').select(); document.execCommand('copy'); done(); }
 }
 
-/** Confirm every taxon that currently has a pick — the batch you just pasted. */
+/** Confirm every taxon that currently has a pick — the batch you just pasted, whichever page of
+ *  the backlog those taxa happen to be on. */
 async function confirmPending() {
-    const ids = pendingQs().map((q) => idByQid.get(q.qid)).filter((id) => id !== undefined);
+    const ids = pendingQs().map((q) => q.id).filter((id) => id != null);
     const results = await table.confirm(ids);
     const ok = results.filter((r) => r.confirmed).length;
+    // Rows for confirmed taxa on other pages are not on screen to be struck through; the reload
+    // that drops them from the backlog is what shows the work landed.
     $('qs-hint').textContent = results.length
         ? `${ok} of ${results.length} confirmed.`
         : 'Nothing to confirm.';
@@ -108,8 +116,8 @@ function downloadUploaded() {
 }
 
 // ---- one-time import of what this browser profile still holds ----
-async function runImport(qids) {
-    const payload = legacy.read(qids);
+async function runImport() {
+    const payload = legacy.read();
     $('import-msg').textContent = 'Importing…';
     try {
         const res = await postJson('api/import', payload);
@@ -119,7 +127,7 @@ async function runImport(qids) {
         // confirm, so the database only ever learns "done" from Wikidata itself.
         const results = await table.confirm(res.toConfirm);
         const ok = results.filter((r) => r.confirmed).length;
-        legacy.clear(qids);
+        legacy.clear();
         $('import-banner').hidden = true;
         $('status').textContent =
             `Imported ${res.uploads} uploaded files and ${res.picks} picks; `
@@ -131,9 +139,9 @@ async function runImport(qids) {
     }
 }
 
-function offerImport(qids) {
-    if (!legacy.has(qids)) return;
-    const { done, uploaded, picks } = legacy.read(qids);
+function offerImport() {
+    if (!legacy.has()) return;
+    const { done, uploaded, picks } = legacy.read();
     $('import-msg').textContent =
         `This browser still holds ${done.length} done marks, ${uploaded.length} uploaded files `
         + `and ${Object.keys(picks).length} image picks from before they were stored server-side.`;
@@ -145,7 +153,7 @@ $('download-uploaded').addEventListener('click', downloadUploaded);
 $('qs-copy').addEventListener('click', copyQuickStatements);
 $('qs-confirm').addEventListener('click', confirmPending);
 $('hide-done').addEventListener('click', toggleHideDone);
-$('import-run').addEventListener('click', () => runImport([...idByQid.keys()]));
+$('import-run').addEventListener('click', runImport);
 
 // Picks made in a gallery tab must show up here when this tab regains focus.
 window.addEventListener('focus', () => {
@@ -154,24 +162,30 @@ window.addEventListener('focus', () => {
 
 async function load() {
     try {
-        const [data] = await Promise.all([getJson(API), state.load()]);
+        const [data] = await Promise.all([
+            getJson(`api/findings?kind=image&status=open&limit=${PAGE_SIZE}&offset=${offset}`),
+            state.load(),
+        ]);
         const taxa = data.taxa || [];
-        taxa.forEach((t) => {
-            if (t.qid && t.taxonName) taxaByQid.set(t.qid, t.taxonName);
-            if (t.qid) idByQid.set(t.qid, t.id);
-        });
-        $('count').textContent = data.total > taxa.length
-            ? `${taxa.length} of ${data.total} taxa`
-            : `${taxa.length} taxa`;
+
+        // A page that has run out — the last rows of the last page confirmed away, say — falls back
+        // to the last page that still exists rather than showing an empty table.
+        const fallback = pager.fallbackOffset(data);
+        if (fallback !== null) { offset = fallback; return load(); }
+
+        $('count').textContent = taxa.length < data.total
+            ? `${data.total} taxa — showing ${offset + 1}–${offset + taxa.length}`
+            : `${data.total} taxa`;
         if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
         table.render(taxa);
+        pager.render(data);
         if (hidingDone) $('hide-done').textContent = 'Show done';
-        if (taxa.length === 0) {
+        if (data.total === 0) {
             $('status').textContent = 'Nothing open in the backlog. Search for a clade to find more.';
         }
         refreshUploadedCount();
         refreshQuickStatements();
-        offerImport([...idByQid.keys()]);
+        offerImport();
     } catch (e) {
         $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
     }
