@@ -407,6 +407,12 @@ than each inventing:
   kind-agnostic apart from its default (`createBacklogIndex` takes `kind`), and clade and IUCN mean
   the same thing for a link finding as for an image one — so 5c's page becomes `?kind=link` with a
   different row renderer, and `web/js/rows.js` grows a per-kind row rather than being copied.
+- **A dark/light toggle**, as `vue-commons-gallery`, the blog and `commons-describe-upload-toolbox`
+  all have. Deliberately *not* done in 5c: one page dressed differently from the rest reads as a
+  bug, so this is worth doing once, in the shell, for every page at once. Slice 5c laid the
+  groundwork by moving the palette into `:root` custom properties in `web/css/styles.css` — a theme
+  is then a second block, not a rewrite. The remaining literals in that file are what has to be
+  tokenised first.
 - **Links and names need the background runner too.** Discovery is `kind=image`-only today
   (`lib/discover.js` hardcodes `KIND`); slices 7 and 8 each need their own run to be startable from
   the app, through the same forked child, the same single-flight lock and the same status polling.

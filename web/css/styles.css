@@ -81,6 +81,168 @@ a { color: #36c; }
 #qs-copy:disabled, #qs-confirm:disabled { opacity: 0.5; cursor: default; }
 #qs-confirm { border-color: #5a5; background: #eef6ee; }
 
+/* ================= search page =================
+   The page is a navigator, not a filter box: you type a clade, see where it sits in the tree, and
+   walk up or down it. Everything below serves that — the rail is the position, the strip is what
+   the clade actually holds, and the offer is the only thing here that can spend anything. */
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+.finder { margin: 0 0 0.9em; }
+.finder-box { display: flex; gap: 0.5em; align-items: center; max-width: 34em; }
+.finder-box input {
+  flex: 1; min-width: 0;
+  font-size: 1.15em; font-family: inherit; padding: 0.4em 0.6em;
+  border: 1px solid var(--edge); border-radius: 4px; background: #fff; color: var(--ink);
+}
+.finder-box input::placeholder { color: var(--faint); font-style: italic; }
+.finder-box input:focus { border-color: var(--accent); }
+.finder-box button {
+  font-size: 0.85em; padding: 0.35em 0.7em; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
+}
+.finder-box button[hidden] { display: none; }
+
+/* Red List chips. Radios, so keyboard and screen-reader semantics come from the browser rather
+   than from ARIA that has to be kept correct by hand. */
+.chips {
+  display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center;
+  margin: 0.6em 0 0; padding: 0; border: 0;
+}
+.chip {
+  position: relative; display: inline-flex; align-items: baseline; gap: 0.3em;
+  padding: 0.2em 0.5em; border-radius: 3px; cursor: pointer;
+  font-family: monospace; font-size: 0.78em; font-weight: 700; letter-spacing: 0.03em;
+  border: 1px solid transparent; background: var(--iucn-ne); color: #1a1a1a;
+  /* Unselected chips sit back so the palette reads as a scale rather than nine loud buttons. */
+  opacity: 0.55; transition: opacity 0.12s, box-shadow 0.12s;
+}
+.chip input { position: absolute; opacity: 0; width: 0; height: 0; }
+.chip:hover { opacity: 0.85; }
+.chip:has(input:checked) { opacity: 1; box-shadow: 0 0 0 2px var(--ink); }
+.chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip-any { background: var(--surface); border-color: var(--edge); font-family: inherit; font-weight: 600; }
+.chip-count { font-weight: 400; font-size: 0.9em; opacity: 0.75; }
+/* Nothing behind it: still selectable, but it should not look like work waiting to be done. */
+.chip-empty { opacity: 0.25; }
+.chip-empty:hover { opacity: 0.5; }
+.chip.iucn-ex, .chip.iucn-ew, .chip.iucn-cr, .chip.iucn-en { color: #fff; }
+.chip.iucn-ex { background: var(--iucn-ex); }
+.chip.iucn-ew { background: var(--iucn-ew); }
+.chip.iucn-cr { background: var(--iucn-cr); }
+.chip.iucn-en { background: var(--iucn-en); }
+.chip.iucn-vu { background: var(--iucn-vu); }
+.chip.iucn-nt { background: var(--iucn-nt); }
+.chip.iucn-lc { background: var(--iucn-lc); }
+.chip.iucn-dd { background: var(--iucn-dd); }
+.chip.iucn-ne { background: var(--iucn-ne); }
+
+/* The lineage rail: the searched clade's position, each ancestor one click of widening. */
+.rail {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15em;
+  margin: 0 0 0.5em; padding: 0.5em 0 0.4em; border-top: 1px solid var(--rule);
+}
+.rail[hidden] { display: none; }
+.rail-step {
+  display: inline-flex; align-items: baseline; gap: 0.35em;
+  font: inherit; font-size: 0.9em; padding: 0.15em 0.35em;
+  background: none; border: 0; border-radius: 3px; color: var(--accent); cursor: pointer;
+}
+.rail-step:hover { background: var(--accent-wash); }
+.rail-here {
+  color: var(--ink); font-weight: 700; font-style: italic; cursor: default;
+  font-size: 1.05em;
+}
+.rail-here:hover { background: none; }
+.rail-rank {
+  font-family: monospace; font-size: 0.68em; font-style: normal; font-weight: 400;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint);
+}
+.rail-sep { color: var(--edge); font-size: 0.9em; }
+
+.result-count { margin: 0 0 0.6em; font-size: 1em; color: var(--ink); }
+
+/* What the clade actually holds, one rank down. The bar is a proportion, not a chart axis —
+   it exists to make "mostly Epidendroideae" readable without counting. */
+.composition {
+  display: flex; flex-wrap: wrap; gap: 0.4em 0.6em; align-items: center;
+  margin: 0 0 0.9em; font-size: 0.85em;
+}
+.composition[hidden] { display: none; }
+.composition-label {
+  font-family: monospace; font-size: 0.85em; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--faint);
+}
+.composition-bars { display: flex; flex-wrap: wrap; gap: 0.4em; }
+.comp {
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: baseline; gap: 0.4em;
+  font: inherit; font-size: 0.95em; padding: 0.25em 0.6em 0.35em;
+  border: 1px solid var(--rule); border-radius: 3px; background: #fff; cursor: pointer;
+}
+.comp:hover { border-color: var(--accent); }
+.comp-name { font-style: italic; }
+.comp-count { font-family: monospace; font-size: 0.85em; color: var(--muted-ink); }
+.comp-bar {
+  position: absolute; left: 0; bottom: 0; height: 3px; width: var(--w, 0%);
+  background: var(--accent);
+}
+
+/* "Did you mean" — the answer to a name that resolved to nothing, or to more than one thing. */
+.suggestions {
+  display: flex; flex-wrap: wrap; gap: 0.35em; align-items: center; margin: 0 0 0.9em;
+}
+.suggestions[hidden] { display: none; }
+.suggest-label, .composition-label { flex: none; }
+.suggest-label {
+  font-family: monospace; font-size: 0.75em; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--faint);
+}
+.suggest {
+  display: inline-flex; align-items: baseline; gap: 0.35em;
+  font: inherit; font-size: 0.9em; font-style: italic; padding: 0.25em 0.6em;
+  border: 1px solid var(--edge); border-radius: 3px; background: var(--surface); cursor: pointer;
+}
+.suggest:hover { border-color: var(--accent); background: var(--accent-wash); }
+
+/* The only control on this page that spends anything. It is always visible and never automatic;
+   when the backlog is thin it stops being quiet about it. */
+.offer {
+  display: flex; flex-wrap: wrap; gap: 0.6em; align-items: center;
+  margin: 0 0 1em; padding: 0.5em 0.7em; font-size: 0.9em;
+  border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
+}
+.offer[hidden] { display: none; }
+.offer-thin { border-color: #d6e0ec; background: #f4f7fb; }
+.offer-btn {
+  font: inherit; font-size: 0.9em; font-weight: 600; padding: 0.3em 0.7em; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent-wash); border-radius: 4px;
+  color: var(--accent-ink);
+}
+.offer-thin .offer-btn { background: var(--accent); color: #fff; }
+.offer-btn:disabled { opacity: 0.5; cursor: default; }
+.offer button[hidden] { display: none; }
+.offer code { font-size: 0.95em; background: #fff; padding: 0 0.3em; border-radius: 2px; }
+
+.status:empty { display: none; }
+
+/* Seven columns of taxonomy and wikitext do not fit a narrow window; the table scrolls inside its
+   own box rather than making the whole page scroll sideways. */
+.table-scroll { overflow-x: auto; }
+.search-page table { min-width: 52em; }
+
+@media (max-width: 40em) {
+  body { padding: 1em 0.8em; }
+  .finder-box input { font-size: 1em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
 /* ---- one-time import of pre-slice-4 localStorage state ---- */
 #import-banner {
   display: flex; gap: 0.8em; align-items: center; margin: 0 0 1em;
