@@ -114,10 +114,10 @@ test('suggest is a bounded prefix range, and stops at the prefix', () => {
         ['4', 'Ordo', 'genus', null],          // sorts after 'Orchis' but outside the prefix
         ['5', 'Quercus', 'genus', null],
     ]);
-    // Shallowest first, then alphabetical: Orchis is a genus *inside* Orchidaceae, so it sorts
-    // below the two taxa one rank up rather than by name alone.
-    assert.deepEqual(db.suggest('Orchi').map(r => r.name), ['Orchidaceae', 'Orchidantha', 'Orchis']);
-    assert.deepEqual(db.suggest('Orchi', 2).map(r => r.name), ['Orchidaceae', 'Orchidantha']);
+    // Higher rank first, then the shorter name: the family leads, and between two genera the one
+    // the prefix nearly spells out comes first.
+    assert.deepEqual(db.suggest('Orchi').map(r => r.name), ['Orchidaceae', 'Orchis', 'Orchidantha']);
+    assert.deepEqual(db.suggest('Orchi', 2).map(r => r.name), ['Orchidaceae', 'Orchis']);
     assert.deepEqual(db.suggest('Quercus'), [{ inatId: '5', name: 'Quercus', rank: 'genus' }]);
     assert.deepEqual(db.suggest('Zz'), []);
     assert.deepEqual(db.suggest(''), [], 'an empty prefix has no range to scan');

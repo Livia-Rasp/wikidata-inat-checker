@@ -85,6 +85,15 @@ test('IUCN and clade compose', () => {
     assert.equal(idx.search({ taxonId: '47217', iucn: 'EX' }).total, 0);
 });
 
+test('IUCN counts describe the clade, not the filtered page', () => {
+    const idx = make();
+    assert.deepEqual(idx.search({}).iucnCounts, { CR: 2, VU: 1 });
+    assert.deepEqual(idx.search({ taxonId: '47217' }).iucnCounts, { CR: 1, VU: 1 });
+    // Still the whole clade while a status is selected — otherwise choosing CR would blank every
+    // other chip and there would be no way to see what switching to VU would give.
+    assert.deepEqual(idx.search({ taxonId: '47217', iucn: 'CR' }).iucnCounts, { CR: 1, VU: 1 });
+});
+
 test('composition counts the child clades one step down', () => {
     const got = make().search({ taxonId: '47217' });
     assert.equal(got.composition.under, null, 'one step down was enough, so there is nothing to say');

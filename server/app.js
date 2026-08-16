@@ -13,9 +13,26 @@ import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import findingsRoutes from './routes/findings.js';
 import discoverRoutes from './routes/discover.js';
+import searchRoutes from './routes/search.js';
+import { openTaxaDb } from '../lib/getInatTaxaDb.js';
 import { createJobs } from './jobs.js';
 
 const WEB_ROOT = fileURLToPath(new URL('../web/', import.meta.url));
+
+/**
+ * Opens the taxa index once and hands the same accessor to everyone who asks. Two plugins read it
+ * — search on every query, discovery to validate a scope — and two handles on a 236 MB file is
+ * waste, not isolation. A *failure* is not remembered: the index is built by running a checker
+ * from a terminal, which must not also require a restart to take effect.
+ * @param {() => any} open
+ */
+function createIndexProvider(open) {
+    let index = null;
+    return () => {
+        if (!index) index = open();
+        return index;
+    };
+}
 
 /**
  * Hosts web/js/* talks to directly from the browser. Listed **without a scheme** so one policy
@@ -132,11 +149,17 @@ export function buildServer({
     // application can be exercised over an in-memory database with no network.
     app.register(findingsRoutes, { prefix: '/api', store, rateLimit, allowedHosts, fetchFn });
 
+    // One read-only handle on the taxa index, shared by the two plugins that read it. Failures are
+    // deliberately not memoised: the index is built by running a checker from a terminal, and that
+    // should start working without restarting the server.
+    const sharedIndex = createIndexProvider(openIndex ?? openTaxaDb);
+    app.register(searchRoutes, { prefix: '/api', store, openIndex: sharedIndex, rateLimit, allowedHosts });
+
     // Runs live in a forked child, so the server owns starting and stopping them but never does
     // the work. Injected in tests; created here otherwise.
     const runner = jobs ?? createJobs({ log: app.log });
     app.register(discoverRoutes, {
-        prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex,
+        prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex: sharedIndex,
         rateLimit, allowedHosts,
     });
     // Before the store closes in server/index.js: a child still holding a write handle would
