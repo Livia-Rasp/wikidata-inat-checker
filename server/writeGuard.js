@@ -2,7 +2,7 @@
 // Protection for every route that changes state. Registered once in the API scope so that future
 // mutating routes — slice 5's discovery, slice 10's edits — inherit it without anyone remembering.
 //
-// The API is unauthenticated (docs/security.md), so nothing here identifies *who* is calling. What
+// The API is unauthenticated (docs/threat-model.md), so nothing here identifies *who* is calling. What
 // it does is establish that the call came from this app in this browser, or from a local tool, and
 // not from a page on the internet that a browser was pointed at:
 //

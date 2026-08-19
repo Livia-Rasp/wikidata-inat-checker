@@ -28,7 +28,8 @@ async function run() {
     const inatLimiter   = createRateLimiter(1100);
     const sparqlLimiter = createRateLimiter(500);
 
-    // Step 1: all species with CC-licensed research-grade photos in the area
+    // Step 1: every species with a research-grade observation in the area. Deliberately no
+    // license filter — unlike the image checker, the point here is to photograph these yourself.
     console.log(`Querying iNat for species within ${radius} km of ${lat}, ${lng}...`);
     /** @type {{taxonId: string, taxonName: string, commonName: string, count: number}[]} */
     const species = [];

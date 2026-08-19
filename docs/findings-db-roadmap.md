@@ -4,23 +4,32 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
+**Status:** slices 0–5 and 5c are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery and the backlog search.
+Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope), 7–8 (the links and
+names checkers onto the findings table), 9 (containerised deployment). Each slice was shipped as
+its own pull request, and each records below what turned out differently from the plan — that is
+the part worth reading.
+
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
-implementation detail. It is the **plan of record**: where it disagrees with
-[web-app-architecture.md](web-app-architecture.md), this wins. That document keeps what this one
-does not cover — the Fastify rationale, the `core/` extraction, the page structure, and the shared
-enrichment cache (a separate thing from the findings database).
+implementation detail, and the **plan of record** for persistence, sequencing and the web app.
+It absorbed `web-app-architecture.md`, a pre-Fastify planning document that had been overtaken on
+almost every point; what survived of it is [Not scheduled](#not-scheduled) at the end.
 
 ## Why
 
-The `cache/cache-*.json` files are tombstones, not caches: they record `inatId → date-checked` and
-never the result. The results live in `output/*.html` and `web/data/taxa.json`, which are
-overwritten wholesale on every run. So **a second run destroys the backlog from the first** — those
-taxa are cached, therefore skipped forever, and what described them is gone. That is why a batch
-cannot be worked through at leisure, and it gets worse the moment anything runs on a schedule.
+*(The state of the repo when this was written. Slices 1 and 4 fixed it for the image checker; the
+`cache/cache-*.json` files are still how names and links work, until slices 7 and 8.)*
 
-Separately, the "done" state lives in `localStorage` (`winc-uploaded`, `winc-p18` in
-`web/js/cache.js`), keyed per browser profile, so the checkers cannot see it and it dies with the
-profile.
+The `cache/cache-*.json` files are tombstones, not caches: they record `inatId → date-checked` and
+never the result. The results lived in `output/*.html` and `web/data/taxa.json`, overwritten
+wholesale on every run. So **a second run destroyed the backlog from the first** — those taxa are
+cached, therefore skipped forever, and what described them is gone. That is why a batch could not
+be worked through at leisure, and it would get worse the moment anything ran on a schedule.
+
+Separately, the "done" state lived in `localStorage` (`winc-uploaded`, `winc-p18` in
+`web/js/cache.js`), keyed per browser profile, so the checkers could not see it and it died with
+the profile.
 
 ## Decisions
 
@@ -236,7 +245,7 @@ project a *service*:
 - **The API was hardened in its first commit, not a follow-up.** An intermediate commit with no CSP,
   no rate limit and a leaking error handler is not a state worth being able to bisect to. The
   threat model, and more usefully the list of what is deliberately *not* done, is the new
-  [security.md](security.md) — which **slice 4 must re-read**, because "it only reads public data"
+  [threat-model.md](threat-model.md) — which **slice 4 must re-read**, because "it only reads public data"
   stops being true at the first write endpoint.
 - **The CSP forced a small `web/` refactor.** helmet's default `script-src-attr 'none'` blocks
   event-handler attributes, and the app had three (`onclick`/`onchange`) plus three `window.*`
@@ -269,11 +278,12 @@ into `done`.
 
 Five things worth keeping:
 
-- **Confirmation requires both statements**, P18 *and* the commonswiki sitelink, decided against my
-  recommendation of P18-alone. It costs nothing (slice 2 already fetched `sitefilter=commonswiki`
-  and never read it) and it catches the half-applied batch, which is a real failure mode. The
-  objection I raised — a taxon that will never have a Commons category sits open looking like a
-  failure — is answered by the response naming *which* half is missing, and by `skip`.
+- **Confirmation requires both statements**, P18 *and* the commonswiki sitelink — chosen over the
+  simpler P18-alone test, which was the recommendation at the time. It costs nothing (slice 2
+  already fetched `sitefilter=commonswiki` and never read it) and it catches the half-applied
+  batch, which is a real failure mode. The objection against it — a taxon that will never have a
+  Commons category sits open looking like a failure — is answered by the response naming *which*
+  half is missing, and by `skip`.
 - **This makes confirm and verify disagree, deliberately.** Verify still resolves on P18 alone,
   because it asks "does this still need an image?". Written up in [dev.md](dev.md) so it does not
   read as a bug later.
@@ -315,7 +325,8 @@ Five things worth carrying forward:
   until every HTTP call was done, so a run that was killed or cancelled had nothing to show for the
   API budget it had already spent. Findings are now written per iNat batch, which is what makes
   progress real and `cancel` mean "stop here, keep what is done".
-- **`process.exit(1)` on bad input was the highest-severity finding of the audit.** An unknown taxon
+- **`process.exit(1)` on bad input was the highest-severity finding of the pre-exposure review.**
+  An unknown taxon
   or IUCN code killed the process; over HTTP that is an unauthenticated remote kill. Those are typed
   errors now, resolved *before* the run row is opened so a rejected scope leaves no trace.
 - **The server must never build the taxa index.** `loadTaxaDb()` downloads 189 MB and rebuilds on a
@@ -417,9 +428,9 @@ come back with a blank date. Taxa are not dropped, only their enrichment. Confir
 reproduces first — it was noted 2026-07-02 and has not been re-verified.
 
 **Working means:** the area checker is part of the app, and the `TODO(area-enrichment)` comment and
-the "Known limitation" section in `docs/area.md` are gone. `docs/area.md`'s "How it works" and layout
-table are also stale about the latest-date column and the real sort order; tidy them in the same
-pass.
+the "Known limitation" section in `docs/area.md` are gone. (The stale "How it works" and layout
+table in that doc — which described neither the latest-date column nor the real sort order — were
+fixed separately on 2026-08-19, so only the enrichment gap itself is left.)
 
 **What the shell has to be, decided 2026-08-16 while building 5c** — three requirements that turn
 "navigation" from a nav bar into a real piece of design, and that slices 7 and 8 then inherit rather
@@ -459,7 +470,7 @@ language the finding proposes.
 
 ### 9. Dockerise, with a persistent volume and backups
 Fastify plus a mounted volume for the findings database, port 8080. `HOST` and `TRUST_PROXY` are the
-two settings to get right here — see [security.md](security.md), which explains why the server binds
+two settings to get right here — see [threat-model.md](threat-model.md), which explains why the server binds
 loopback by default and why trusting `X-Forwarded-For` unconditionally would make the rate limiter
 bypassable. Note also that the server's connection is bound to the file it opened: restoring a
 `VACUUM INTO` backup requires a restart, or it keeps serving the old database. The pipeline shape to copy is
@@ -552,7 +563,7 @@ sequencing risk, not about wanting it less:
 - Every other slice is reversible. OAuth is the point where this stops being a worklist that
   *suggests* edits and becomes software that *makes* them, under the operator's own account, on
   Wikidata and Commons. That step is worth taking only once the rest is tight.
-- `docs/security.md` says the current no-auth posture "expires" here, and it means it: today's
+- `docs/threat-model.md` says the current no-auth posture "expires" here, and it means it: today's
   protection is a loopback bind plus a CSRF guard, which is adequate for a personal worklist and
   not for a token that can edit Commons.
 
@@ -565,4 +576,27 @@ When it does happen, three things already decided are worth not re-arguing:
   toolbox's OAuth2 work is a model to orient on, not a dependency to wait for.
 - **Confirmation collapses into the edit**, because the API returns a revision id synchronously —
   which lands in the `resolution` column that has been written since slice 1, so no migration.
+
+## Not scheduled
+
+Wanted, unsequenced, and deliberately not slices. These are what survived `web-app-architecture.md`
+(written before the Fastify decision, absorbed here 2026-08-19); everything else in it was either
+built differently or rejected outright — most notably its scheduled-refresh design, replaced by
+the conditional trigger in slice 5b, and its `core/` extraction, which was never needed once the
+CLI and the server ended up sharing `lib/` directly.
+
+- **A shared, server-side enrichment cache** — a different thing from the findings database.
+  `web/js/enrich.js` caches place hierarchies, category existence, author categories and taxon
+  ancestry in `localStorage`, per browser profile, so the same lookups repeat across users and die
+  with a cleared profile. Serving them from `/api/enrich/*` over a `node:sqlite` store would dedupe
+  them, and would let the server set a descriptive `User-Agent` the browser cannot. Keep today's
+  cache keys (`places`, `ancestry`, `catexists`, `authorcat`) and it is a backend swap rather than
+  a logic change. Not urgent while there is one operator; the argument gets much stronger the
+  moment the read view is public.
+- **Background jobs with live progress.** Discovery reports a state flag polled from
+  `GET /api/discover/status`, not streamed progress. Revisit if minute-long runs feel too opaque;
+  the run record is the seed for a real job system, so nothing is wasted.
+- **Auth / multi-user**, which arrives with OAuth and is what
+  [global `skipped`](#known-skipped-does-not-survive-more-than-one-user) is waiting on. The shared
+  enrichment cache above needs none of it — it is anonymous — but a per-user uploaded-list would.
 

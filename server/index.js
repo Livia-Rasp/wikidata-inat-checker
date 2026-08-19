@@ -4,7 +4,7 @@
 // the store's lifetime (buildServer never closes a store it was handed).
 //
 // Binds 127.0.0.1 by default. The API is unauthenticated, so exposing it is a deliberate act:
-// set HOST explicitly, and read docs/security.md first.
+// set HOST explicitly, and read docs/threat-model.md first.
 import { openFindingsDb } from '../lib/db.js';
 import { dataPath } from '../lib/paths.js';
 import { buildServer } from './app.js';
@@ -20,7 +20,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 if (!LOOPBACK_ONLY.includes(HOST) && !process.env.ALLOW_REMOTE_WRITES) {
     console.error(
         `Refusing to bind ${HOST}: this API is unauthenticated and can change stored state.\n` +
-        'Set ALLOW_REMOTE_WRITES=1 to do it anyway, and read docs/security.md first — you will\n' +
+        'Set ALLOW_REMOTE_WRITES=1 to do it anyway, and read docs/threat-model.md first — you will\n' +
         'also want ALLOWED_HOSTS set, or every write is rejected by the Host allowlist.');
     process.exit(1);
 }

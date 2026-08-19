@@ -20,7 +20,8 @@ npm run web                # serve the app at http://localhost:8080
 Then open <http://localhost:8080/>:
 
 1. **Main view** — a table of image-less taxa (Wikidata item, IUCN status, iNat taxon, Commons
-   category, draft category Wikitext). Click a draft to copy it. Each row has **Confirm** (check
+   category, a photos link, draft category Wikitext), 100 rows at a time. Click a draft to copy
+   it. Each row has **Confirm** (check
    live Wikidata and mark the taxon done if the edit is there) and **Skip** (never offer it again —
    permanent, and there is no un-skip in the UI). A **Download uploaded list** button exports what
    you've marked uploaded (see [Tracking uploads](#tracking-uploads)).
@@ -148,8 +149,8 @@ instead of editing items one by one.
   taxon's own name; the filename is the one the upload form used.
 - Click **Copy**, paste into the QuickStatements *Import* box, and run the batch. The picks stay
   in the panel — they are cleared by **confirmation**, not by copying, because that is the point
-  at which the edit is known to exist. (Before slice 4 copying cleared them, which meant a batch
-  you never actually pasted left no trace of what it was supposed to do.)
+  at which the edit is known to exist. (Copying used to clear them, which meant a batch you never
+  actually pasted left no trace of what it was supposed to do.)
 
 The panel is built in the browser from the picks you make, which are stored in the findings
 database; nothing is submitted to Wikidata automatically.
@@ -184,11 +185,13 @@ otherwise never confirm.
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service
   (author categories) — all CORS-open — then builds the Commons upload URL client-side.
 - `npm run web` runs the Fastify server in `server/`, which serves both `web/` and that API from
-  `data/findings.db`. It binds `127.0.0.1` by default; see [security.md](security.md) for the
+  `data/findings.db`. It binds `127.0.0.1` by default; see [threat-model.md](threat-model.md) for the
   threat model and the environment variables.
-- `web/` still has no code dependency on the rest of the repo beyond that one HTTP contract, so it
-  can be split into its own repository later. See [commons-upload-dev.md](commons-upload-dev.md)
-  for the architecture.
+- `web/` still has no code dependency on the rest of the repo beyond that one HTTP contract. That
+  boundary was originally kept so the app could be spun out into its own repository; **the spin-out
+  was dropped as theoretical** when the Fastify backend landed, and the boundary is now worth
+  keeping only because it stays cheap. See [commons-upload-dev.md](commons-upload-dev.md) for the
+  architecture and [findings-db-roadmap.md](findings-db-roadmap.md#decisions) for that decision.
 
 ## Attribution
 

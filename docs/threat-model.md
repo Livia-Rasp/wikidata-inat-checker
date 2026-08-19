@@ -1,15 +1,17 @@
-# Security notes and threat model
+# Threat model for `server/`
 
-**Status: written 2026-08-14 with the Fastify server (slice 3); extended 2026-08-15 when the first
-write endpoints landed (slice 4).** Background for `server/`'s configuration and the input-handling
-rules in `web/` — read on demand, and **read it before adding any endpoint that changes state or
-talks to an authenticated API.**
+> This is an **engineering design record**, not a vulnerability-disclosure policy: it explains what
+> the server defends against, why every header and limit is set the way it is, and what is
+> deliberately left undone. To report a security problem in this project, open an issue.
+
+Read it before adding any endpoint that changes state or talks to an authenticated API. Written
+2026-08-14 with the Fastify server, extended 2026-08-15 when the first write endpoints landed.
 
 ## What this app is, from a security standpoint
 
-Until this slice the repository shipped CLI tools plus a zero-dependency static file server, and the
-only thing on a network was the browser talking to public APIs. That has changed: `server/` is a
-long-running HTTP service holding an open handle on `data/findings.db`.
+The repository used to ship CLI tools plus a zero-dependency static file server, and the only thing
+on a network was the browser talking to public APIs. That changed when the backend arrived:
+`server/` is a long-running HTTP service holding an open handle on `data/findings.db`.
 
 Three things follow.
 
@@ -31,20 +33,34 @@ Three things follow.
 
 ## Deployment posture today
 
-The deployment is **private**: one operator, not published. The intention is that the read-only
-browse view becomes public at some point — it shows exactly what the generated `output/drafts.html`
+**The source being public does not make the deployment public.** There is no hosted instance: you
+run this on your own machine, against your own database, bound to loopback. Everything below
+describes that single-operator posture. The intention is that the read-only browse view becomes
+reachable by others at some point — it shows exactly what the generated `output/drafts.html`
 already shows — and that write paths arrive later behind OAuth.
 
 - **The server binds `127.0.0.1`, and refuses to start bound anywhere else** unless
   `ALLOW_REMOTE_WRITES` is set. Refused rather than warned about: a warning in a log nobody reads is
   not a decision, and this API is unauthenticated. Setting that variable *is* the decision, made
   explicitly and visibly.
-- `PORT` (8080), `FINDINGS_DB` (`data/findings.db`), `LOG_LEVEL`, `RATE_LIMIT_MAX`,
-  `RATE_LIMIT_WINDOW`, `TRUST_PROXY`, `ALLOWED_HOSTS` and `ALLOW_REMOTE_WRITES` are the knobs. All
-  environment variables, never CLI arguments — arguments are world-readable through `ps`, which
-  matters once tokens exist.
+- The knobs, all environment variables and never CLI arguments — arguments are world-readable
+  through `ps`, which matters once tokens exist:
 
-## Write endpoints (slice 4)
+  | Variable | Default | What it does |
+  |---|---|---|
+  | `HOST` | `127.0.0.1` | Bind address. Anything else needs `ALLOW_REMOTE_WRITES`. |
+  | `PORT` | `8080` | Listen port. |
+  | `FINDINGS_DB` | `data/findings.db` | Which database to serve. |
+  | `LOG_LEVEL` | `info` | Pino level. |
+  | `ALLOW_REMOTE_WRITES` | unset | Permits a non-loopback bind. Setting it *is* the decision. |
+  | `ALLOWED_HOSTS` | loopback names | Extra `Host` values the write guard accepts. |
+  | `DISCOVER_ENABLED` | unset | Enables the discovery routes at all. |
+  | `TRUST_PROXY` | off | Whether to believe `X-Forwarded-For`. |
+  | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW` | 120 / 1 minute | The read limit on `/api`. |
+  | `RATE_LIMIT_WRITE_MAX` | 30 | Tighter limit for confirm/skip/uploads/import. |
+  | `RATE_LIMIT_DISCOVER_MAX` | 6 | Tighter still, for starting a discovery run. |
+
+## Write endpoints
 
 The API is still unauthenticated, so nothing identifies *who* is calling. What `server/writeGuard.js`
 establishes, on every non-GET/HEAD/OPTIONS request under `/api`, is that the call came from this app
@@ -55,7 +71,7 @@ pointed at. Three checks, in order:
    This is the check people skip because "it's bound to 127.0.0.1". **A loopback bind is not a
    defence.** DNS rebinding lets a public page resolve its own hostname to `127.0.0.1` and reach a
    loopback server *through the victim's browser*; the `Host` header is the thing that still says
-   `evil.example` when it happens. `ALLOWED_HOSTS` exists because slice 9's Docker deployment is
+   `evil.example` when it happens. `ALLOWED_HOSTS` exists because a containerised deployment is
    reached by a different name and would otherwise be locked out of its own write endpoints.
 2. **Fetch metadata** — `Sec-Fetch-Site: same-origin|none` passes, `cross-site|same-site` is 403
    (a sibling subdomain is still not us). These headers are *forbidden headers*: the browser sets
@@ -74,7 +90,7 @@ browser-only attack. Refusing it would break every local tool and protect nothin
 Confirm and skip carry a **tighter rate limit** than the read API, because a confirm spends
 Wikimedia's API budget and not just ours.
 
-### Privileged routes (slice 5)
+### Privileged routes — discovery
 
 Discovery is the most expensive thing this server can be asked to do: minutes of Wikidata,
 iNaturalist and Commons traffic under the operator's identity. WDQS bans clients that ignore its
@@ -98,7 +114,7 @@ LIKE patterns, so an unguarded wildcard matches a 3M-row table and becomes hundr
 queries. And `POST /api/discover` **never builds the taxa index**: `openTaxaDb()` throws where the
 CLI's `ensureTaxaDb()` would download 189 MB and rebuild for minutes.
 
-### The search routes (slice 5c) — unprivileged, and the first public reads over the taxa index
+### The search routes — unprivileged, and the first public reads over the taxa index
 
 `GET /api/search` and `GET /api/taxa/suggest` are deliberately **not** privileged: they are reads
 over data this server already serves, they make no outbound request, and they cannot start anything.
@@ -157,8 +173,8 @@ would be discovered by users rather than by tests.
   - `crossOriginEmbedderPolicy: false`, explicitly rather than by default — COEP would block the
     iNat images, which carry no CORP header.
 - **Rate limiting** (`@fastify/rate-limit`), registered **inside** the `/api` plugin so it covers
-  the API and only the API. This is not a stylistic choice: `vue-commons-gallery`'s
-  `docs/security.md` records an app-wide limiter tripping on the dozens of same-origin asset
+  the API and only the API. This is not a stylistic choice: the sibling project
+  `vue-commons-gallery` records an app-wide limiter tripping on the dozens of same-origin asset
   requests one page load fires, and locking the operator — the only legitimate user — out of their
   own tool. `test/server.test.js` asserts both halves: the API limits, ten consecutive asset
   requests do not. The store is in-memory, so a restart clears every counter.
@@ -174,9 +190,9 @@ would be discovered by users rather than by tests.
   `additionalProperties: false` *and* `removeAdditional: false` — Fastify's default would silently
   drop an unknown parameter, so `?kinds=image` would return the default worklist as though it had
   been asked for. `limit` is capped at 2000 because every query blocks the event loop.
-- **Bounded requests.** `bodyLimit` 16 KiB (no route accepts a body yet — the ceiling is set so the
-  next slice inherits it), `requestTimeout` 30 s, `maxParamLength` 64,
-  `onProtoPoisoning`/`onConstructorPoisoning` set to `error`.
+- **Bounded requests.** `bodyLimit` 16 KiB — set while the server was still read-only, so the
+  write endpoints inherited a ceiling rather than choosing one; `requestTimeout` 30 s,
+  `maxParamLength` 64, `onProtoPoisoning`/`onConstructorPoisoning` set to `error`.
 - **Quiet, redacted logs.** A `LogController` subclass logs the API's request lines and stays silent
   about static assets — one page load is ~8 asset requests, which would bury the traffic worth
   reading. Fastify's default serialiser logs no headers, so nothing is exposed today; `redact`
@@ -193,9 +209,10 @@ would be discovered by users rather than by tests.
 
 ## What is deliberately not done
 
-- **No authentication.** The slice-3 note here said this must not survive slice 4 without *either*
-  authentication or an enforced loopback-only bind. Slice 4 took the second option, deliberately:
-  the bind is now enforced rather than defaulted, and the write guard above covers the rest. A
+- **No authentication.** When the server was read-only this document said the posture must not
+  survive the first write endpoint without *either* authentication or an enforced loopback-only
+  bind. The second option was taken, deliberately: the bind is now enforced rather than defaulted,
+  and the write guard above covers the rest. A
   shared token was considered and rejected as the wrong shape — a static browser app cannot hold a
   secret, and a per-deployment token is not the per-user identity OAuth becomes, so building it
   would have meant building the wrong thing first.
@@ -210,10 +227,10 @@ would be discovered by users rather than by tests.
   origin ever needs access it gets an explicit allowlist — never a wildcard, and never a wildcard
   together with credentials.
 - **No read-only database handle.** `{ readOnly: true }` would have been the theoretically right
-  property for a read-only service, and it was considered and dropped in slice 3: a read-only
-  connection to a WAL database fails when the `-shm` file does not exist and cannot be created, it
-  fails outright on a database that has not been created yet, and slice 4 needs to write anyway —
-  which it now does.
+  property for a read-only service, and it was considered and dropped: a read-only connection to a
+  WAL database fails when the `-shm` file does not exist and cannot be created, and fails outright
+  on a database that has not been created yet. The write endpoints then arrived and needed the
+  handle anyway.
 - **No CSRF tokens, sessions or per-user accounts.** Token-based CSRF protection needs server-side
   state and a session to bind the token to; fetch metadata needs neither and cannot be forged by
   page script, so it is both stronger and simpler here. Accounts arrive with OAuth, whenever that
@@ -239,6 +256,16 @@ Two operational consequences worth knowing:
 
 ## Outbound etiquette
 
-The server makes no outbound requests; the browser does, directly. The concurrency limits and the
-contact-carrying User-Agent in `lib/utils.js` are a security property as much as politeness — being
-a badly-behaved client is how a Wikimedia API budget or, later, an OAuth grant gets lost.
+Three parties spend the operator's API budget, and the third only arrived with discovery:
+
+- **The browser**, directly — iNaturalist, Commons, WDQS and Nominatim, from `web/js/*`. This is
+  the bulk of it, and the reason `connect-src` enumerates exactly six hosts.
+- **The server process**, on a confirm: `wbgetentities` against the Wikidata Action API. Small,
+  bounded by the write rate limit, and the reason that limit is tighter than the read one.
+- **The forked discovery child**, which is by far the most expensive — minutes of WDQS, iNat and
+  Commons traffic per run. Every request it makes carries a timeout and a `User-Agent`; the iNat
+  calls, which are most of a run, previously carried neither.
+
+The concurrency limits and the contact-carrying User-Agent in `lib/utils.js` are a security
+property as much as politeness — being a badly-behaved client is how a Wikimedia API budget or,
+later, an OAuth grant gets lost.

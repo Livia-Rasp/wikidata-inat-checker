@@ -6,8 +6,8 @@ Finds Wikidata taxon items that lack an image (P18) among all species observed w
 
 1. Queries iNaturalist for all species with research-grade observations within the specified radius (`/v1/observations/species_counts` with `lat`, `lng`, `radius`). No license filter — the intent is to photograph these species yourself. Paginates until all results are fetched.
 2. For each iNat taxon ID found, queries Wikidata via a SPARQL VALUES lookup to find items where P3151 matches and P18 (image) is absent.
-3. For each qualifying taxon, fetches up to 3 sample observations from the area (ordered by community votes), providing thumbnail photos to help assess upload candidates.
-4. Exports `output/area.html` — a list of taxa with their Wikidata link, iNat taxon link, observation count in the area, and clickable photo thumbnails linking to the individual observations.
+3. For each qualifying taxon, fetches up to 3 sample observations from the area (ordered by community votes) for thumbnails, and the date of its latest observation there.
+4. Exports `output/area.html` — a list of taxa with their Wikidata link, iNat taxon link, observation count in the area, the latest observation date, and clickable photo thumbnails linking to the individual observations.
 
 No cache — results reflect live Wikidata and iNat state at the time of the run.
 
@@ -41,10 +41,13 @@ npm run area -- --lat 48.147 --lng 11.589 --radius 10
 |---|---|
 | Taxon name | Scientific name (linked to iNat taxon page) and common name if available |
 | Wikidata | QID link to the Wikidata item |
-| Observation count | Number of research-grade observations in the area |
+| Obs. | Number of research-grade observations in the area (sortable) |
+| Latest obs. | Date of the most recent observation in the area (sortable) |
 | Thumbnails | Up to 3 photos from the area; each links to the iNat observation page |
 
-Rows are sorted by observation count descending (most-observed first).
+Rows arrive sorted by **latest observation date**, newest first, with the observation count as
+the tiebreak — so what is being seen right now is at the top. Clicking either the **Obs.** or
+**Latest obs.** header re-sorts on that column, and clicking it again reverses the direction.
 
 ## Typical workflow
 

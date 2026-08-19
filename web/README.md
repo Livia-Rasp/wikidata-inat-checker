@@ -12,14 +12,15 @@ automatically — you review and submit the form yourself.
 From the repository root:
 
 ```sh
-node checkImages.js   # produces web/data/taxa.json
+node checkImages.js   # fills the findings database with a backlog
 npm run web           # serves this folder at http://localhost:8080
 ```
 
 Open <http://localhost:8080/>, then use **View photos** on a taxon and **Upload to
 Commons** on a photo. Tick **Use as Wikidata image (P18)** on the photo you uploaded to
 queue the item's image + Commons-category sitelink in the main view's **QuickStatements**
-panel, then **Copy & clear** to apply them in a batch (see
+panel, then **Copy** and run the batch. The picks stay until **Confirm pending** finds both
+edits live on Wikidata (see
 [docs/commons-upload.md](../docs/commons-upload.md#adding-p18--category-in-batches)).
 
 ## Credits & attribution

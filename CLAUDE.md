@@ -5,101 +5,78 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 Project-level ToDos live in the Obsidian vault, not here — query them with `vault_tasks` /
 `vault_overview` (`winged-eye-obsidian` MCP, read-only; never write to the vault).
 
+Keep this file short. Details belong in `docs/`, linked from here.
+
 ## Commands
 
 ```sh
 node checkImages.js --limit 500 --iucn VU   # image checker (--limit, --iucn optional)
-node checkImages.js --taxon Orchidaceae     # scope to a clade (taxon + iNat descendants); name or iNat ID, composes with --iucn/--limit
-node checkImages.js --recheck-after 30      # re-examine taxa written off as no-photos >30 days ago (default 90; 0 = all)
-
-node verifyFindings.js                      # re-check the open backlog against live Wikidata, prune what's already fixed
-npm run verify -- --limit 200               # same via npm (--limit caps one pass; --kind defaults to image)
-npm run images -- --limit 500 --iucn VU     # same via npm (-- required to forward flags)
-
-node checkNames.js --limit 500 --iucn CR    # vernacular names checker (zero-P1843 taxa only by default)
-node checkNames.js --limit 500 --all        # include taxa that already have some P1843
-npm run names -- --limit 500 --iucn CR      # same via npm
-
-node checkLinks.js --limit 200 --iucn EN    # iNat links checker (--limit, --iucn optional)
-node checkLinks.js --limit 200 --auto       # also write output/links-auto.qs (certain matches only)
-npm run links -- --limit 200 --auto         # same via npm
-node checkLinksStats.js                     # stats: per-IUCN match/ambig/no-match table, no HTML
-npm run linkStats                           # same via npm
-
+node checkImages.js --taxon Orchidaceae     # scope to a clade; name or iNat ID
+node checkImages.js --recheck-after 30      # re-examine negatives older than N days (default 90)
+node verifyFindings.js                      # re-check the open backlog against live Wikidata
+node checkNames.js --limit 500 --iucn CR    # vernacular names (--all includes taxa with some P1843)
+node checkLinks.js --limit 200 --auto       # iNat links (--auto also writes output/links-auto.qs)
+node checkLinksStats.js                     # per-IUCN match/ambig table, no HTML
 node checkArea.js --lat 48.147 --lng 11.589 --radius 10   # area checker (all three required)
-npm run area -- --lat 48.147 --lng 11.589 --radius 10     # same via npm
+node draftCategory.js Q14625955             # Commons category draft for taxon QID(s)
 
-node draftCategory.js Q14625955            # print a Commons category draft for a taxon QID
-npm run draft -- Q14625955 Q10459793       # same via npm (accepts multiple QIDs)
-
-npm run web                                 # Fastify: serves web/ + the findings API, localhost:8080
-                                            # env: PORT, HOST (default 127.0.0.1; a non-loopback
-                                            # bind needs ALLOW_REMOTE_WRITES + ALLOWED_HOSTS),
-                                            # FINDINGS_DB, LOG_LEVEL, TRUST_PROXY,
-                                            # RATE_LIMIT_MAX / RATE_LIMIT_WRITE_MAX / _WINDOW
+# each has an npm script — images, verify, names, links, linkStats, area, draft.
+# The -- is required so npm forwards the flags:
+npm run images -- --limit 500 --iucn VU
+npm run web                                 # Fastify: serves web/ + the API, localhost:8080
 DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
-
-npm test                                    # run the unit suite (Node's built-in runner)
+npm test                                    # unit suite (node --test over test/*.test.js)
 ```
 
-No build step. **Tests:** `npm test` runs `node --test` over `test/*.test.js` — a fast, dependency-free unit suite covering the pure logic (arg parsing, `descendantInatIds`/`getAncestors` via an in-memory SQLite fixture, tree comparison, `extractTaxonName`, the report scaffold). No network, so it runs in well under a second; add cases here when touching that logic.
+No build step. Node 26+ (`node:sqlite` is built in, so there is no native dependency).
+Server environment variables and why each exists: [docs/threat-model.md](docs/threat-model.md).
 
-All generated artifacts are gitignored, split into three top-level dirs (created on first write; `lib/paths.js` centralises the paths). Two are disposable, one is not:
-
-- **Outputs → `output/`:** deliverables you act on — `output/drafts.html` (images); `output/names.html`; `output/links.html` + `output/links-ambiguous.html` + `output/links-auto.qs` + `output/inat-links-conflicts.json` (links); `output/area.html`. Safe to delete wholesale; a re-run regenerates them. (The web app has no file contract at all — it reads `GET /api/findings` live.)
-- **Caches → `cache/`:** the names/links checkers each keep a cache file (`cache/cache-names.json` / `cache/cache-links.json`) so re-runs skip already-checked taxa — delete it to force a full re-scan. The image checker no longer uses one (see `data/` below), but still writes `cache/cache-commons-cats.json` (Commons `Endemic <group> of <place>` category existence, reused across runs). The area checker has no cache. Kept separate from `output/` so clearing reports doesn't wipe the caches (which would force slow full re-scans). (The large iNat taxa SQLite index lives separately under `~/.cache/wikidata-inat-checker/`; it is derived and gets dropped and rebuilt, so never confuse it with `data/`.)
-- **Findings DB → `data/findings.db`: NOT safe to delete.** The image checker records every outcome here instead of a tombstone cache — `open` (photos + a draft), `no_draft` (photos but no P225/family template), `no_photos`, later `done`/`skipped`/`fixed_upstream`/`gone` — so the backlog **accumulates across runs** rather than being overwritten, and `output/drafts.html` + the `/api/findings` endpoint the web app reads render the whole open worklist. Schema v2 adds an `uploads` table (what was uploaded to Commons, and each taxon's pending P18 pick), and `done` is written **only** by a confirm that found the edit live on Wikidata. Negative outcomes carry `checked_at` and expire after `--recheck-after` days (default 90), because photos and P3151 links keep appearing; settled ones never expire. A failed iNat batch records *nothing*, so it retries. SQLite via `node:sqlite`, WAL + `STRICT`, schema version in `PRAGMA user_version` (`lib/db.js`). `npm run verify` re-checks the open backlog against **live Wikidata via the Action API** (never SPARQL, whose lag would report an image still missing right after you added it): findings whose P18 appeared become `fixed_upstream`, merged or deleted items become `gone`, and the reports are re-rendered so they stop offering work already done (`lib/verify.js`). Migrating the other three checkers onto it is [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md) slices 6–8.
-- **Upload app:** `npm run web` starts `server/` (Fastify), which serves the `web/` app and the `GET /api/findings` it browses, lists their CC-licensed iNat photos, and opens a pre-filled Commons upload form per photo. The generated file description is enriched (not a stub): an `{{en|<common> (''scientific'') in County, State, Country}}` description from the observation's identified taxon, a `{{Taken on|date|location=Country}}` date, and best-effort **geographic categories** along two axes — a taxon-in-place (`<Taxon> of <Place>`, e.g. `Picidae of Texas`) plus the most-specific **location** category (`Flora/Fauna/Fungi of <place>`, else `Nature of <place>` for all organisms, else the Commons-disambiguated plain place, e.g. `Grayson County, Texas` / `Williston, Vermont`), with any category nested inside the other dropped; the finest place comes from iNat `place_ids` augmented by an OSM **Nominatim** reverse-geocode (`geocodePlaces`/`reverseGeocode`/`mergeGeocodedPlaces` in `enrich.js`, cached + throttled to ~1 req/s, **skipped for obscured/coarse coordinates** so threatened-taxon points aren't mis-located; disambiguation pages and diacritics are handled too), and non-US admin divisions are resolved to their **exact** Commons category via Wikidata (province ISO 3166-2 → `wdt:P300`, county via `wdt:P131`+name → `wdt:P373`; `resolvePlaceCats` in `enrich.js`, e.g. `Lago Agrio Canton`, `Sucumbíos Province`) — and **author categories** (via Commons `{{Inaturalist user}}` + Wikidata P12022). Users mark photos uploaded (recorded in the `uploads` table, downloadable as JSON). Picking one photo per taxon as **Use as Wikidata image (P18)** queues two QuickStatements — P18 and the Commons-category **sitelink** (`Scommonswiki "Category:<taxon>"`, not P373) — in a panel on the main view. **Done is confirm-gated:** picking records an intention, `Copy` no longer clears anything, and **Confirm pending** (or a row's **Confirm**) asks live Wikidata; a finding becomes `done` only when *both* statements are there, and otherwise stays open saying which half is missing. **Skip** is the escape hatch. Design/details in [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md) (§7).
-
-## Architecture
-
-Seven entry scripts (six tools) plus the server, each wiring together shared modules; data flows in memory. Shared building blocks: the local iNat taxa SQLite index (`lib/getInatTaxaDb.js`) and the Wikidata SPARQL / CirrusSearch helpers (`lib/utils.js`).
-
-**Source layout.** Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — that's what `node checkImages.js …` / the `npm run …` scripts invoke. Everything else is grouped:
-
-- **`lib/`** — core data + domain logic: `utils.js` (SPARQL/CirrusSearch/Commons helpers, arg parsing, IUCN maps), `cache.js`, `paths.js` (the `output/` + `cache/` path helpers), `getInatTaxaDb.js`, `getFromInat.js`, `getInatNames.js`, `generateWikitext.js` (Commons category wikitext + `fetchEntities`).
-- **`report/`** — output rendering: the `generate*HTML.js` report builders and their shared `htmlShared.js` (base CSS, `renderReportPage`/`doneScript`, tree-pair + copy helpers).
-- **`server/`** — the Fastify app (`npm run web`): `app.js` (`buildServer({store})`, which never listens and never closes the store it is handed — the same injection seam `verifyOpenFindings` uses; it also opens **one** read-only taxa-index handle and shares it with the two plugins that read it), `routes/findings.js` (`GET /api/findings` plus the confirm/skip/uploads writes, encapsulated so its rate limiter covers the API and not the static assets), `routes/search.js` (`GET /api/search` + `GET /api/taxa/suggest` — plain unprivileged reads that **degrade** rather than 503 when the taxa index is missing), `routes/discover.js` + `jobs.js` + `discoverChild.js` (topping up the backlog, which runs in a **forked child** — an in-process run would block the event loop for ~1 s per taxa-index load and hold a ~650 MB spike), `index.js` (opens `data/findings.db`, binds **127.0.0.1 by default**, owns shutdown). Threat model and the reason behind every header in [docs/security.md](docs/security.md) — **read it before adding a write endpoint.**
-- **`web/`** — the browser upload app (its own `web/js/*`, see below), served by `server/`.
-- **`test/`** — `node:test` unit suite (`*.test.js`), run via `npm test`.
-- **`output/`, `cache/`** — gitignored, auto-created generated artifacts (deliverables and cross-run caches respectively); see the Outputs/Caches bullets above.
-
-All paths are relative to the working directory (the repo root, where the tools run), centralised in `lib/paths.js` — so deliverables land in `output/`, caches in `cache/`, and the findings database in `data/`.
+## Tools
 
 | Tool | Entry | Finds | Docs |
 |---|---|---|---|
-| Image checker | `checkImages.js` | taxa with P3151 but no image (P18) | [docs/images.md](docs/images.md) |
-| Verification | `verifyFindings.js` | open findings already fixed, merged or deleted upstream | [docs/images.md](docs/images.md#verification) |
-| Vernacular names | `checkNames.js` | iNat common names missing from P1843 | [docs/names.md](docs/names.md) |
-| iNat links | `checkLinks.js` | taxa with a name but no P3151, matched to iNat | [docs/links.md](docs/links.md) |
-| iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [docs/links.md](docs/links.md) |
-| Area checker | `checkArea.js` | image-less taxa observed near a location | [docs/area.md](docs/area.md) |
-| Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` (`npm run web`) | assisted iNat→Commons photo upload (pre-filled form) | [docs/commons-upload.md](docs/commons-upload.md) |
-| Server | `server/index.js` (`npm run web`) | serves `web/`, `GET /api/findings`, the confirm/skip/uploads writes, `GET /api/search`, and `POST /api/discover` | [docs/security.md](docs/security.md) |
-| Discovery | `lib/discover.js` (CLI: `checkImages.js`; app: `POST /api/discover`) | tops up the backlog, scoped by taxon/IUCN | [docs/dev.md](docs/dev.md#discovery-libdiscoverjs-serverjobsjs) |
-| Backlog search | `lib/backlogIndex.js` + `web/search.html` (`GET /api/search`) | which taxa already on the worklist are in a clade / carry a status | [docs/dev.md](docs/dev.md#searching-the-backlog-libbacklogindexjs) |
+| Image checker | `checkImages.js` | taxa with P3151 but no image (P18) | [images.md](docs/images.md) |
+| Verification | `verifyFindings.js` | open findings already fixed, merged or deleted upstream | [images.md](docs/images.md#verification) |
+| Vernacular names | `checkNames.js` | iNat common names missing from P1843 | [names.md](docs/names.md) |
+| iNat links | `checkLinks.js` | taxa with a name but no P3151, matched to iNat | [links.md](docs/links.md) |
+| iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
+| Area checker | `checkArea.js` | image-less taxa observed near a location | [area.md](docs/area.md) |
+| Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist | [commons-upload.md](docs/commons-upload.md) |
+| Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 
-The upload app is a build-step-free `web/` folder (plain HTML/JS/CSS), served by `server/` together with the findings API. Three pages: `index.html` (the worklist), `taxon.html` (one taxon's photos) and `search.html` (**the backlog search**, slice 5c). It reads its worklist from `GET /api/findings` and calls the iNaturalist API directly from the browser. `web/js/commonsUpload.js` builds the pre-filled `Special:Upload` URL and file-page wikitext; `web/js/enrich.js` resolves the place hierarchy, taxon ancestry, and geographic/author categories (iNat + Commons + Wikidata Query Service, all CORS-open); `web/js/rows.js` renders and wires one backlog row for *both* table pages (`createRowTable` takes its tbody rather than an id, so two pages can hold one each); `web/js/pager.js` pages both table pages 100 rows at a time; `web/js/topup.js` starts/polls/cancels a discovery run; `web/js/search.js` is the search page; `web/js/api.js` + `web/js/state.js` talk to this app's own backend and mirror the uploads/picks it holds — each P18 pick arrives carrying its own `findingId`, resolved server-side, so **Confirm pending** works on picks whose row is not on the visible page; `web/js/cache.js` keeps only the enrichment lookup caches in `localStorage` (regenerable derived data) plus the legacy readers the one-time import uses. See [docs/commons-upload.md](docs/commons-upload.md) and [docs/commons-upload-dev.md](docs/commons-upload-dev.md).
+## Source layout
 
-Reusable, app-agnostic Commons/iNaturalist/Wikidata integration recipes (Special:Upload prefill, copy-upload allowlist, category-existence checks, `{{Taken on}}`, two-axis `<Taxon> of <Place>` + most-specific-location categories, Nominatim reverse geocoding, and author categories, P12022) are collected in [docs/commons-integration.md](docs/commons-integration.md) — the reference for building further Commons-upload tools.
+Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — that is what the
+`npm run …` scripts invoke. Everything else is grouped:
 
-**Work in progress:** the checkers are being restructured around a persistent findings database (replacing the `cache/cache-*.json` tombstones, which lose the backlog on every re-run) served by a Fastify backend. [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) is the plan of record — the ordered slices, the schema, and the decisions behind them. Slices 0–5 and 5c are done (findings DB, verification, Fastify, confirm-gated done state, on-demand discovery, backlog search); 5b and 6–9 remain, and OAuth editing is deliberately outside the plan until the tool has been run by hand for a while. Two known gaps are written up there rather than fixed: **`skipped` is global**, so one user's skip hides work from every other user, and the **ambiguous-match views** (taxon homonyms, and the links checker's conflicts) need a real interface. Read it before changing anything about caching, persistence, or the web app.
+- **`lib/`** — data + domain logic: SPARQL/CirrusSearch/Commons helpers and arg parsing
+  (`utils.js`), the findings store (`db.js`), the iNat taxa index (`getInatTaxaDb.js`),
+  discovery (`discover.js`), verification (`verify.js`), confirmation (`confirm.js`), the
+  backlog↔clade join (`backlogIndex.js`), Commons wikitext (`generateWikitext.js`).
+- **`report/`** — the `generate*HTML.js` builders and their shared `htmlShared.js`.
+- **`server/`** — the Fastify app: `app.js` (`buildServer({store})`, which never listens and
+  never closes the store it is handed), `routes/` (findings, search, discover),
+  `writeGuard.js`, `jobs.js` + `discoverChild.js` (discovery runs in a **forked child**),
+  `index.js` (opens the DB, binds 127.0.0.1 by default, owns shutdown).
+- **`web/`** — the browser upload app, plain HTML/JS/CSS, served by `server/`. Three pages:
+  `index.html` (worklist), `taxon.html` (one taxon's photos), `search.html` (backlog search).
+- **`test/`** — `node:test` unit suite. No network, sub-second. Add cases when touching the
+  pure logic it covers.
 
-**Security:** [`docs/security.md`](docs/security.md) is the threat model for `server/` — what each header and limit is for, and what is deliberately *not* done (no auth, no TLS, loopback-only by default). Read it before exposing the server on a network, before adding any endpoint that writes, and before the OAuth work.
+## Generated artifacts
 
-Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/dev.md) — read it on demand. Topics covered there:
+All gitignored and created on first write; `lib/paths.js` centralises the paths. Two are
+disposable, one is not:
 
-- **Module wiring** — per-tool data-flow diagrams (which module calls what)
-- **SQLite taxa index** — schema, `get()`/`getAll()`/`getAncestors()`/`allNames()`/`allInatIds()`/`descendantInatIds()`, stateofmatter filter (`lib/getInatTaxaDb.js`)
-- **`node:sqlite` driver** — why there is no SQLite dependency and `engines` is `>=26`; the four `better-sqlite3` differences that bite (no `.pluck()`, no `db.transaction()`, `run(...row)` not `run(row)`, null-prototype rows)
-- **zh-hans/zh-hant normalization** — why `zh-CN`/`zh-TW` are remapped (`lib/getInatNames.js`)
-- **Ancestor traversal depth** — why the cap is `MAX_ANCESTOR_DEPTH` (40) rounds; reaching the kingdom for endemic categories (`lib/generateWikitext.js`)
-- **Commons Taxonavigation templates** — wrappers, suffixed families, Fungorum, IUCN categories, placement rules (`lib/generateWikitext.js`)
-- **Shared report rendering** — base CSS + page skeleton + done/hide-done script factored into `report/htmlShared.js` (`renderReportPage`, `doneScript`, `BASE_REPORT_CSS`, `TREE_PAIR_CSS`), reused by the four `generate*HTML.js` builders
-- **SPARQL & CirrusSearch** — TSV format, why WDQS can't scan the big filtered sets, the query-by-value inversion (by name for links, by iNat ID for images) (`lib/utils.js`, `checkLinks.js`, `checkLinksStats.js`, `checkImages.js`)
-- **Taxonomy tree comparison & `--auto` filter** — `compareAncestorTrees()`, Noctuidae/Erebidae disagreement (`lib/utils.js`, `checkLinks.js`)
-- **Wikidata QID reference** — rank QIDs, IUCN status/category QIDs, `{{IUCN}}` logic, the S248 source item
+- **`output/`** — the HTML/QS deliverables. Safe to delete; a re-run regenerates them.
+- **`cache/`** — cross-run caches (`cache-names.json`, `cache-links.json`,
+  `cache-commons-cats.json`). Safe to delete; re-runs then re-scan from scratch.
+- **`data/findings.db` — NOT safe to delete.** The accumulated backlog and everything worked
+  through, which nothing can reconstruct. See [images.md](docs/images.md).
+
+The ~236 MB iNat taxa index lives separately under `~/.cache/wikidata-inat-checker/`; it is
+derived, dropped and rebuilt, so never confuse it with `data/`.
 
 ## Key Wikidata properties
 
@@ -120,4 +97,20 @@ Module-wiring diagrams and implementation details live in [`docs/dev.md`](docs/d
 | P13177 | homonymous taxon |
 | P183 | endemic to (drives `Endemic <group> of <place>` Commons categories) |
 
-The specific QIDs (taxon ranks, IUCN statuses, source items) and how P141/P627 drive the `{{IUCN}}` template are in [`docs/dev.md`](docs/dev.md#wikidata-qid-reference).
+Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-reference).
+
+## Read before you change
+
+- [`docs/dev.md`](docs/dev.md) — module wiring, the SQLite taxa index and the `node:sqlite`
+  gotchas, the findings store, discovery, search, confirm-vs-verify, SPARQL/CirrusSearch
+  patterns, Commons Taxonavigation rules. **Read on demand when debugging or extending.**
+- [`docs/threat-model.md`](docs/threat-model.md) — the threat model for `server/`, every header, limit
+  and environment variable, and what is deliberately not done. **Read it before adding any
+  endpoint that writes or talks to an authenticated API.**
+- [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
+  restructure around `data/findings.db`. Slices 0–5 and 5c are done; 5b and 6–9 remain, and
+  OAuth is deliberately outside the plan. Two known gaps are written up there rather than
+  fixed: **`skipped` is global**, and the **ambiguous-match views** need a real interface.
+  **Read it before changing anything about caching, persistence, or the web app.**
+- [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
+  Wikidata recipes, the reference for building further Commons-upload tools.
