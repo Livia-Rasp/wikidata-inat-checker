@@ -21,10 +21,17 @@ jobs:
       - run: npm test
 
   # Build the image so it cannot rot unnoticed — a dependency bump or a Node version move would
-  # otherwise only surface the next time someone deployed. Build only: publishing to a registry is
-  # slice 9, and needs credentials this workflow deliberately does not have.
+  # otherwise only surface the next time someone deployed — then publish it from pushes to main.
+  #
+  # Build, smoke-test and publish are one job on purpose: it pushes the exact image that just
+  # passed, rather than a rebuild that is merely supposed to be identical. It also needs the unit
+  # suite to have passed first, so a green image never carries a red test.
   docker:
+    needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # the only privilege this workflow has; nothing else needs it
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t wikidata-inat-checker .
@@ -56,3 +63,34 @@ jobs:
           # Exit 0, not 137: the app must handle SIGTERM itself rather than be killed when the
           # grace period runs out.
           test "$(docker inspect winc --format '{{.State.ExitCode}}')" = 0
+
+      # Publish only from main — a pull request must never overwrite the tag people pull. Forked
+      # PRs could not do so anyway: GITHUB_TOKEN is read-only for them.
+      #
+      # No PAT and no repository secret: GITHUB_TOKEN can push to this repository's own GHCR
+      # namespace, which is what makes publishing here small enough to be worth doing now rather
+      # than as part of the deployment slice.
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Two tags: `latest` for pulling, and the commit sha so a deployment can name exactly what
+      # it is running and roll back to something specific.
+      #
+      # The owner is lowercased rather than interpolated as-is. Registry paths must be lowercase
+      # and this account is `Livia-Rasp`, so the raw value fails with "repository name must be
+      # lowercase" — at push time, after the build and the smoke test have already passed.
+      - name: Push to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER/wikidata-inat-checker"
+          docker tag wikidata-inat-checker "$IMAGE:latest"
+          docker tag wikidata-inat-checker "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"

@@ -443,6 +443,12 @@ Five things turned out differently, three of them decisions and two of them disc
   image. Mount that index one day and the ~650 MB fork happens, at which point a 512m cap
   OOM-kills it and `SIGKILL` is never reported as a cancel. `mem_limit` is 1500m, sized for the
   spike rather than for today's accident.
+- **Publishing to GHCR came along for the ride**, pulled forward out of slice 9 because it turned
+  out to be about fifteen lines and no secrets — `GITHUB_TOKEN` can push to the repository's own
+  namespace. The trap, caught before it shipped: `github.repository_owner` is `Livia-Rasp`, and
+  registry paths must be lowercase, so interpolating it raw fails with "repository name must be
+  lowercase" — at push time, after the build and smoke test have passed. It is lowercased in the
+  workflow.
 - **The BuildKit cache mount needs `buildx` present**, which the build machine initially lacked —
   the Dockerfile did not build at all, since `--mount=type=cache` is BuildKit-only syntax and
   `DOCKER_BUILDKIT=0` is therefore not a fallback. Installing buildx was the fix; worth knowing
@@ -542,11 +548,18 @@ language the finding proposes.
 here is everything *around* the container rather than the container itself: publishing it, getting
 it onto the home server, and keeping the database safe once it lives there.
 
-- **Registry and redeploy.** The pipeline shape to copy is `docs/deployment-roadmap.md` in the
-  `vue-commons-gallery` repo: GitHub Actions publishing to GHCR on push to `main`, from a
-  GitHub-hosted runner only — deliberately not a self-hosted one, since a persistent
-  Docker-socket-privileged CI agent is a real liability on a box meant to run production services
-  — and `nicholas-fedor/watchtower` on the host polling GHCR.
+- **~~Registry~~ — done early, in 5d.** Publishing turned out to be far smaller than the rest of
+  this slice, so it was not worth deferring: `GITHUB_TOKEN` can push to the repository's own GHCR
+  namespace, so there is no PAT to create and no secret to rotate. CI builds, smoke-tests and then
+  pushes `latest` plus the commit sha, from pushes to `main` only. Build and publish are one job
+  deliberately — it publishes the image that just passed rather than a rebuild presumed identical.
+  Runs on a GitHub-hosted runner, never a self-hosted one: a persistent Docker-socket-privileged CI
+  agent is a real liability on a box meant to run production services.
+  **One manual step remains and is not automatable:** GHCR packages are private by default even
+  from a public repository, so the package's visibility has to be switched to public once, by hand,
+  in its settings. Until then `docker pull` needs authentication.
+- **Redeploy.** Still here: `nicholas-fedor/watchtower` on the host polling GHCR. The pipeline
+  shape to copy is `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo.
 - **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
   it, and by then it represents days of API budget. Note the server's connection is bound to the
   file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.

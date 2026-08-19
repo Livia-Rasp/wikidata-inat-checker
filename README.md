@@ -159,8 +159,13 @@ bridge gateway instead; fill the backlog with the CLI, which is what it is for. 
 build. Without it the app still serves everything, with search falling back to name matching
 rather than failing.
 
-Publishing the image, redeploying it and backing the database up are the next slice —
-see [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
+CI publishes the image to `ghcr.io/livia-rasp/wikidata-inat-checker` on every push to `main`,
+tagged `latest` and by commit sha. Note that GHCR packages start out private even for a public
+repository, so pulling it needs authentication until that package's visibility is switched to
+public by hand.
+
+Redeploying it automatically and backing the database up are the next slice — see
+[docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
 
 ## Project structure
 
