@@ -152,6 +152,14 @@ database: run `npm run images` on the host and the new findings appear without a
 published port is bound to the host's loopback, so `docker compose up` does not put an
 unauthenticated API on your network.
 
+**If `id -u` gives you something other than 1000**, start it as yourself instead — a bind mount
+keeps the host's ownership, so the container has to run as whoever owns `./data` or it exits with
+"unable to open database file":
+
+```sh
+WINC_UID=$(id -u) WINC_GID=$(id -g) docker compose up --build
+```
+
 Two limits worth knowing. **"Find more" does not work from the host browser** — discovery requires
 a request from the server's own machine, and through a published port the container sees the
 bridge gateway instead; fill the backlog with the CLI, which is what it is for. And the

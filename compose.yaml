@@ -18,7 +18,18 @@ services:
     # Node will not do for processes it did not spawn itself.
     init: true
     restart: unless-stopped
-    user: "node"
+
+    # Defaults to 1000:1000, which is the `node` user in the image — and, on a single-user Linux
+    # box, usually you. It has to match whoever owns ./data, because a **bind mount keeps the
+    # host's ownership**: Docker chowns a named volume on first use and does nothing of the kind
+    # here. Get it wrong and the container exits 1 with "unable to open database file", which is at
+    # least loud.
+    #
+    # If `id -u` says something other than 1000:
+    #   WINC_UID=$(id -u) WINC_GID=$(id -g) docker compose up
+    # That works because the image sets HOME explicitly, so a uid with no passwd entry inside the
+    # container still resolves os.homedir() instead of throwing.
+    user: "${WINC_UID:-1000}:${WINC_GID:-1000}"
 
     # Nothing outside the database directory is written at runtime: no route touches the
     # filesystem, and every write endpoint goes through SQL. /tmp is given a tmpfs because SQLite

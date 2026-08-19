@@ -456,6 +456,16 @@ Five things turned out differently, three of them decisions and two of them disc
 - **`read_only: true` works**, because no route touches the filesystem — every write endpoint is
   SQL only. The container runs with a read-only root, a tmpfs `/tmp`, and the bind mount as the
   single writable path.
+- **CI caught a portability bug that local verification could not, and the reason is worth
+  keeping.** Every check passed on the development machine because that user's uid is 1000, which
+  is also the `node` user in the official images — so the bind mount happened to be writable by
+  coincidence. On a GitHub runner (uid 1001) the container exited 1 with "unable to open database
+  file" before serving anything, and the README was at that moment telling every reader whose uid
+  is not 1000 to do exactly that. A bind mount keeps host ownership; only a *named volume* gets
+  chowned by Docker on first use. The container now takes `WINC_UID`/`WINC_GID`, and CI runs as
+  the runner rather than as `node`, so the mismatch is exercised rather than accidentally avoided.
+  The `ENV HOME` added earlier as belt-and-braces turned out to be what makes this possible: a uid
+  with no passwd entry resolves `os.homedir()` from `$HOME` instead of throwing.
 - **The keep-alive shutdown trap does not apply.** The usual failure — idle sockets holding
   `server.close()` open until the grace period expires — is pre-empted by Fastify 5 defaulting
   `forceCloseConnections` to `"idle"`. Measured: `docker stop` returns in 0.19 s with exit code 0,
