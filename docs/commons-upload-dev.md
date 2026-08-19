@@ -8,15 +8,24 @@ API recipes, category-discovery patterns) are factored out into
 [commons-integration.md](commons-integration.md) for future Commons-upload tools.
 
 **Implementation map:** `checkImages.js` records findings in `data/findings.db`, and
-`server/routes/findings.js` serves them as `GET /api/findings` — the data contract. The app:
-`web/index.html` + `web/js/main.js` (taxa list, confirm/skip, QuickStatements panel),
-`web/taxon.html` + `web/js/gallery.js` (per-taxon photo gallery), `web/js/commonsUpload.js` (the
-`Special:Upload` prefill-URL builder, ported from inat2wiki — see `web/README.md` for
-attribution), `web/js/api.js` + `web/js/state.js` (this app's own backend, and the in-memory
-mirror of the uploads/picks it holds), `web/js/cache.js` (enrichment lookup caches only, plus the
-legacy readers the one-time import uses). Served by `server/` (`npm run web`, see
-[security.md](security.md)). Shared taxon-name parsing lives in `report/htmlShared.js`
-(`extractTaxonName`).
+`server/routes/findings.js` serves them as `GET /api/findings` — the data contract. The app is
+three pages over one set of modules:
+
+| File | Role |
+|---|---|
+| `web/index.html` + `js/main.js` | the worklist: rows, confirm/skip, the QuickStatements panel |
+| `web/taxon.html` + `js/gallery.js` | one taxon's photo gallery and its enrichment |
+| `web/search.html` + `js/search.js` | the backlog search |
+| `js/rows.js` | renders and wires one backlog row for *both* table pages — `createRowTable` takes its tbody rather than an id, so two pages can hold one each |
+| `js/pager.js` | pages both table pages 100 rows at a time |
+| `js/topup.js` | starts, polls and cancels a discovery run |
+| `js/commonsUpload.js` | the `Special:Upload` prefill-URL builder, ported from inat2wiki (see `web/README.md` for attribution) |
+| `js/enrich.js` | place hierarchy, taxon ancestry, geographic and author categories |
+| `js/api.js` + `js/state.js` | this app's own backend, and the in-memory mirror of the uploads/picks it holds |
+| `js/cache.js` | the enrichment lookup caches in `localStorage`, plus the legacy readers the one-time import uses |
+
+Served by `server/` (`npm run web`, see [threat-model.md](threat-model.md)). Shared taxon-name parsing
+lives in `report/htmlShared.js` (`extractTaxonName`).
 
 ---
 
@@ -275,6 +284,11 @@ row using the taxon's **default** iNat photo.
 
 ### 4.1 Repo placement — build here now, extract later
 
+> **Superseded on the spin-out half (2026-08-14).** The app is still built here, but the planned
+> extraction into its own repository was dropped as theoretical when the Fastify backend landed —
+> see [findings-db-roadmap.md](findings-db-roadmap.md#decisions). The `web/` boundary described
+> below survives because it is cheap to keep, not because anything is waiting to move out.
+
 **Decision: build the app inside this repo (`wikidata-inat-checker`)**, with a planned
 spin-out into its own repository once this repo becomes public and the web service is
 published.
@@ -299,7 +313,7 @@ ready to be published (e.g. hosted Toolforge-style like `inat2wiki-dev.toolforge
 that point `web/` becomes its own repo; the data-export step (or a future backend) stays
 with the core here, or the core graduates into a published package.
 
-### 4.2 Architecture — no application backend (decided)
+### 4.2 Architecture — no application backend (decided, then reversed)
 
 The work splits into a **batch data step** (Node, stays with the core) and a **static
 client app** (`web/`):
@@ -323,11 +337,13 @@ explicitly *not* an application backend.
 **That changed with the findings database** (roadmap slice 3, 2026-08-15). The app now reads its
 worklist from `GET /api/findings` rather than a file, because the file was a snapshot every
 checker run overwrote. `server/` (Fastify) serves both it and `web/`; `web/serve.js` is gone. The
-things a backend was predicted to earn its keep for — on-demand re-scanning from the UI, auth,
-write access — are roadmap slices 5, 4 and 10, and they hang off this same server.
+things a backend was predicted to earn its keep for — write access and on-demand re-scanning from
+the UI — are roadmap slices 4 and 5, both shipped, and they hang off this same server. The third,
+auth, is [outside the roadmap's ordered plan](findings-db-roadmap.md#beyond-the-plan-oauth-upload-and-direct-editing)
+and will hang off it too.
 
 Its configuration is security-relevant (a strict CSP the app has to stay inside, a rate limiter
-scoped to `/api`, sanitised errors); the reasoning is in [security.md](security.md).
+scoped to `/api`, sanitised errors); the reasoning is in [threat-model.md](threat-model.md).
 
 ---
 
@@ -350,8 +366,10 @@ scoped to `/api`, sanitised errors); the reasoning is in [security.md](security.
    effectively unique, avoiding Commons' duplicate-name rejection. (The author name was
    dropped from the filename; it still appears in the `{{Information}}` author field.)
 
-Also decided: frontend = **plain JS/HTML/CSS** (no build step); **no application
-backend** — static `web/` app + CLI JSON export + trivial static file server (§4.2).
+Also decided: frontend = **plain JS/HTML/CSS** (no build step) — still true. The companion
+decision, **no application backend** (static `web/` app + CLI JSON export + trivial static file
+server), was **reversed in slice 3**: the app reads `GET /api/findings` from Fastify, and the JSON
+export and `web/serve.js` are gone (§4.2).
 
 ---
 
@@ -392,9 +410,12 @@ Special:Upload
 
 ## 7. Next iteration — richer file descriptions (working spec)
 
-**Status: collecting specifications, not yet implemented.** The initial file description is
-a thin stub (§1); this section is the running spec for making it good, comprehensive, but
-not overloaded. Items are confirmed as decided unless marked OPEN.
+**Status: shipped.** This was the running spec for turning the thin inat2wiki-style stub (§1)
+into a comprehensive-but-not-overloaded description, and all of §7.1–§7.7 is now live in
+`web/js/enrich.js` and `web/js/commonsUpload.js`. It is kept as the record of *why* each piece
+looks the way it does, including the live-API research behind it; what the app produces today is
+described in [commons-upload.md](commons-upload.md#what-the-file-description-contains). Items
+marked OPEN are still open.
 
 ### 7.1 Tracking category
 
@@ -419,7 +440,8 @@ local record of what was uploaded.
 - **Recorded data:** only the **`destFile`** (the Commons filename) per entry — that's all
   the backfill step needs.
 - **Storage:** `localStorage`, plus a **Download button on the main page** that exports the
-  list as **JSON**.
+  list as **JSON**. *(Moved to the `uploads` table in `data/findings.db` in slice 4 — a browser
+  profile is not where a record the checkers need to see belongs. The Download button stayed.)*
 - **Scope:** purely a backfill record. It does **not** drive a "hide / already done" filter
   in the gallery.
 
@@ -533,7 +555,7 @@ Notes:
 - If `observed_on` is missing, omit the `{{Taken on}}` wrapper (leave `|date=` empty or
   handle as an edge case) — to be finalised.
 
-### 7.5 Author category (best-effort) — IN SCOPE this session
+### 7.5 Author category (best-effort)
 
 Some iNaturalist photographers have a dedicated **Commons author category** (e.g.
 `Category:Photographs by Donald Hobern`). When one exists for the photo's author, add it to
@@ -569,7 +591,7 @@ static app.
   "none" won't pick up a category created later — acceptable; clearing the cache re-checks.
 - If a category is found, append it to the file's categories; otherwise add nothing.
 
-### 7.6 Geographic taxon categories — IN SCOPE this session
+### 7.6 Geographic taxon categories
 
 Add Commons "**`<Taxon> of <Place>`**" categories when they exist (e.g. `Picidae of Texas`,
 `Birds of Texas`, `Musophagiformes of South Africa`). High value — these are exactly the
@@ -710,10 +732,11 @@ records skip this (no ISO, and threatened localities should stay coarse).
 (`https://www.inaturalist.org/photos/<photo_id>`) and the separate `{{iNaturalist|<obs_id>}}`
 line below the Information block remains.
 
-## 8. Testing the enrichment & the app (no test suite)
+## 8. Testing the enrichment & the app (not covered by `npm test`)
 
-There is no automated test suite; the app is plain ES modules that call live APIs. Two harness
-patterns cover it, both runnable from throwaway scripts (keep them in a temp/scratch dir, not the
+`npm test` covers the Node side — `lib/`, `report/` and `server/`, all without network. It does
+**not** reach `web/js/*`: those are plain ES modules that call live APIs, so they are verified by
+hand. Two harness patterns cover them, both runnable from throwaway scripts (keep them in a temp/scratch dir, not the
 repo — see the project's "verify in a temp dir" note). Node ≥18 has a global `fetch`; Node ≥21
 has a global `WebSocket` (used for the Chrome DevTools Protocol below).
 

@@ -1,7 +1,7 @@
 {
   "name": "wikidata-inat-checker",
   "version": "1.0.0",
-  "description": "Finds iNaturalist observations with Commons-compatible licenses for Wikidata taxon items that lack an image, and generates draft Wikimedia Commons category pages for them",
+  "description": "Finds gaps in Wikidata's taxon items — missing images, vernacular names and iNaturalist links — by reconciling a local SQLite index of iNaturalist's 1.4M-taxon dump against Wikidata over batched SPARQL, with an assisted iNaturalist-to-Wikimedia-Commons photo upload app",
   "type": "module",
   "engines": {
     "node": ">=26"
@@ -24,7 +24,8 @@
     "linkStats": "node checkLinksStats.js",
     "area": "node checkArea.js",
     "draft": "node draftCategory.js",
-    "web": "node server/index.js"
+    "web": "node server/index.js",
+    "screenshots": "node tools/screenshots.mjs"
   },
   "keywords": [
     "wikidata",

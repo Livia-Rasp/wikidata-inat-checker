@@ -3,7 +3,7 @@
 //
 // Writes send `content-type: application/json` because the server's write guard requires it —
 // Fastify parses text/plain by default and a cross-origin form can send exactly that, so the
-// content type is part of the CSRF defence rather than a formality (docs/security.md).
+// content type is part of the CSRF defence rather than a formality (docs/threat-model.md).
 
 /**
  * A failed request carrying whatever the server said about it. `unknown_taxon` and

@@ -1,8 +1,8 @@
 # Developer notes
 
-Implementation details for contributors and for Claude to read on demand when debugging or extending the tools.
+The implementation reference: how the modules fit together, and why the non-obvious decisions are what they are. Written to be read on demand when debugging or extending a tool, not front to back — the section headings name the module each part belongs to.
 
-Its companion is [security.md](security.md) — the threat model for `server/`, why each header, limit and validation rule is there, and what is deliberately not done. Anything touching the HTTP surface belongs in that document, not this one.
+Its companion is [threat-model.md](threat-model.md) — the threat model for `server/`, why each header, limit and validation rule is there, and what is deliberately not done. Anything touching the HTTP surface belongs in that document, not this one.
 
 ## Module wiring
 
@@ -77,12 +77,13 @@ checkArea.js (args: --lat --lng --radius)
   └─ report/generateAreaHTML.js: writes output/area.html
 ```
 
-## Output & cache locations (`lib/paths.js`)
+## Output, cache and data locations (`lib/paths.js`)
 
-All generated files go under two gitignored, auto-created top-level dirs, so nothing but source sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
+All generated files go under three gitignored, auto-created top-level dirs, so nothing but source sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
 
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
 - **`cache/`** — `cache-names.json` and `cache-links.json` (per-checker "already scanned" sets) plus `cache-commons-cats.json` (Commons category existence). The image checker has none: it moved to `data/findings.db` in slice 1, and the names and links checkers follow in slices 7–8. Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
+- **`data/`** — `findings.db` only, and unlike the other two it is **not safe to delete**: it is the accumulated backlog and the record of what has been worked through, and nothing can reconstruct it. See [Findings database](#findings-database-libdbjs) below. `findingsDbPath()` is the single definition of where it lives, honouring `FINDINGS_DB` for every process that opens it — the checkers as well as the server, which is what lets a container mount the volume elsewhere and a test run point somewhere disposable.
 
 One thing deliberately lives elsewhere: the ~236 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`). **Only the CLI may build it** — `ensureTaxaDb()` downloads ~189 MB and rebuilds; `openTaxaDb()` is the server's counterpart and throws instead.
 
@@ -156,21 +157,23 @@ fires. `GET /api/findings?kind=&status=&limit=&offset=` returns `{generated, tot
 offset, taxa}`; `total` is the count *before* paging, so a truncated page cannot pass itself off as
 the whole backlog.
 
-**Discovery** (slice 5) is `POST /api/discover`, `GET /api/discover/status` and
+**Discovery** is `POST /api/discover`, `GET /api/discover/status` and
 `POST /api/discover/cancel` — see [Discovery](#discovery-libdiscoverjs-serverjobsjs) below.
 
-**Search** (slice 5c) is `GET /api/search?taxon=&iucn=&limit=&offset=` and
+**Search** is `GET /api/search?taxon=&iucn=&limit=&offset=` and
 `GET /api/taxa/suggest?q=&limit=` — see [Searching the backlog](#searching-the-backlog-libbacklogindexjs).
 
-**Writes** (slice 4) are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
-`{ids}`), and `POST /api/findings/:id/skip`. All of them sit behind `server/writeGuard.js` and carry
-a tighter rate limit than reads, because a confirm spends Wikimedia's API budget and not just ours.
-`fetchFn` is threaded from `buildServer` down to `confirmFindings`, so the whole application can be
-driven over an in-memory database with no network.
+**Writes** are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
+`{ids}`), `POST /api/findings/:id/skip`, `POST /api/uploads` (record an upload or a P18 pick,
+read back by `GET /api/uploads`) and `POST /api/import` (the one-time `localStorage` importer).
+All of them sit behind `server/writeGuard.js` and carry a tighter rate limit than reads, because a
+confirm spends Wikimedia's API budget and not just ours. `fetchFn` is threaded from `buildServer`
+down to `confirmFindings`, so the whole application can be driven over an in-memory database with
+no network.
 
 Everything about *why* the headers, limits and validation rules are what they are — including the
 CSP hosts that are easy to get wrong, and what the write guard defends against — is in
-[security.md](security.md).
+[threat-model.md](threat-model.md).
 
 ### Discovery (`lib/discover.js`, `server/jobs.js`)
 
@@ -301,8 +304,6 @@ Results go through **`store.markVerified()`, never `recordFinding()`** — the l
 One helper owns the `wbgetentities` ceiling of **50 ids per request** and the Wikimedia guidance of **≤3 concurrent requests** (the three call sites it replaced each used 4), plus retry via the shared `fetchWithRetry`. `sitefilter` and `languages` are parameters rather than constants because callers want different things — the ancestor walk needs `specieswiki`, verification needs `commonswiki`, place labels need `props=labels&languages=en` — and a single widened filter would make every batch carry payload most callers never read.
 
 A well-formed but deleted or merged id returns per-entity `{id, missing: ''}`, so one bad id does not fail its batch. Only a *malformed* id (out of range) fails the whole request with `no-such-entity`; QIDs sourced from Wikidata cannot hit that.
-
-**Known interim gap.** The report's done checkbox still writes `localStorage` (`done-<QID>`), which the checker cannot see, so ticking a row does not mark the finding `done` and it reappears in the next regenerated report. That mattered less when the report was a one-shot list; now that it is the persistent backlog it is visible. Slice 4 of [findings-db-roadmap.md](findings-db-roadmap.md) moves that state into the database.
 
 ## Vernacular name language codes (`lib/getInatNames.js`)
 

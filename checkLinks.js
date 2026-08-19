@@ -7,16 +7,19 @@ import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
 import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk } from './lib/utils.js';
 import { outputPath, cachePath, ensureParentDir } from './lib/paths.js';
+import { runMain } from './lib/cli.js';
 
 const CACHE_FILE = cachePath('cache-links.json');
 
 const args = parseArgs();
 const limit = parseLimit(args, 200);
-const { iucnArg, iucnQid } = parseIucnArg(args);
 const autoMode = args.auto === true;
 
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
+    // Validated inside run(), not at module scope: a throw up there escapes before runMain can
+    // catch it, and the user gets a stack trace where a one-line message belongs.
+    const { iucnArg, iucnQid } = parseIucnArg(args);
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
 
     // Load the local iNat taxa DB first — its names drive the Wikidata query.
@@ -210,4 +213,4 @@ WHERE {
     console.log('Done.');
 }
 
-run().catch(err => { console.error('Fatal error:', err); process.exit(1); });
+runMain(run);

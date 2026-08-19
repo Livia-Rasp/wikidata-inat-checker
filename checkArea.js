@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // @ts-check
-import { reqInit, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './lib/utils.js';
+import { reqInit, sparql, createRateLimiter, parseArgs, chunk } from './lib/utils.js';
 import { generateAreaHTML } from './report/generateAreaHTML.js';
+import { runMain } from './lib/cli.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
@@ -28,7 +29,8 @@ async function run() {
     const inatLimiter   = createRateLimiter(1100);
     const sparqlLimiter = createRateLimiter(500);
 
-    // Step 1: all species with CC-licensed research-grade photos in the area
+    // Step 1: every species with a research-grade observation in the area. Deliberately no
+    // license filter — unlike the image checker, the point here is to photograph these yourself.
     console.log(`Querying iNat for species within ${radius} km of ${lat}, ${lng}...`);
     /** @type {{taxonId: string, taxonName: string, commonName: string, count: number}[]} */
     const species = [];
@@ -149,7 +151,4 @@ async function run() {
     generateAreaHTML({ lat, lng, radius, totalSpecies: species.length, qualified, noImage, obsMap, latestDateMap });
 }
 
-run().catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+runMain(run);

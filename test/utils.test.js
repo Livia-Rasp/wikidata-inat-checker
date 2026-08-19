@@ -7,6 +7,7 @@ import {
     IUCN_STATUS_QIDS, IUCN_QID_TO_CODE,
     reqInit, HEADERS, FETCH_TIMEOUT_MS, SPARQL_TIMEOUT_MS,
 } from '../lib/utils.js';
+import { UsageError } from '../lib/cli.js';
 
 test('chunk splits into fixed-size groups, remainder last', () => {
     assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
@@ -61,17 +62,17 @@ test('parseIucnArg: uppercases the code and maps to a QID', () => {
     assert.deepEqual(parseIucnArg({ iucn: true }), { iucnArg: null, iucnQid: null }); // bare --iucn
 });
 
-test('parseIucnArg: an unknown code exits with an error', () => {
-    const realExit = process.exit, realErr = console.error;
-    // @ts-ignore — stub process.exit so the invalid-code branch is observable, not fatal
-    process.exit = (code) => { throw new Error(`exit:${code}`); };
-    console.error = () => {};
-    try {
-        assert.throws(() => parseIucnArg({ iucn: 'ZZ' }), /exit:1/);
-    } finally {
-        process.exit = realExit;
-        console.error = realErr;
-    }
+test('parseIucnArg: an unknown code throws a usage error, and does not exit', () => {
+    // It used to call process.exit, which this test had to stub to observe at all — a library
+    // killing the process is only survivable where the process is disposable. Now it throws and
+    // runMain owns the exit.
+    assert.throws(() => parseIucnArg({ iucn: 'ZZ' }), (err) => {
+        assert.ok(err instanceof UsageError);
+        assert.equal(err.expected, true);
+        assert.match(err.message, /ZZ/);
+        assert.match(err.hints.join(' '), /CR/); // the valid codes are offered
+        return true;
+    });
 });
 
 test('IUCN_STATUS_QIDS and IUCN_QID_TO_CODE are exact inverses', () => {

@@ -35,10 +35,9 @@ npm run linkStats                          # stats mode: survey ALL taxa, print 
 | Taxon name | Scientific name (P225). |
 | iNat taxon | Link to the iNaturalist taxon page. |
 | QuickStatements | Click to copy. Adds P3151 with the iNat taxon ID. |
-| WD tree | Full Wikidata ancestor chain (kingdom → genus), sourced from Wikidata P171 links. Rank labels shown for known ranks (genus, family, order, class, etc.). |
-| iNat tree | Full iNat ancestor chain (kingdom → genus), sourced from the local taxa database — no extra API call. Rank labels (Family, Order, Class, …) shown for all entries. |
+| Taxonomy (WD · iNat) | The two ancestor chains side by side: the Wikidata one (kingdom → genus, from P171 links, rank labels shown for the known ranks) against the iNat one (from the local taxa database — no extra API call, rank labels on every entry). |
 
-The two tree columns let you verify at a glance that a matched pair actually refers to the same organism — mismatched families or genera are immediately visible without opening additional tabs.
+The paired trees let you verify at a glance that a matched pair actually refers to the same organism — mismatched families or genera are immediately visible without opening additional tabs.
 
 An aggregate field above the table accumulates QuickStatements from all checked rows for batch copying.
 
@@ -46,19 +45,18 @@ The conflict table below (shown only when conflicts exist) lists iNat IDs found 
 
 ## output/links-ambiguous.html layout
 
-Each row group represents one Wikidata item whose scientific name matches multiple iNat taxa. The columns with rowspan (✓, Wikidata item, Taxon name, WD tree) appear once per group; the remaining columns repeat for each candidate:
+Each row group represents one Wikidata item whose scientific name matches multiple iNat taxa. The columns with rowspan (✓, Wikidata item, Taxon name) appear once per group; the remaining three repeat for each candidate:
 
 | Column | Description |
 |---|---|
 | ✓ | Checkbox to mark the group resolved (localStorage-persisted). |
 | Wikidata item | Link to the Wikidata entity. |
 | Taxon name | Scientific name (P225). |
-| WD tree | Full Wikidata ancestor chain — shown once per group for comparison. |
 | iNat candidate | Link to the iNat taxon page, plus its rank (species, genus, …). |
-| iNat tree | Full iNat ancestor chain for this candidate. |
+| Taxonomy (WD · iNat) | The item's Wikidata chain against *this candidate's* iNat chain, ranks aligned side by side — green where the names match, red where they conflict. |
 | QuickStatements | Click to copy `{qid} P3151 "{inatId}"` for this specific candidate. |
 
-Compare the WD tree against each iNat candidate tree to identify which (if any) refers to the same organism.
+The Wikidata chain repeats in every candidate's Taxonomy cell, so each row is a self-contained comparison: read down the column to see which candidate (if any) refers to the same organism.
 
 ## Stats mode
 

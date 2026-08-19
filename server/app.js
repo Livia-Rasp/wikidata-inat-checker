@@ -6,7 +6,7 @@
 // tests inject an in-memory database, server/index.js injects the real file. It must never close
 // the store it was handed; server/index.js owns that lifetime.
 //
-// Threat model and the reasoning behind each header in docs/security.md.
+// Threat model and the reasoning behind each header in docs/threat-model.md.
 import { fileURLToPath } from 'node:url';
 import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';

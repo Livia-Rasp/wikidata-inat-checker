@@ -4,23 +4,32 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
+**Status:** slices 0–5 and 5c are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery and the backlog search.
+Next is 5d (a container that runs), then 5b (scheduled top-up), 6 (app shell, area as a discovery
+scope), 7–8 (the links and names checkers onto the findings table) and 9 (deploying that
+container, with backups). Each slice ships as its own pull request, and each records below what
+turned out differently from the plan — that is the part worth reading.
+
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
-implementation detail. It is the **plan of record**: where it disagrees with
-[web-app-architecture.md](web-app-architecture.md), this wins. That document keeps what this one
-does not cover — the Fastify rationale, the `core/` extraction, the page structure, and the shared
-enrichment cache (a separate thing from the findings database).
+implementation detail, and the **plan of record** for persistence, sequencing and the web app.
+It absorbed `web-app-architecture.md`, a pre-Fastify planning document that had been overtaken on
+almost every point; what survived of it is [Not scheduled](#not-scheduled) at the end.
 
 ## Why
 
-The `cache/cache-*.json` files are tombstones, not caches: they record `inatId → date-checked` and
-never the result. The results live in `output/*.html` and `web/data/taxa.json`, which are
-overwritten wholesale on every run. So **a second run destroys the backlog from the first** — those
-taxa are cached, therefore skipped forever, and what described them is gone. That is why a batch
-cannot be worked through at leisure, and it gets worse the moment anything runs on a schedule.
+*(The state of the repo when this was written. Slices 1 and 4 fixed it for the image checker; the
+`cache/cache-*.json` files are still how names and links work, until slices 7 and 8.)*
 
-Separately, the "done" state lives in `localStorage` (`winc-uploaded`, `winc-p18` in
-`web/js/cache.js`), keyed per browser profile, so the checkers cannot see it and it dies with the
-profile.
+The `cache/cache-*.json` files are tombstones, not caches: they record `inatId → date-checked` and
+never the result. The results lived in `output/*.html` and `web/data/taxa.json`, overwritten
+wholesale on every run. So **a second run destroyed the backlog from the first** — those taxa are
+cached, therefore skipped forever, and what described them is gone. That is why a batch could not
+be worked through at leisure, and it would get worse the moment anything ran on a schedule.
+
+Separately, the "done" state lived in `localStorage` (`winc-uploaded`, `winc-p18` in
+`web/js/cache.js`), keyed per browser profile, so the checkers could not see it and it died with
+the profile.
 
 ## Decisions
 
@@ -236,7 +245,7 @@ project a *service*:
 - **The API was hardened in its first commit, not a follow-up.** An intermediate commit with no CSP,
   no rate limit and a leaking error handler is not a state worth being able to bisect to. The
   threat model, and more usefully the list of what is deliberately *not* done, is the new
-  [security.md](security.md) — which **slice 4 must re-read**, because "it only reads public data"
+  [threat-model.md](threat-model.md) — which **slice 4 must re-read**, because "it only reads public data"
   stops being true at the first write endpoint.
 - **The CSP forced a small `web/` refactor.** helmet's default `script-src-attr 'none'` blocks
   event-handler attributes, and the app had three (`onclick`/`onchange`) plus three `window.*`
@@ -269,11 +278,12 @@ into `done`.
 
 Five things worth keeping:
 
-- **Confirmation requires both statements**, P18 *and* the commonswiki sitelink, decided against my
-  recommendation of P18-alone. It costs nothing (slice 2 already fetched `sitefilter=commonswiki`
-  and never read it) and it catches the half-applied batch, which is a real failure mode. The
-  objection I raised — a taxon that will never have a Commons category sits open looking like a
-  failure — is answered by the response naming *which* half is missing, and by `skip`.
+- **Confirmation requires both statements**, P18 *and* the commonswiki sitelink — chosen over the
+  simpler P18-alone test, which was the recommendation at the time. It costs nothing (slice 2
+  already fetched `sitefilter=commonswiki` and never read it) and it catches the half-applied
+  batch, which is a real failure mode. The objection against it — a taxon that will never have a
+  Commons category sits open looking like a failure — is answered by the response naming *which*
+  half is missing, and by `skip`.
 - **This makes confirm and verify disagree, deliberately.** Verify still resolves on P18 alone,
   because it asks "does this still need an image?". Written up in [dev.md](dev.md) so it does not
   read as a bug later.
@@ -315,7 +325,8 @@ Five things worth carrying forward:
   until every HTTP call was done, so a run that was killed or cancelled had nothing to show for the
   API budget it had already spent. Findings are now written per iNat batch, which is what makes
   progress real and `cancel` mean "stop here, keep what is done".
-- **`process.exit(1)` on bad input was the highest-severity finding of the audit.** An unknown taxon
+- **`process.exit(1)` on bad input was the highest-severity finding of the pre-exposure review.**
+  An unknown taxon
   or IUCN code killed the process; over HTTP that is an unauthenticated remote kill. Those are typed
   errors now, resolved *before* the run row is opened so a rejected scope leaves no trace.
 - **The server must never build the taxa index.** `loadTaxaDb()` downloads 189 MB and rebuilds on a
@@ -381,6 +392,38 @@ widening and narrowing through the rail and the composition strip with Back undo
 clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
 scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
+### 5d. A container that runs — **next**
+Added 2026-08-19, splitting the dockerisation in two. Slice 9 bundled "runs in a container" with
+"is deployed from a registry and backed up", and those are different problems: the first is about
+the runtime — does this thing start, find its database and serve — while the second is pipeline
+and operations. Doing the runtime half early de-risks the other half, because the volume and
+configuration questions get answered while they are still cheap to get wrong.
+
+Deliberately small. A `Dockerfile` and a compose file; the findings database on a mounted volume;
+`HOST`, `PORT` and `TRUST_PROXY` set correctly for a container, which is exactly the configuration
+[threat-model.md](threat-model.md) warns about — binding beyond loopback needs `ALLOW_REMOTE_WRITES`
+*and* `ALLOWED_HOSTS`, or every write is refused by the Host allowlist under a name that is not
+`localhost`.
+
+**Explicitly not here:** GHCR, watchtower, automated redeploys, the backup timer. Those stay in
+slice 9. This slice ends at `docker compose up` giving you a working app against a persistent
+volume.
+
+Two things to get right, because they are the ones a naive image gets wrong:
+
+- **The taxa index is not in the image.** It is ~236 MB, derived, and rebuilt from a 189 MB
+  download — so it belongs on a volume alongside the findings database, not baked into a layer.
+  The server refuses to build it anyway (`openTaxaDb()` throws where the CLI's `ensureTaxaDb()`
+  downloads), so a container without it must degrade rather than fail: search says `degraded: true`
+  and discovery is unavailable. Worth confirming that is what actually happens.
+- **Discovery forks a child**, which needs the image to have a working `process.execPath` and
+  enough memory for a ~650 MB heap spike. A container memory limit set below that turns a
+  discovery run into an OOM kill — and `SIGKILL` is deliberately never reported as a cancel, so it
+  would surface as a mystery.
+
+**Working means:** `docker compose up`, open the worklist, confirm a finding, restart the
+container, and the confirmation is still there.
+
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
 which builds everything it needs: the child-process job runner, the single-flight lock, the status
@@ -417,9 +460,9 @@ come back with a blank date. Taxa are not dropped, only their enrichment. Confir
 reproduces first — it was noted 2026-07-02 and has not been re-verified.
 
 **Working means:** the area checker is part of the app, and the `TODO(area-enrichment)` comment and
-the "Known limitation" section in `docs/area.md` are gone. `docs/area.md`'s "How it works" and layout
-table are also stale about the latest-date column and the real sort order; tidy them in the same
-pass.
+the "Known limitation" section in `docs/area.md` are gone. (The stale "How it works" and layout
+table in that doc — which described neither the latest-date column nor the real sort order — were
+fixed separately on 2026-08-19, so only the enrichment gap itself is left.)
 
 **What the shell has to be, decided 2026-08-16 while building 5c** — three requirements that turn
 "navigation" from a nav bar into a real piece of design, and that slices 7 and 8 then inherit rather
@@ -457,14 +500,22 @@ the schema really is multi-kind before the more complex names data lands.
 Migrates `checkNames.js`. Verification is per-language: P1843 must not already carry a name in the
 language the finding proposes.
 
-### 9. Dockerise, with a persistent volume and backups
-Fastify plus a mounted volume for the findings database, port 8080. `HOST` and `TRUST_PROXY` are the
-two settings to get right here — see [security.md](security.md), which explains why the server binds
-loopback by default and why trusting `X-Forwarded-For` unconditionally would make the rate limiter
-bypassable. Note also that the server's connection is bound to the file it opened: restoring a
-`VACUUM INTO` backup requires a restart, or it keeps serving the old database. The pipeline shape to copy is
-`docs/deployment-roadmap.md` in the `vue-commons-gallery` repo. Backup is `VACUUM INTO` on a timer;
-the database is gitignored, so nothing else is protecting it.
+### 9. Deploy that container, with backups
+**Scope narrowed 2026-08-19**, now that slice 5d builds the image and proves it runs. What is left
+here is everything *around* the container rather than the container itself: publishing it, getting
+it onto the home server, and keeping the database safe once it lives there.
+
+- **Registry and redeploy.** The pipeline shape to copy is `docs/deployment-roadmap.md` in the
+  `vue-commons-gallery` repo: GitHub Actions publishing to GHCR on push to `main`, from a
+  GitHub-hosted runner only — deliberately not a self-hosted one, since a persistent
+  Docker-socket-privileged CI agent is a real liability on a box meant to run production services
+  — and `nicholas-fedor/watchtower` on the host polling GHCR.
+- **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
+  it, and by then it represents days of API budget. Note the server's connection is bound to the
+  file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.
+- **`TRUST_PROXY` once something fronts it** — see [threat-model.md](threat-model.md) for why
+  trusting `X-Forwarded-For` unconditionally makes the rate limiter bypassable, and why leaving it
+  off behind a real proxy collapses every client into one bucket.
 
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
@@ -522,6 +573,47 @@ client has skipped it (or once one marks it a global fact), and when identity do
 replaced by a real user id without moving any data. That keeps `localStorage` holding one thing it
 is actually good for: which client this is.
 
+## Known: a CLI run killed outright stays `running` forever
+
+Raised 2026-08-19, by doing it. `startRun` inserts a row with `state = 'running'`, and `discover()`
+sets the terminal state from a `finally`, so an error or a cancel is recorded honestly — `failed`,
+`cancelled`, `done`. What bypasses that block is a signal: **Ctrl-C on a checker is enough**, since
+Node's default `SIGINT` terminates without unwinding pending async work, and `SIGKILL` obviously is.
+The row is then a permanent claim that a run is in progress.
+
+`store.reconcileRuns()` exists for exactly this and does the right thing — every `running` row
+becomes `interrupted`. It is called from **`server/index.js` at startup only**. So the gap is
+narrow and specific: someone who drives the CLI and never starts the server accumulates rows that
+lie about the present.
+
+**Cosmetic today, and worth knowing why**, because the reasons are what a fix must not break:
+
+- **Nothing is blocked.** `server/jobs.js` holds the single-flight lock in an in-memory `record`,
+  not in the `runs` table, so a stale row cannot wedge discovery.
+- **Freshness is unaffected.** The "backlog as of" query is `MAX(finished_at) … WHERE finished_at
+  IS NOT NULL`, which already ignores unfinished runs by design.
+- The damage is a misleading history, and it will matter more once anything reports on runs.
+
+**The obvious fix is wrong.** Calling `reconcileRuns()` at CLI startup would mark a *genuinely
+live* run as interrupted: the server may be running a discovery child at that moment, and from a
+row alone a second process cannot tell "died" from "still going". Two processes share this file —
+that is the whole reason `busy_timeout` and `BEGIN IMMEDIATE` are there — so any reconciliation has
+to prove the owner is gone, not assume it.
+
+What a real fix needs, roughly in order of cost:
+
+- **A cheap partial:** a `SIGINT`/`SIGTERM` handler in the CLI that marks *its own* run
+  interrupted before exiting. Covers Ctrl-C, which is the common case, and nothing else. The
+  discovery child already does the equivalent — it aborts on `SIGTERM` so the `finally` runs — so
+  this is the same pattern applied to the CLI entry points.
+- **The real fix:** record who owns a run (pid plus start time, or a heartbeat column the running
+  process touches) and reconcile only rows whose owner is provably gone. That is a schema change,
+  which is why it is not worth doing before something actually reads run history.
+
+Related, and deliberately unfixed for the same reason: `reconcileRuns()` is a blunt sweep at
+startup, so two servers against one database would each interrupt the other's live runs. Today
+there is one server by construction.
+
 ## Wanted: an interface for ambiguous matches
 
 Raised 2026-08-16. Two different ambiguities, both currently under-served, and worth solving once:
@@ -552,7 +644,7 @@ sequencing risk, not about wanting it less:
 - Every other slice is reversible. OAuth is the point where this stops being a worklist that
   *suggests* edits and becomes software that *makes* them, under the operator's own account, on
   Wikidata and Commons. That step is worth taking only once the rest is tight.
-- `docs/security.md` says the current no-auth posture "expires" here, and it means it: today's
+- `docs/threat-model.md` says the current no-auth posture "expires" here, and it means it: today's
   protection is a loopback bind plus a CSRF guard, which is adequate for a personal worklist and
   not for a token that can edit Commons.
 
@@ -565,4 +657,27 @@ When it does happen, three things already decided are worth not re-arguing:
   toolbox's OAuth2 work is a model to orient on, not a dependency to wait for.
 - **Confirmation collapses into the edit**, because the API returns a revision id synchronously —
   which lands in the `resolution` column that has been written since slice 1, so no migration.
+
+## Not scheduled
+
+Wanted, unsequenced, and deliberately not slices. These are what survived `web-app-architecture.md`
+(written before the Fastify decision, absorbed here 2026-08-19); everything else in it was either
+built differently or rejected outright — most notably its scheduled-refresh design, replaced by
+the conditional trigger in slice 5b, and its `core/` extraction, which was never needed once the
+CLI and the server ended up sharing `lib/` directly.
+
+- **A shared, server-side enrichment cache** — a different thing from the findings database.
+  `web/js/enrich.js` caches place hierarchies, category existence, author categories and taxon
+  ancestry in `localStorage`, per browser profile, so the same lookups repeat across users and die
+  with a cleared profile. Serving them from `/api/enrich/*` over a `node:sqlite` store would dedupe
+  them, and would let the server set a descriptive `User-Agent` the browser cannot. Keep today's
+  cache keys (`places`, `ancestry`, `catexists`, `authorcat`) and it is a backend swap rather than
+  a logic change. Not urgent while there is one operator; the argument gets much stronger the
+  moment the read view is public.
+- **Background jobs with live progress.** Discovery reports a state flag polled from
+  `GET /api/discover/status`, not streamed progress. Revisit if minute-long runs feel too opaque;
+  the run record is the seed for a real job system, so nothing is wasted.
+- **Auth / multi-user**, which arrives with OAuth and is what
+  [global `skipped`](#known-skipped-does-not-survive-more-than-one-user) is waiting on. The shared
+  enrichment cache above needs none of it — it is anonymous — but a per-user uploaded-list would.
 
