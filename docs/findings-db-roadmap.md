@@ -6,10 +6,10 @@ below, the ordered work is in [Slices](#slices).
 
 **Status:** slices 0–5 and 5c are shipped — the findings database, the verification pass, the
 Fastify backend, the confirm-gated done state, on-demand scoped discovery and the backlog search.
-Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope), 7–8 (the links and
-names checkers onto the findings table), 9 (containerised deployment). Each slice was shipped as
-its own pull request, and each records below what turned out differently from the plan — that is
-the part worth reading.
+Next is 5d (a container that runs), then 5b (scheduled top-up), 6 (app shell, area as a discovery
+scope), 7–8 (the links and names checkers onto the findings table) and 9 (deploying that
+container, with backups). Each slice ships as its own pull request, and each records below what
+turned out differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -392,6 +392,38 @@ widening and narrowing through the rail and the composition strip with Back undo
 clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
 scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
+### 5d. A container that runs — **next**
+Added 2026-08-19, splitting the dockerisation in two. Slice 9 bundled "runs in a container" with
+"is deployed from a registry and backed up", and those are different problems: the first is about
+the runtime — does this thing start, find its database and serve — while the second is pipeline
+and operations. Doing the runtime half early de-risks the other half, because the volume and
+configuration questions get answered while they are still cheap to get wrong.
+
+Deliberately small. A `Dockerfile` and a compose file; the findings database on a mounted volume;
+`HOST`, `PORT` and `TRUST_PROXY` set correctly for a container, which is exactly the configuration
+[threat-model.md](threat-model.md) warns about — binding beyond loopback needs `ALLOW_REMOTE_WRITES`
+*and* `ALLOWED_HOSTS`, or every write is refused by the Host allowlist under a name that is not
+`localhost`.
+
+**Explicitly not here:** GHCR, watchtower, automated redeploys, the backup timer. Those stay in
+slice 9. This slice ends at `docker compose up` giving you a working app against a persistent
+volume.
+
+Two things to get right, because they are the ones a naive image gets wrong:
+
+- **The taxa index is not in the image.** It is ~236 MB, derived, and rebuilt from a 189 MB
+  download — so it belongs on a volume alongside the findings database, not baked into a layer.
+  The server refuses to build it anyway (`openTaxaDb()` throws where the CLI's `ensureTaxaDb()`
+  downloads), so a container without it must degrade rather than fail: search says `degraded: true`
+  and discovery is unavailable. Worth confirming that is what actually happens.
+- **Discovery forks a child**, which needs the image to have a working `process.execPath` and
+  enough memory for a ~650 MB heap spike. A container memory limit set below that turns a
+  discovery run into an OOM kill — and `SIGKILL` is deliberately never reported as a cancel, so it
+  would surface as a mystery.
+
+**Working means:** `docker compose up`, open the worklist, confirm a finding, restart the
+container, and the confirmation is still there.
+
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
 which builds everything it needs: the child-process job runner, the single-flight lock, the status
@@ -468,14 +500,22 @@ the schema really is multi-kind before the more complex names data lands.
 Migrates `checkNames.js`. Verification is per-language: P1843 must not already carry a name in the
 language the finding proposes.
 
-### 9. Dockerise, with a persistent volume and backups
-Fastify plus a mounted volume for the findings database, port 8080. `HOST` and `TRUST_PROXY` are the
-two settings to get right here — see [threat-model.md](threat-model.md), which explains why the server binds
-loopback by default and why trusting `X-Forwarded-For` unconditionally would make the rate limiter
-bypassable. Note also that the server's connection is bound to the file it opened: restoring a
-`VACUUM INTO` backup requires a restart, or it keeps serving the old database. The pipeline shape to copy is
-`docs/deployment-roadmap.md` in the `vue-commons-gallery` repo. Backup is `VACUUM INTO` on a timer;
-the database is gitignored, so nothing else is protecting it.
+### 9. Deploy that container, with backups
+**Scope narrowed 2026-08-19**, now that slice 5d builds the image and proves it runs. What is left
+here is everything *around* the container rather than the container itself: publishing it, getting
+it onto the home server, and keeping the database safe once it lives there.
+
+- **Registry and redeploy.** The pipeline shape to copy is `docs/deployment-roadmap.md` in the
+  `vue-commons-gallery` repo: GitHub Actions publishing to GHCR on push to `main`, from a
+  GitHub-hosted runner only — deliberately not a self-hosted one, since a persistent
+  Docker-socket-privileged CI agent is a real liability on a box meant to run production services
+  — and `nicholas-fedor/watchtower` on the host polling GHCR.
+- **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
+  it, and by then it represents days of API budget. Note the server's connection is bound to the
+  file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.
+- **`TRUST_PROXY` once something fronts it** — see [threat-model.md](threat-model.md) for why
+  trusting `X-Forwarded-For` unconditionally makes the rate limiter bypassable, and why leaving it
+  off behind a real proxy collapses every client into one bucket.
 
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.

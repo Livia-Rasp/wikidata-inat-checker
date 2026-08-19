@@ -114,8 +114,9 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–5 and 5c are done; 5b and 6–9 remain, and
-  OAuth is deliberately outside the plan. Two known gaps are written up there rather than
+  restructure around `data/findings.db`. Slices 0–5 and 5c are done; **5d (a runnable container)
+  is next**, then 5b and 6–9, and OAuth is deliberately outside the plan. Two known gaps are
+  written up there rather than
   fixed: **`skipped` is global**, and the **ambiguous-match views** need a real interface.
   **Read it before changing anything about caching, persistence, or the web app.**
 - [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
