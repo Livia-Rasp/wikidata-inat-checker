@@ -26,7 +26,12 @@ npm run images -- --limit 500 --iucn VU
 npm run web                                 # Fastify: serves web/ + the API, localhost:8080
 DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
 npm test                                    # unit suite (node --test over test/*.test.js)
+npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
 ```
+
+**Changing anything under `web/` means re-running `npm run screenshots`** and committing the
+result with the change. The screenshots are documentation and go stale the same way prose does —
+see [docs/screenshots/README.md](docs/screenshots/README.md).
 
 No build step. Node 26+ (`node:sqlite` is built in, so there is no native dependency).
 Server environment variables and why each exists: [docs/threat-model.md](docs/threat-model.md).
@@ -63,6 +68,7 @@ Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — 
   `index.html` (worklist), `taxon.html` (one taxon's photos), `search.html` (backlog search).
 - **`test/`** — `node:test` unit suite. No network, sub-second. Add cases when touching the
   pure logic it covers.
+- **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images.
 
 ## Generated artifacts
 

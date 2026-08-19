@@ -19,6 +19,11 @@ the edit has been confirmed live on Wikidata.
 The image half also ships a small web app that walks a photo from iNaturalist to Wikimedia
 Commons to Wikidata, pre-filling each step.
 
+![The taxon gallery: an image-less taxon's CC-licensed iNaturalist photos, each with its license, photographer, a pre-filled Commons upload link and a Wikidata-image pick](docs/screenshots/gallery.jpg)
+
+<sub>Photos of *Bulbophyllum radicans* by Lachlan Copeland (CC BY-SA) and Lucas Christofides
+(CC BY), via iNaturalist — shown here as the app renders them.</sub>
+
 ## Installation
 
 Requires Node.js 26+ — the SQLite index uses the built-in `node:sqlite` module, so there is no
@@ -100,6 +105,8 @@ category, a **View photos ↗** link and the draft category Wikitext (click to c
 the top sit the **QuickStatements** panel for picked photos, **Confirm pending**, and
 **Download uploaded list**.
 
+![The worklist: a table of image-less taxa with IUCN badges, Commons category links and the generated draft Wikitext, above a QuickStatements panel](docs/screenshots/worklist.png)
+
 ### Taxon gallery (`taxon.html`)
 
 One taxon's research-grade, Commons-compatibly-licensed (CC0 / CC BY / CC BY-SA) iNaturalist
@@ -117,6 +124,8 @@ slice of the backlog holds one rank down, and the matching rows. Ancestors widen
 clades under it narrow it, and the nine Red List chips compose with either. The query is in the
 URL, so a search is linkable and Back steps through it. Searching is a read — it asks nothing of
 iNaturalist or Wikidata.
+
+![The backlog search scoped to Orchidaceae: the ancestor rail from Plantae down, Red List chips with counts, and the clade's composition one rank below](docs/screenshots/search.png)
 
 With `DISCOVER_ENABLED=1` the page also gains **Find more**, which runs a discovery scoped to
 whatever you just searched — the same work `npm run images` does, in a forked child, with progress
@@ -139,6 +148,7 @@ row stays on the worklist and says which half is missing.
 - **`server/`** — the Fastify app behind `npm run web`.
 - **`web/`** — the browser upload app (plain HTML/JS/CSS, no build step).
 - **`test/`** — unit tests (`npm test`, Node's built-in runner — no dev dependencies, no network).
+- **`tools/`** — repo maintenance. `npm run screenshots` regenerates the images in this README from the running app, so they cannot quietly fall out of date.
 - **`output/`, `cache/`, `data/`** — generated artifacts (gitignored, created on first run).
 
 ## Documentation

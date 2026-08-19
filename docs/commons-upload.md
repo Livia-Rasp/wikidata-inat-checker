@@ -10,6 +10,8 @@ You review and submit the form yourself; **nothing is uploaded automatically**.
 The design rationale, the inat2wiki prior art it builds on, and the technical research
 behind it are in the [design & research record](commons-upload-dev.md).
 
+![The worklist](screenshots/worklist.png)
+
 ## Usage
 
 ```sh
@@ -30,9 +32,15 @@ Then open <http://localhost:8080/>:
    of the backlog, with its position in the tree above it and what it contains one rank below.
    Ancestors widen, the clades below narrow, and the nine Red List chips compose with either.
    When a clade is thin the page *offers* to fetch more of exactly it — and only ever on a click.
+
+   ![The backlog search](screenshots/search.png)
+
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
+
+   ![The taxon gallery](screenshots/gallery.jpg)
+
 4. Click **Upload to Commons ↗** under a photo. The Commons `Special:Upload` form opens
    pre-filled; review it and click Upload there. Then tick **Mark as uploaded** on the card.
 5. On the photo you uploaded, tick **Use as Wikidata image (P18)** — exactly one photo per
