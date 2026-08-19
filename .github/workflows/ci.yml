@@ -43,7 +43,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/winc-data
-          docker run -d --name winc --init --user node --read-only --tmpfs /tmp \
+          # Run as whoever created that directory, not as the image's `node` (uid 1000). A bind
+          # mount keeps host ownership, and the runner is not uid 1000 — this is the failure the
+          # first version of this job hit, and the reason it is worth testing here: on a developer
+          # box whose uid happens to be 1000 the mismatch is invisible.
+          docker run -d --name winc --init --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
             -p 127.0.0.1:8080:8080 -v /tmp/winc-data:/app/data \
             -e HOST=0.0.0.0 -e ALLOW_REMOTE_WRITES=1 -e FINDINGS_DB=/app/data/findings.db \
             wikidata-inat-checker
