@@ -27,6 +27,10 @@ npm run web                                 # Fastify: serves web/ + the API, lo
 DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
 npm test                                    # unit suite (node --test over test/*.test.js)
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
+
+docker compose up --build                   # the server in a container, http://localhost:8080
+                                            # bind-mounts ./data; server only — no checkers, and
+                                            # discovery cannot start there (see threat-model.md)
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -53,7 +57,8 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 ## Source layout
 
 Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — that is what the
-`npm run …` scripts invoke. Everything else is grouped:
+`npm run …` scripts invoke — next to `Dockerfile`, `compose.yaml` and `.dockerignore`, which
+container tooling requires there. Everything else is grouped:
 
 - **`lib/`** — data + domain logic: SPARQL/CirrusSearch/Commons helpers and arg parsing
   (`utils.js`), the findings store (`db.js`), the iNat taxa index (`getInatTaxaDb.js`),
@@ -114,8 +119,8 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–5 and 5c are done; **5d (a runnable container)
-  is next**, then 5b and 6–9, and OAuth is deliberately outside the plan. Three known gaps are
+  restructure around `data/findings.db`. Slices 0–5, 5c and 5d are done; 5b and 6–9 remain, and
+  OAuth is deliberately outside the plan. Three known gaps are
   written up there rather than fixed: **`skipped` is global**, the **ambiguous-match views** need
   a real interface, and a **CLI run killed outright stays `running`** (only the server reconciles).
   **Read it before changing anything about caching, persistence, or the web app.**

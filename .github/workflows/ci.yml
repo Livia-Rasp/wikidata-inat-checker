@@ -19,3 +19,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Build the image so it cannot rot unnoticed — a dependency bump or a Node version move would
+  # otherwise only surface the next time someone deployed. Build only: publishing to a registry is
+  # slice 9, and needs credentials this workflow deliberately does not have.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t wikidata-inat-checker .

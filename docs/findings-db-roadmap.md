@@ -4,12 +4,12 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–5 and 5c are shipped — the findings database, the verification pass, the
-Fastify backend, the confirm-gated done state, on-demand scoped discovery and the backlog search.
-Next is 5d (a container that runs), then 5b (scheduled top-up), 6 (app shell, area as a discovery
-scope), 7–8 (the links and names checkers onto the findings table) and 9 (deploying that
-container, with backups). Each slice ships as its own pull request, and each records below what
-turned out differently from the plan — that is the part worth reading.
+**Status:** slices 0–5, 5c and 5d are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery, the backlog search and
+a container that runs. Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope),
+7–8 (the links and names checkers onto the findings table) and 9 (deploying that container, with
+backups). Each slice ships as its own pull request, and each records below what turned out
+differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -392,7 +392,7 @@ widening and narrowing through the rail and the composition strip with Back undo
 clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
 scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
-### 5d. A container that runs — **next**
+### 5d. A container that runs — **done**
 Added 2026-08-19, splitting the dockerisation in two. Slice 9 bundled "runs in a container" with
 "is deployed from a registry and backed up", and those are different problems: the first is about
 the runtime — does this thing start, find its database and serve — while the second is pipeline
@@ -423,6 +423,38 @@ Two things to get right, because they are the ones a naive image gets wrong:
 
 **Working means:** `docker compose up`, open the worklist, confirm a finding, restart the
 container, and the confirmation is still there.
+
+Five things turned out differently, three of them decisions and two of them discoveries:
+
+- **A bind mount of `./data`, not a named volume.** The named volume is the conventional deployed
+  shape, but it puts the database somewhere the host's checkers cannot reach — and the checkers are
+  how the backlog gets filled, since only the CLI may build the taxa index. A bind mount makes the
+  server and the CLI two processes over one file, which is exactly what `openFindingsDb` was
+  written for. Verified live: a host process wrote while the container held the database open, and
+  the running container saw the change with no restart. The host's uid/gid is 1000, which matches
+  the `node` user in the official images, so no `chown` and no `chmod 777`.
+- **Discovery cannot start in a container, and that is now documented rather than surprising.** The
+  privileged routes check the raw TCP peer address, which under bridge networking is the gateway,
+  never loopback — so `POST /api/discover` answers 403 `not_local` even with `DISCOVER_ENABLED=1`.
+  Confirmed against the real image. One useful consequence: the ~650 MB discovery fork cannot
+  happen there, so `mem_limit` is 512m rather than the 1.5 GB it would otherwise need.
+- **No BuildKit cache mount.** The plan called for `--mount=type=cache` on the install; the machine
+  building it had no `buildx` plugin, so BuildKit was unavailable and the Dockerfile did not build
+  at all. Dropped — it saves a fraction of a second on 77 packages, which is a poor trade for a
+  Dockerfile that fails on someone else's machine.
+- **`read_only: true` works**, because no route touches the filesystem — every write endpoint is
+  SQL only. The container runs with a read-only root, a tmpfs `/tmp`, and the bind mount as the
+  single writable path.
+- **The keep-alive shutdown trap does not apply.** The usual failure — idle sockets holding
+  `server.close()` open until the grace period expires — is pre-empted by Fastify 5 defaulting
+  `forceCloseConnections` to `"idle"`. Measured: `docker stop` returns in 0.19 s with exit code 0,
+  not 137.
+
+**Verified.** The whole list above against a `VACUUM INTO` copy of a real 156-finding backlog:
+the worklist rendering, a write succeeding through the published port (the write-guard trap), a
+skip surviving a container restart, search degrading rather than 503ing with no taxa index,
+discovery refusing with `not_local`, and a clean stop. Then `docker compose up` against the real
+database as the final check.
 
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,

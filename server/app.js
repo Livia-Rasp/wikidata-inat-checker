@@ -1,5 +1,6 @@
 // @ts-check
-// The Fastify application: the static web/ app plus the read-only findings API, both same-origin.
+// The Fastify application: the static web/ app plus the findings API — reads, the confirm/skip and
+// uploads writes, search, and discovery — all same-origin.
 //
 // buildServer() takes an already-open store and does NOT listen — the factory pattern Fastify's
 // testing guide recommends, and the seam this repo already uses (verifyOpenFindings(store, opts)):
@@ -81,8 +82,8 @@ export function buildServer({
     const app = Fastify({
         logger,
         logController: new ApiOnlyLogController(),
-        // No route accepts a body yet, so anything large is abuse. Set now so slice 4's POSTs
-        // inherit a ceiling rather than needing someone to remember one.
+        // Set while the API was still read-only, so the write endpoints inherited a ceiling
+        // rather than each choosing one. Nothing here posts anything large; a big body is abuse.
         bodyLimit: 16 * 1024,
         // Never unconditionally true: X-Forwarded-For is client-controlled, so trusting it blindly
         // lets anyone bypass the rate limit by rotating a header. Set TRUST_PROXY to the proxy's
@@ -91,7 +92,7 @@ export function buildServer({
         requestTimeout: 30_000,
         routerOptions: {
             ignoreDuplicateSlashes: true,
-            maxParamLength: 64, // nothing here has a long parameter; slice 4's :id is an integer
+            maxParamLength: 64, // nothing here has a long parameter; the only one, :id, is an integer
         },
         onProtoPoisoning: 'error',
         onConstructorPoisoning: 'error',

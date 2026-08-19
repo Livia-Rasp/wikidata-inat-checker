@@ -79,7 +79,7 @@ checkArea.js (args: --lat --lng --radius)
 
 ## Output, cache and data locations (`lib/paths.js`)
 
-All generated files go under three gitignored, auto-created top-level dirs, so nothing but source sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
+All generated files go under three gitignored, auto-created top-level dirs, so nothing generated sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
 
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
 - **`cache/`** — `cache-names.json` and `cache-links.json` (per-checker "already scanned" sets) plus `cache-commons-cats.json` (Commons category existence). The image checker has none: it moved to `data/findings.db` in slice 1, and the names and links checkers follow in slices 7–8. Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
@@ -180,6 +180,14 @@ CSP hosts that are easy to get wrong, and what the write guard defends against �
 `discover({store, taxaDb, scope, limit, recheckAfter, onProgress, signal})` is the work; `checkImages.js`
 is argument parsing and HTML rendering around it. Four things about it are load-bearing:
 
+- **The child's working directory is the repo root, not the server's.** `server/jobs.js` forks with
+  `cwd: REPO_ROOT`, resolved from the module. That is deliberate — a server started from anywhere
+  must still find `output/` and `cache/` where the CLI put them — but it is the one place
+  `lib/paths.js`'s "relative to the working directory" stops being the whole truth. It matters in a
+  container: a discovery run writes `cache/cache-commons-cats.json` **inside the image**, not onto
+  the mounted volume. Moot today, since discovery cannot start in a container at all (the
+  privileged routes need a loopback peer address — see [threat-model.md](threat-model.md)), but it
+  is the reason that is worth knowing rather than rediscovering.
 - **It runs in a forked child, never in the server process.** `allInatIds()` materialises 1.4M rows —
   ~1.0 s of blocked event loop and a ~650 MB heap spike — `descendantInatIds()` is an unindexed LIKE
   scan (~0.5 s), and `node:sqlite` is synchronous. In-process, every run would freeze the API in

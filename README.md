@@ -91,8 +91,9 @@ DISCOVER_ENABLED=1 npm run web  # …and allow discovery from the app
 
 A [Fastify](https://fastify.dev) server (`server/`) serves the app and the findings API over the
 same database the checkers write. It binds `127.0.0.1` by default — exposing it on a network is a
-deliberate act (`HOST=…` plus `ALLOW_REMOTE_WRITES`). The threat model, every header, and the full
-list of environment variables are in [docs/threat-model.md](docs/threat-model.md).
+deliberate act (`HOST=…` plus `ALLOW_REMOTE_WRITES`, and `ALLOWED_HOSTS` too, or the write guard
+refuses every confirm under a hostname it does not recognise). The threat model, every header, and
+the full list of environment variables are in [docs/threat-model.md](docs/threat-model.md).
 
 Nothing is uploaded or edited automatically: the app hands you a pre-filled Commons upload form
 and a QuickStatements batch, and you submit both yourself.
@@ -140,9 +141,29 @@ Nothing is marked done because you said so. Copy the QuickStatements batch, run 
 done only if **both** the image (P18) and the Commons-category sitelink are there. Otherwise the
 row stays on the worklist and says which half is missing.
 
+## Running it in a container
+
+```sh
+docker compose up --build     # then open http://localhost:8080
+```
+
+The image runs the server only. It bind-mounts `./data`, so the container and your host share one
+database: run `npm run images` on the host and the new findings appear without a restart. The
+published port is bound to the host's loopback, so `docker compose up` does not put an
+unauthenticated API on your network.
+
+Two things it deliberately cannot do. **Discovery will not start in a container** — those routes
+require a loopback peer address, which bridge networking never produces, so "Find more" answers
+403 there; fill the backlog from the host instead. And the **iNaturalist taxa index is not in the
+image**: it is ~236 MB of derived data, and only the CLI may build it. Without it the app still
+serves everything, with search falling back to name matching rather than failing.
+
+Publishing the image, redeploying it and backing the database up are the next slice —
+see [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).
+
 ## Project structure
 
-- **Entry scripts** (`check*.js`, `draftCategory.js`) at the repository root — what `npm run …` invokes.
+- **Entry scripts** (`check*.js`, `draftCategory.js`) at the repository root, alongside the `Dockerfile`, `compose.yaml` and `.dockerignore` — the entry scripts are what `npm run …` invokes.
 - **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the SQLite taxa index, the findings store, Commons wikitext generation).
 - **`report/`** — the HTML report builders.
 - **`server/`** — the Fastify app behind `npm run web`.

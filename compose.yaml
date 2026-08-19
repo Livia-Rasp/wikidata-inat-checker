@@ -1,0 +1,85 @@
+# Run the web app against the findings database in ./data:
+#
+#   docker compose up --build      then open http://localhost:8080
+#
+# This is the runtime half of the deployment only. Publishing an image, redeploying it and backing
+# the database up are slice 9 of docs/findings-db-roadmap.md.
+#
+# No top-level `version:` — it has been obsolete since Compose v2 and only earns a warning.
+
+services:
+  web:
+    build: .
+    image: wikidata-inat-checker
+
+    # tini as PID 1. Not for the usual reason: the app already signals its own discovery child
+    # (server/app.js's onClose hook SIGTERMs it with a 5 s escalation). This is for reaping any
+    # grandchild that gets re-parented when something dies unexpectedly, which PID 1 must do and
+    # Node will not do for processes it did not spawn itself.
+    init: true
+    restart: unless-stopped
+    user: "node"
+
+    # Nothing outside the database directory is written at runtime: no route touches the
+    # filesystem, and every write endpoint goes through SQL. /tmp is given a tmpfs because SQLite
+    # may want somewhere to spill a large sort.
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # Bound to the host's loopback, so publishing the port does not also publish the app to the
+    # LAN. The API is unauthenticated; see docs/threat-model.md.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    # The DIRECTORY, never the .db file. A single-file bind mount is pinned to an inode, so a
+    # checkpoint restart or a VACUUM INTO would silently detach the container's view from the
+    # host's file. WAL also needs to create -wal and -shm alongside the database.
+    #
+    # A bind mount rather than a named volume so the host's checkers and this server share one
+    # file: `npm run images` on the host shows up here with no restart. That is the two-process
+    # case lib/db.js was written for (WAL, a busy_timeout, and migrate() under BEGIN IMMEDIATE).
+    volumes:
+      - ./data:/app/data
+
+    environment:
+      # A container is reached from outside its own network namespace, so the default 127.0.0.1
+      # bind would be unreachable through the published port. server/index.js refuses a
+      # non-loopback bind unless ALLOW_REMOTE_WRITES says the exposure is deliberate — so these
+      # two go together, and neither is optional here.
+      HOST: "0.0.0.0"
+      ALLOW_REMOTE_WRITES: "1"
+      FINDINGS_DB: /app/data/findings.db
+
+      # ALLOWED_HOSTS is deliberately NOT set. The write guard already accepts the loopback
+      # names, and the app is reached as localhost:8080, so the Host header is `localhost`.
+      # Set it only when a reverse proxy puts a different name in front, together with
+      # TRUST_PROXY set to that proxy's address:
+      #   ALLOWED_HOSTS: "inat.example"
+      #   TRUST_PROXY: "127.0.0.1"
+
+    # The app's SIGTERM handler drains and exits promptly; this is headroom, not an expectation.
+    stop_grace_period: 30s
+
+    # Modest on purpose. The ~650 MB spike belongs to a discovery run, and discovery cannot start
+    # in this container: its routes require a loopback peer address, which bridge NAT never
+    # produces. See docs/threat-model.md.
+    mem_limit: 512m
+    memswap_limit: 512m
+
+    # GET / touches no database, and sits outside both the /api rate limiter and the write guard,
+    # so probing it cannot exhaust a budget or trip a guard. 127.0.0.1 rather than localhost:
+    # Node may resolve localhost to ::1, and the server is listening on IPv4.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
