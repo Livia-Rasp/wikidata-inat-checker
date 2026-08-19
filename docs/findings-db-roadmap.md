@@ -433,15 +433,20 @@ Five things turned out differently, three of them decisions and two of them disc
   written for. Verified live: a host process wrote while the container held the database open, and
   the running container saw the change with no restart. The host's uid/gid is 1000, which matches
   the `node` user in the official images, so no `chown` and no `chmod 777`.
-- **Discovery cannot start in a container, and that is now documented rather than surprising.** The
-  privileged routes check the raw TCP peer address, which under bridge networking is the gateway,
-  never loopback — so `POST /api/discover` answers 403 `not_local` even with `DISCOVER_ENABLED=1`.
-  Confirmed against the real image. One useful consequence: the ~650 MB discovery fork cannot
-  happen there, so `mem_limit` is 512m rather than the 1.5 GB it would otherwise need.
-- **No BuildKit cache mount.** The plan called for `--mount=type=cache` on the install; the machine
-  building it had no `buildx` plugin, so BuildKit was unavailable and the Dockerfile did not build
-  at all. Dropped — it saves a fraction of a second on 77 packages, which is a poor trade for a
-  Dockerfile that fails on someone else's machine.
+- **Discovery is unreachable from the host browser, which is narrower than it first looked — and
+  the difference is a trap.** The privileged routes check the raw TCP peer address, which through
+  a published port is the bridge gateway, so **Find more** answers 403 `not_local` even with
+  `DISCOVER_ENABLED=1`. The first version of this note concluded that discovery therefore "cannot
+  run in a container" and sized `mem_limit` at 512m on that basis. **Wrong**: from inside the
+  container the peer really is loopback, and `docker compose exec` posting to `127.0.0.1:8080` is
+  accepted with 202 — verified. It only dies immediately because the taxa index is absent from the
+  image. Mount that index one day and the ~650 MB fork happens, at which point a 512m cap
+  OOM-kills it and `SIGKILL` is never reported as a cancel. `mem_limit` is 1500m, sized for the
+  spike rather than for today's accident.
+- **The BuildKit cache mount needs `buildx` present**, which the build machine initially lacked —
+  the Dockerfile did not build at all, since `--mount=type=cache` is BuildKit-only syntax and
+  `DOCKER_BUILDKIT=0` is therefore not a fallback. Installing buildx was the fix; worth knowing
+  that this one line is what makes the plugin a hard requirement rather than a nicety.
 - **`read_only: true` works**, because no route touches the filesystem — every write endpoint is
   SQL only. The container runs with a read-only root, a tmpfs `/tmp`, and the bind mount as the
   single writable path.

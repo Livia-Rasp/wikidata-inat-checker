@@ -39,8 +39,13 @@ services:
     # A bind mount rather than a named volume so the host's checkers and this server share one
     # file: `npm run images` on the host shows up here with no restart. That is the two-process
     # case lib/db.js was written for (WAL, a busy_timeout, and migrate() under BEGIN IMMEDIATE).
+    #
+    # WINC_DATA points it somewhere else without editing this file — a VACUUM INTO copy when you
+    # want to try something against a throwaway backlog, since `data/findings.db` is the one
+    # artifact here that cannot be regenerated:
+    #   WINC_DATA=/tmp/scratch/data docker compose up
     volumes:
-      - ./data:/app/data
+      - ${WINC_DATA:-./data}:/app/data
 
     environment:
       # A container is reached from outside its own network namespace, so the default 127.0.0.1
@@ -61,11 +66,21 @@ services:
     # The app's SIGTERM handler drains and exits promptly; this is headroom, not an expectation.
     stop_grace_period: 30s
 
-    # Modest on purpose. The ~650 MB spike belongs to a discovery run, and discovery cannot start
-    # in this container: its routes require a loopback peer address, which bridge NAT never
-    # produces. See docs/threat-model.md.
-    mem_limit: 512m
-    memswap_limit: 512m
+    # Sized for a discovery run, not for the idle server (which sits around 45 MB).
+    #
+    # It is tempting to set this low, because discovery cannot be *started from the host* — the
+    # privileged routes need a loopback peer and bridge NAT never gives one. That reasoning is a
+    # trap: from inside the container the peer really is loopback, so
+    # `docker compose exec web node -e "fetch('http://127.0.0.1:8080/api/discover', …)"` starts a
+    # run quite happily. Today it dies immediately because the taxa index is not in the image —
+    # but the moment anyone mounts that index (a checker service, slice 9), a run would fork a
+    # child that materialises 1.4M rows and spikes to ~650 MB. Under a 512m cap the kernel kills
+    # it, and `SIGKILL` is deliberately never reported as a cancel, so it surfaces as a mystery.
+    #
+    # A limit caps, it does not reserve: costing nothing while unused is the whole point.
+    mem_limit: 1500m
+    memswap_limit: 1500m  # equal to mem_limit disables swap — swapping a WAL database is worse
+                          # than failing fast
 
     # GET / touches no database, and sits outside both the /api rate limiter and the write guard,
     # so probing it cannot exhaust a budget or trip a guard. 127.0.0.1 rather than localhost:

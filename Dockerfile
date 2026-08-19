@@ -27,13 +27,13 @@ WORKDIR /app
 # Lockfile first: it changes far less often than source, so the install layer survives ordinary
 # edits. npm ci wipes node_modules and refuses to run if package.json and the lockfile disagree,
 # which is exactly what a reproducible image wants.
-#
-# Deliberately no `--mount=type=cache` on the install: that needs BuildKit, and this must build on
-# the classic builder too (Docker without the buildx plugin is a normal state of affairs). The
-# saving would be a fraction of a second on 77 packages — a bad trade for a Dockerfile that fails
-# to build on someone else's machine.
+# The cache mount keeps ~/.npm across builds, so a rebuild re-downloads only what changed. It
+# needs BuildKit — which is the default for `docker build` wherever the buildx plugin is present,
+# and every current Docker install ships it. On a machine without buildx this line is the one
+# thing that would fail; `DOCKER_BUILDKIT=0` is not a fallback, since the syntax itself is
+# BuildKit-only.
 COPY --chown=node:node package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 COPY --chown=node:node . .
 

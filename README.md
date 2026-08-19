@@ -152,11 +152,12 @@ database: run `npm run images` on the host and the new findings appear without a
 published port is bound to the host's loopback, so `docker compose up` does not put an
 unauthenticated API on your network.
 
-Two things it deliberately cannot do. **Discovery will not start in a container** — those routes
-require a loopback peer address, which bridge networking never produces, so "Find more" answers
-403 there; fill the backlog from the host instead. And the **iNaturalist taxa index is not in the
-image**: it is ~236 MB of derived data, and only the CLI may build it. Without it the app still
-serves everything, with search falling back to name matching rather than failing.
+Two limits worth knowing. **"Find more" does not work from the host browser** — discovery requires
+a request from the server's own machine, and through a published port the container sees the
+bridge gateway instead; fill the backlog with the CLI, which is what it is for. And the
+**iNaturalist taxa index is not in the image**: ~236 MB of derived data that only the CLI may
+build. Without it the app still serves everything, with search falling back to name matching
+rather than failing.
 
 Publishing the image, redeploying it and backing the database up are the next slice —
 see [docs/findings-db-roadmap.md](docs/findings-db-roadmap.md).

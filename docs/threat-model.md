@@ -121,17 +121,30 @@ which adds two requirements on top of the write guard:
 2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
    not be live merely because nobody turned it off.
 
-**Consequence: discovery cannot be started from inside a container**, and this is a property to
-know rather than a bug to fix. The peer address a container sees for a request arriving through a
-published port is the bridge gateway (`172.x`), never `127.x` — and `TRUST_PROXY` cannot change it,
-because the check deliberately reads `req.socket.remoteAddress` rather than `req.ip`. So
-`POST /api/discover` and `/api/discover/cancel` answer 403 `not_local` there **even with
-`DISCOVER_ENABLED=1`**. Verified against the real image, not merely reasoned about.
+**Consequence in a container: the check does exactly what it says, which is narrower than "no
+discovery in containers".** The peer address for a request arriving through a published port is the
+bridge gateway (`172.x`), never `127.x` — and `TRUST_PROXY` cannot change that, because the check
+deliberately reads `req.socket.remoteAddress` rather than `req.ip`. So the **Find more** button in
+a browser on the host gets 403 `not_local`, even with `DISCOVER_ENABLED=1`.
 
-Everything else is unaffected: `GET /api/discover/status` is unprivileged and still answers, and
+**From inside the container the peer genuinely is loopback, and a run starts.** Verified against
+the real image: `docker compose exec` issuing the same POST to `127.0.0.1:8080` is accepted with
+202. That is the check working as designed, not a hole in it — "local" means local to the server,
+and a process sharing its network namespace is exactly that.
+
+Two things follow, and the second is a trap:
+
+- Filling the backlog for a containerised deployment is still a job for the CLI, because only the
+  CLI may build the taxa index — a run started inside the image fails in milliseconds with
+  `taxa_index_unavailable`.
+- **Do not size the container's memory on the assumption that discovery cannot run there.** Mount
+  the taxa index one day and it can, whereupon a run forks a child that materialises 1.4M rows and
+  spikes to ~650 MB. A limit below that gets it OOM-killed, and `SIGKILL` is never reported as a
+  cancel, so the failure arrives as a mystery. `compose.yaml` is sized for the spike.
+
+Everything else is unaffected: `GET /api/discover/status` is unprivileged and answers anyone, and
 confirm, skip, uploads and import check only the `Host` allowlist, fetch metadata and content type,
-so they work normally. Filling the backlog for a containerised deployment is therefore a job for
-the CLI on the host — which is what it is for anyway, since only the CLI may build the taxa index.
+so they work normally through a published port.
 
 Two more limits belong to the same reasoning. The taxon scope is schema-validated as either digits
 or a name — `%` and `_` are LIKE metacharacters and `descendantInatIds` interpolates the id into
