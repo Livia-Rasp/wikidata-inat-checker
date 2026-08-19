@@ -5,6 +5,7 @@
 // family, …) doesn't exist on Commons yet and needs creating from scratch.
 import { generateDraftWikitext } from './lib/generateWikitext.js';
 import { extractTaxonName } from './report/htmlShared.js';
+import { runMain } from './lib/cli.js';
 
 const ENTITY_URI = 'http://www.wikidata.org/entity/';
 
@@ -36,4 +37,4 @@ async function run() {
     }
 }
 
-run().catch(err => { console.error('Fatal error:', err); process.exit(1); });
+runMain(run);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // @ts-check
-import { reqInit, sparql, createRateLimiter, qidFromUri, parseArgs, chunk } from './lib/utils.js';
+import { reqInit, sparql, createRateLimiter, parseArgs, chunk } from './lib/utils.js';
 import { generateAreaHTML } from './report/generateAreaHTML.js';
+import { runMain } from './lib/cli.js';
 
 const INAT_API = 'https://api.inaturalist.org/v1';
 
@@ -150,7 +151,4 @@ async function run() {
     generateAreaHTML({ lat, lng, radius, totalSpecies: species.length, qualified, noImage, obsMap, latestDateMap });
 }
 
-run().catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+runMain(run);

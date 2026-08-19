@@ -18,9 +18,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, statSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { dataPath } from '../lib/paths.js';
+import { findingsDbPath } from '../lib/paths.js';
 
-const SOURCE_DB = process.env.FINDINGS_DB || dataPath('findings.db');
+const SOURCE_DB = findingsDbPath();
 const OUT_DIR = 'docs/screenshots';
 const PORT = Number(process.env.SCREENSHOT_PORT) || 8099;
 const ORIGIN = `http://127.0.0.1:${PORT}`;

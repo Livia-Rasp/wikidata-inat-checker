@@ -2,14 +2,15 @@
 // @ts-check
 // CLI wrapper: parse arguments, run a discovery, render the HTML report. The work itself is
 // lib/discover.js, which the server runs too — see docs/dev.md.
-import { discover, DiscoveryError, KIND } from './lib/discover.js';
+import { discover, KIND } from './lib/discover.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
 import { openFindingsDb, DEFAULT_RECHECK_DAYS } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { parseArgs, parseLimit } from './lib/utils.js';
-import { dataPath } from './lib/paths.js';
+import { findingsDbPath } from './lib/paths.js';
+import { runMain } from './lib/cli.js';
 
-const DB_FILE = dataPath('findings.db');
+const DB_FILE = findingsDbPath();
 
 const args = parseArgs();
 const limit = parseLimit(args, 5000);
@@ -77,12 +78,4 @@ async function run() {
     }
 }
 
-run().catch(err => {
-    if (err instanceof DiscoveryError) {
-        console.error(err.message);
-        for (const m of err.details.matches ?? []) console.error(`  ${m.inatId}  (${m.rank})`);
-        process.exit(1);
-    }
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+runMain(run);

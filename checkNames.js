@@ -7,16 +7,19 @@ import { generateNamesHTML } from './report/generateNamesHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
 import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit } from './lib/utils.js';
 import { cachePath } from './lib/paths.js';
+import { runMain } from './lib/cli.js';
 
 const CACHE_FILE = cachePath('cache-names.json');
 
 const args = parseArgs();
 const limit = parseLimit(args, 5000);
-const { iucnArg, iucnQid } = parseIucnArg(args);
 const showAll = args.all === true;
 
 /** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {
+    // Validated inside run(), not at module scope: a throw up there escapes before runMain can
+    // catch it, and the user gets a stack trace where a one-line message belongs.
+    const { iucnArg, iucnQid } = parseIucnArg(args);
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     if (!showAll) console.log('Mode: zero-P1843 only (pass --all to include taxa that already have some names)');
     const query = `SELECT ?item ?inatID
@@ -93,7 +96,4 @@ ${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
     saveCache(CACHE_FILE, cache);
 }
 
-run(limit).catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+runMain(() => run(limit));

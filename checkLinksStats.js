@@ -2,6 +2,7 @@
 // @ts-check
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { cirrusCount, fetchWdTaxaByNames, IUCN_STATUS_QIDS, IUCN_QID_TO_CODE } from './lib/utils.js';
+import { runMain } from './lib/cli.js';
 
 const NO_STATUS = '(no IUCN status)';
 const IUCN_ORDER = ['CR', 'EN', 'VU', 'NT', 'LC', 'DD', 'EX', 'EW', 'NE', NO_STATUS];
@@ -95,4 +96,4 @@ async function runStats() {
     );
 }
 
-runStats().catch(err => { console.error('Fatal error:', err); process.exit(1); });
+runMain(runStats);

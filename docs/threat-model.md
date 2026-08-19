@@ -50,7 +50,7 @@ already shows — and that write paths arrive later behind OAuth.
   |---|---|---|
   | `HOST` | `127.0.0.1` | Bind address. Anything else needs `ALLOW_REMOTE_WRITES`. |
   | `PORT` | `8080` | Listen port. |
-  | `FINDINGS_DB` | `data/findings.db` | Which database to serve. |
+  | `FINDINGS_DB` | `data/findings.db` | Which database to open. Honoured by the checkers too, so a container can mount its volume anywhere. |
   | `LOG_LEVEL` | `info` | Pino level. |
   | `ALLOW_REMOTE_WRITES` | unset | Permits a non-loopback bind. Setting it *is* the decision. |
   | `ALLOWED_HOSTS` | loopback names | Extra `Host` values the write guard accepts. |

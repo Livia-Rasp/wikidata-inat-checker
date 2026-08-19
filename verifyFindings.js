@@ -4,9 +4,10 @@ import { openFindingsDb } from './lib/db.js';
 import { verifyOpenFindings } from './lib/verify.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
 import { parseArgs, parseLimit } from './lib/utils.js';
-import { dataPath } from './lib/paths.js';
+import { findingsDbPath } from './lib/paths.js';
+import { runMain } from './lib/cli.js';
 
-const DB_FILE = dataPath('findings.db');
+const DB_FILE = findingsDbPath();
 
 const args = parseArgs();
 const kind = typeof args.kind === 'string' ? args.kind : 'image';
@@ -53,7 +54,4 @@ async function run() {
     store.close();
 }
 
-run().catch(err => {
-    console.error('Fatal error:', err);
-    process.exit(1);
-});
+runMain(run);
