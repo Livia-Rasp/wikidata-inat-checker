@@ -19,3 +19,78 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Build the image so it cannot rot unnoticed — a dependency bump or a Node version move would
+  # otherwise only surface the next time someone deployed — then publish it from pushes to main.
+  #
+  # Build, smoke-test and publish are one job on purpose: it pushes the exact image that just
+  # passed, rather than a rebuild that is merely supposed to be identical. It also needs the unit
+  # suite to have passed first, so a green image never carries a red test.
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # the only privilege this workflow has; nothing else needs it
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t wikidata-inat-checker .
+
+      # Building proves the syntax; starting proves the image. The interesting failures are all
+      # at boot — a missing file the .dockerignore excluded, a path that only resolves relative to
+      # the repo, a directory the `node` user cannot write.
+      - name: The container starts, serves, and stops cleanly
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/winc-data
+          docker run -d --name winc --init --user node --read-only --tmpfs /tmp \
+            -p 127.0.0.1:8080:8080 -v /tmp/winc-data:/app/data \
+            -e HOST=0.0.0.0 -e ALLOW_REMOTE_WRITES=1 -e FINDINGS_DB=/app/data/findings.db \
+            wikidata-inat-checker
+
+          # An empty directory is the interesting case: the schema has to be created on a
+          # read-only root filesystem, on the mount, by an unprivileged user.
+          # Errors are silenced only while polling: a connection refused here just means the
+          # server has not finished booting, and the unsilenced check below is what decides.
+          for _ in $(seq 30); do
+            curl -fs -o /dev/null http://127.0.0.1:8080/ 2>/dev/null && break || sleep 1
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:8080/
+          curl -fsS 'http://127.0.0.1:8080/api/findings?limit=1' | grep -q '"taxa"'
+          test -f /tmp/winc-data/findings.db
+
+          docker stop winc
+          # Exit 0, not 137: the app must handle SIGTERM itself rather than be killed when the
+          # grace period runs out.
+          test "$(docker inspect winc --format '{{.State.ExitCode}}')" = 0
+
+      # Publish only from main — a pull request must never overwrite the tag people pull. Forked
+      # PRs could not do so anyway: GITHUB_TOKEN is read-only for them.
+      #
+      # No PAT and no repository secret: GITHUB_TOKEN can push to this repository's own GHCR
+      # namespace, which is what makes publishing here small enough to be worth doing now rather
+      # than as part of the deployment slice.
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Two tags: `latest` for pulling, and the commit sha so a deployment can name exactly what
+      # it is running and roll back to something specific.
+      #
+      # The owner is lowercased rather than interpolated as-is. Registry paths must be lowercase
+      # and this account is `Livia-Rasp`, so the raw value fails with "repository name must be
+      # lowercase" — at push time, after the build and the smoke test have already passed.
+      - name: Push to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER/wikidata-inat-checker"
+          docker tag wikidata-inat-checker "$IMAGE:latest"
+          docker tag wikidata-inat-checker "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"

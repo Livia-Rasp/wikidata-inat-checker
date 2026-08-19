@@ -4,12 +4,12 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–5 and 5c are shipped — the findings database, the verification pass, the
-Fastify backend, the confirm-gated done state, on-demand scoped discovery and the backlog search.
-Next is 5d (a container that runs), then 5b (scheduled top-up), 6 (app shell, area as a discovery
-scope), 7–8 (the links and names checkers onto the findings table) and 9 (deploying that
-container, with backups). Each slice ships as its own pull request, and each records below what
-turned out differently from the plan — that is the part worth reading.
+**Status:** slices 0–5, 5c and 5d are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery, the backlog search and
+a container that runs. Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope),
+7–8 (the links and names checkers onto the findings table) and 9 (deploying that container, with
+backups). Each slice ships as its own pull request, and each records below what turned out
+differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -392,7 +392,7 @@ widening and narrowing through the rail and the composition strip with Back undo
 clade and status composing, keyboard order with a visible focus ring, 420 px wide without the page
 scrolling sideways, and — from the server log — **zero POSTs** across nine searches over five clades.
 
-### 5d. A container that runs — **next**
+### 5d. A container that runs — **done**
 Added 2026-08-19, splitting the dockerisation in two. Slice 9 bundled "runs in a container" with
 "is deployed from a registry and backed up", and those are different problems: the first is about
 the runtime — does this thing start, find its database and serve — while the second is pipeline
@@ -423,6 +423,49 @@ Two things to get right, because they are the ones a naive image gets wrong:
 
 **Working means:** `docker compose up`, open the worklist, confirm a finding, restart the
 container, and the confirmation is still there.
+
+Five things turned out differently, three of them decisions and two of them discoveries:
+
+- **A bind mount of `./data`, not a named volume.** The named volume is the conventional deployed
+  shape, but it puts the database somewhere the host's checkers cannot reach — and the checkers are
+  how the backlog gets filled, since only the CLI may build the taxa index. A bind mount makes the
+  server and the CLI two processes over one file, which is exactly what `openFindingsDb` was
+  written for. Verified live: a host process wrote while the container held the database open, and
+  the running container saw the change with no restart. The host's uid/gid is 1000, which matches
+  the `node` user in the official images, so no `chown` and no `chmod 777`.
+- **Discovery is unreachable from the host browser, which is narrower than it first looked — and
+  the difference is a trap.** The privileged routes check the raw TCP peer address, which through
+  a published port is the bridge gateway, so **Find more** answers 403 `not_local` even with
+  `DISCOVER_ENABLED=1`. The first version of this note concluded that discovery therefore "cannot
+  run in a container" and sized `mem_limit` at 512m on that basis. **Wrong**: from inside the
+  container the peer really is loopback, and `docker compose exec` posting to `127.0.0.1:8080` is
+  accepted with 202 — verified. It only dies immediately because the taxa index is absent from the
+  image. Mount that index one day and the ~650 MB fork happens, at which point a 512m cap
+  OOM-kills it and `SIGKILL` is never reported as a cancel. `mem_limit` is 1500m, sized for the
+  spike rather than for today's accident.
+- **Publishing to GHCR came along for the ride**, pulled forward out of slice 9 because it turned
+  out to be about fifteen lines and no secrets — `GITHUB_TOKEN` can push to the repository's own
+  namespace. The trap, caught before it shipped: `github.repository_owner` is `Livia-Rasp`, and
+  registry paths must be lowercase, so interpolating it raw fails with "repository name must be
+  lowercase" — at push time, after the build and smoke test have passed. It is lowercased in the
+  workflow.
+- **The BuildKit cache mount needs `buildx` present**, which the build machine initially lacked —
+  the Dockerfile did not build at all, since `--mount=type=cache` is BuildKit-only syntax and
+  `DOCKER_BUILDKIT=0` is therefore not a fallback. Installing buildx was the fix; worth knowing
+  that this one line is what makes the plugin a hard requirement rather than a nicety.
+- **`read_only: true` works**, because no route touches the filesystem — every write endpoint is
+  SQL only. The container runs with a read-only root, a tmpfs `/tmp`, and the bind mount as the
+  single writable path.
+- **The keep-alive shutdown trap does not apply.** The usual failure — idle sockets holding
+  `server.close()` open until the grace period expires — is pre-empted by Fastify 5 defaulting
+  `forceCloseConnections` to `"idle"`. Measured: `docker stop` returns in 0.19 s with exit code 0,
+  not 137.
+
+**Verified.** The whole list above against a `VACUUM INTO` copy of a real 156-finding backlog:
+the worklist rendering, a write succeeding through the published port (the write-guard trap), a
+skip surviving a container restart, search degrading rather than 503ing with no taxa index,
+discovery refusing with `not_local`, and a clean stop. Then `docker compose up` against the real
+database as the final check.
 
 ### 5b. Scheduled top-up when the backlog runs low
 Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
@@ -505,11 +548,18 @@ language the finding proposes.
 here is everything *around* the container rather than the container itself: publishing it, getting
 it onto the home server, and keeping the database safe once it lives there.
 
-- **Registry and redeploy.** The pipeline shape to copy is `docs/deployment-roadmap.md` in the
-  `vue-commons-gallery` repo: GitHub Actions publishing to GHCR on push to `main`, from a
-  GitHub-hosted runner only — deliberately not a self-hosted one, since a persistent
-  Docker-socket-privileged CI agent is a real liability on a box meant to run production services
-  — and `nicholas-fedor/watchtower` on the host polling GHCR.
+- **~~Registry~~ — done early, in 5d.** Publishing turned out to be far smaller than the rest of
+  this slice, so it was not worth deferring: `GITHUB_TOKEN` can push to the repository's own GHCR
+  namespace, so there is no PAT to create and no secret to rotate. CI builds, smoke-tests and then
+  pushes `latest` plus the commit sha, from pushes to `main` only. Build and publish are one job
+  deliberately — it publishes the image that just passed rather than a rebuild presumed identical.
+  Runs on a GitHub-hosted runner, never a self-hosted one: a persistent Docker-socket-privileged CI
+  agent is a real liability on a box meant to run production services.
+  **One manual step remains and is not automatable:** GHCR packages are private by default even
+  from a public repository, so the package's visibility has to be switched to public once, by hand,
+  in its settings. Until then `docker pull` needs authentication.
+- **Redeploy.** Still here: `nicholas-fedor/watchtower` on the host polling GHCR. The pipeline
+  shape to copy is `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo.
 - **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
   it, and by then it represents days of API budget. Note the server's connection is bound to the
   file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.

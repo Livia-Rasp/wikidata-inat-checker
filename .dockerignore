@@ -1,0 +1,48 @@
+# Keep the build context to source. Without this it is 34 MB; with it, under 1 MB.
+#
+# Two entries matter for more than speed:
+#   .git   — every commit would change the context and invalidate the COPY layer, so the
+#            build cache would be dead from the first commit after a build.
+#   data/  — the findings database is the one artifact here that cannot be regenerated.
+#            Baked into the image it would sit under the volume mount point doing nothing,
+#            or — if the mount path ever differed — be served instead of the real one.
+
+.git
+.gitignore
+.github/
+
+# Dependencies are installed inside the image from the lockfile, never copied in.
+# Note the **: a bare `node_modules` matches only the top level.
+**/node_modules
+
+# Generated artifacts (see lib/paths.js). None belong in an image.
+data/
+output/
+cache/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets. A layer is immutable, so anything copied in stays extractable even if a
+# later layer deletes it.
+.env
+.env.*
+.npmrc
+
+# Not needed at runtime.
+docs/
+test/
+tools/
+*.md
+.nvmrc
+jsconfig.json
+
+# Docker's own files, and editor/OS noise.
+Dockerfile*
+compose.yaml
+.dockerignore
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.log

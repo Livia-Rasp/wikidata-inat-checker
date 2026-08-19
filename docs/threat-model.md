@@ -34,15 +34,26 @@ Three things follow.
 ## Deployment posture today
 
 **The source being public does not make the deployment public.** There is no hosted instance: you
-run this on your own machine, against your own database, bound to loopback. Everything below
-describes that single-operator posture. The intention is that the read-only browse view becomes
-reachable by others at some point — it shows exactly what the generated `output/drafts.html`
-already shows — and that write paths arrive later behind OAuth.
+run this yourself, against your own database. Everything below describes that single-operator
+posture. The intention is that the read-only browse view becomes reachable by others at some point
+— it shows exactly what the generated `output/drafts.html` already shows — and that write paths
+arrive later behind OAuth.
 
 - **The server binds `127.0.0.1`, and refuses to start bound anywhere else** unless
   `ALLOW_REMOTE_WRITES` is set. Refused rather than warned about: a warning in a log nobody reads is
   not a decision, and this API is unauthenticated. Setting that variable *is* the decision, made
   explicitly and visibly.
+- **In a container that decision is already made for you, and narrowed on purpose.** A container is
+  reached from outside its own network namespace, so `compose.yaml` must set `HOST=0.0.0.0` and
+  therefore `ALLOW_REMOTE_WRITES=1`. What keeps that from being an exposure is the published port:
+  it is bound to **the host's loopback** (`127.0.0.1:8080:8080`), so the app is reachable from the
+  machine running it and not from the network. Moving that to `0.0.0.0:8080` publishes an
+  unauthenticated API to the LAN, and is exactly the decision this variable exists to make
+  deliberate.
+- **`ALLOWED_HOSTS` is deliberately unset in the container.** Reached as `localhost:8080`, the
+  `Host` header is a loopback name the write guard already accepts. It is needed only when a
+  reverse proxy puts a different name in front — and then `TRUST_PROXY` is needed too, or the rate
+  limiter buckets every client together.
 - The knobs, all environment variables and never CLI arguments — arguments are world-readable
   through `ps`, which matters once tokens exist:
 
@@ -56,9 +67,11 @@ already shows — and that write paths arrive later behind OAuth.
   | `ALLOWED_HOSTS` | loopback names | Extra `Host` values the write guard accepts. |
   | `DISCOVER_ENABLED` | unset | Enables the discovery routes at all. |
   | `TRUST_PROXY` | off | Whether to believe `X-Forwarded-For`. |
-  | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW` | 120 / 1 minute | The read limit on `/api`. |
+  | `RATE_LIMIT_MAX` | 120 | Requests per window for the reads on `/api`. |
+  | `RATE_LIMIT_WINDOW` | 1 minute | The window for the read *and* write limits — not the discovery one, which hardcodes a minute. |
   | `RATE_LIMIT_WRITE_MAX` | 30 | Tighter limit for confirm/skip/uploads/import. |
-  | `RATE_LIMIT_DISCOVER_MAX` | 6 | Tighter still, for starting a discovery run. |
+  | `RATE_LIMIT_DISCOVER_MAX` | 6 | Tighter still, for starting a discovery run, per fixed minute. |
+  | `SCREENSHOT_PORT` | 8099 | Only read by `tools/screenshots.mjs`, which starts its own server. |
 
 ## Write endpoints
 
@@ -107,6 +120,31 @@ which adds two requirements on top of the write guard:
    when the read view goes public.**
 2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
    not be live merely because nobody turned it off.
+
+**Consequence in a container: the check does exactly what it says, which is narrower than "no
+discovery in containers".** The peer address for a request arriving through a published port is the
+bridge gateway (`172.x`), never `127.x` — and `TRUST_PROXY` cannot change that, because the check
+deliberately reads `req.socket.remoteAddress` rather than `req.ip`. So the **Find more** button in
+a browser on the host gets 403 `not_local`, even with `DISCOVER_ENABLED=1`.
+
+**From inside the container the peer genuinely is loopback, and a run starts.** Verified against
+the real image: `docker compose exec` issuing the same POST to `127.0.0.1:8080` is accepted with
+202. That is the check working as designed, not a hole in it — "local" means local to the server,
+and a process sharing its network namespace is exactly that.
+
+Two things follow, and the second is a trap:
+
+- Filling the backlog for a containerised deployment is still a job for the CLI, because only the
+  CLI may build the taxa index — a run started inside the image fails in milliseconds with
+  `taxa_index_unavailable`.
+- **Do not size the container's memory on the assumption that discovery cannot run there.** Mount
+  the taxa index one day and it can, whereupon a run forks a child that materialises 1.4M rows and
+  spikes to ~650 MB. A limit below that gets it OOM-killed, and `SIGKILL` is never reported as a
+  cancel, so the failure arrives as a mystery. `compose.yaml` is sized for the spike.
+
+Everything else is unaffected: `GET /api/discover/status` is unprivileged and answers anyone, and
+confirm, skip, uploads and import check only the `Host` allowlist, fetch metadata and content type,
+so they work normally through a published port.
 
 Two more limits belong to the same reasoning. The taxon scope is schema-validated as either digits
 or a name — `%` and `_` are LIKE metacharacters and `descendantInatIds` interpolates the id into

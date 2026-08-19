@@ -1,6 +1,6 @@
 // @ts-check
 // Protection for every route that changes state. Registered once in the API scope so that future
-// mutating routes — slice 5's discovery, slice 10's edits — inherit it without anyone remembering.
+// mutating routes — discovery, and any later editing — inherit it without anyone remembering.
 //
 // The API is unauthenticated (docs/threat-model.md), so nothing here identifies *who* is calling. What
 // it does is establish that the call came from this app in this browser, or from a local tool, and
