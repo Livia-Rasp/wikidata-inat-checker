@@ -322,8 +322,11 @@ happen.
   into a container image it publishes, so a compromised package reaches something that ships.
 - **Security fixes skip that queue**, and the schedule, and the PR limits. That is Renovate's
   default for `vulnerabilityAlerts` and is deliberately not restated in the config. It reads
-  GitHub's Dependabot alerts, so **Dependency graph and Dependabot alerts must be enabled on the
-  repository** or the whole mechanism is quietly inert.
+  GitHub's Dependabot alerts, which takes **two** separate grants and fails quietly without either:
+  Dependency graph and Dependabot alerts enabled on the repository, **and `Dependabot alerts:
+  Read` on the token itself**. Miss the token half and the dashboard says
+  `Cannot access vulnerability alerts` under "Repository Problems" — which is the only place it is
+  reported, so it is worth looking at after any token rotation.
 - **`osvVulnerabilityAlerts` is on**, which adds more than extra CVE coverage: OSV data lets
   Renovate recognise a package that has been taken over and refuse to propose updates to it at
   all, rather than dutifully bumping into the malicious release.
@@ -338,9 +341,14 @@ happen.
   ever automerge.
 - **The token is not `GITHUB_TOKEN`.** Pull requests opened with it have their workflow runs held
   in an approval-required state, so CI would need a click per PR and automerge could never be
-  satisfied unattended. A fine-grained PAT or GitHub App token with **Contents** and **Pull
-  requests** write is enough — *not* Workflows write, because this config deliberately does not
-  extend `config:best-practices` and so never rewrites anything under `.github/workflows/`.
+  satisfied unattended. A fine-grained PAT or GitHub App token with **Contents** write, **Pull
+  requests** write and **Dependabot alerts** read is enough — *not* Workflows write, because this
+  config deliberately does not extend `config:best-practices` and so never rewrites anything under
+  `.github/workflows/`.
+- **Running the workflow by hand outside the schedule window does not open PRs**, and that is not a
+  failure. Renovate populates the Dependency Dashboard and lists the updates under "Awaiting
+  Schedule"; the config's `schedule` decides when branches are actually pushed. The dashboard has
+  a checkbox per entry to force one through early. Live since 2026-08-20.
 - **Node is grouped.** It is pinned in four machine-readable places that must agree — `.nvmrc`,
   `engines`, `node-version` in CI, and the Dockerfile's `FROM` — so one release arrives as one PR.
   It is never automerged, because a Node major also needs prose and a badge changed by hand.
