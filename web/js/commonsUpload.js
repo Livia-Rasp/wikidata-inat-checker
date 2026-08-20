@@ -16,9 +16,10 @@ export const LICENSE_MAP = {
     'cc0': 'Cc-zero',
 };
 
-// Maintenance category for files uploaded via this tool. Intentionally NOT emitted yet
-// (§7.1): the tool isn't public. Re-enable on publication and backfill old files from the
-// "uploaded files" list. Kept here so re-enabling is a one-line change.
+// Maintenance category for files uploaded via this tool, so Commons can see what this tool has
+// put there. Withheld while the tool was private and unknown (§7.1) and **switched on 2026-08-20**,
+// the day after the repository went public. Files uploaded before that date do not carry it and
+// can be backfilled from the `uploads` table, which exists for exactly that.
 export const TRACKING_CATEGORY = 'Media uploaded with wikidata-inat-checker';
 
 const UPLOAD_PAGE = 'https://commons.wikimedia.org/wiki/Special:Upload';
@@ -67,7 +68,9 @@ export function buildDescription({ observation, photo, taxonName, location = '',
     const author = authorName(observation.user);
     const userId = observation.user?.id ?? '';
 
-    const categories = [taxonName, ...extraCategories]
+    // The tracking category goes last, after the taxon and the geographic/author ones: it is
+    // maintenance metadata about how the file got here, not a statement about the subject.
+    const categories = [taxonName, ...extraCategories, TRACKING_CATEGORY]
         .filter(Boolean)
         .map((c) => `[[Category:${c}]]`)
         .join('\n');

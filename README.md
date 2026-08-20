@@ -35,7 +35,10 @@ cd wikidata-inat-checker
 npm install
 ```
 
-Seven runtime dependencies, no dev dependencies and no build step.
+Seven runtime dependencies, no dev dependencies and no build step. They are kept current by
+Renovate, which holds every release for two weeks before proposing it and merges non-major bumps
+itself once the tests and the container smoke test pass — see
+[docs/threat-model.md](docs/threat-model.md#dependency-policy).
 
 > **First run downloads data.** The first checker that needs the taxon index fetches
 > iNaturalist's open-data taxon dump (~189 MB) and builds a ~236 MB SQLite index in
@@ -177,7 +180,7 @@ Redeploying it automatically and backing the database up are the next slice — 
 
 ## Project structure
 
-- **Entry scripts** (`check*.js`, `draftCategory.js`) at the repository root, alongside the `Dockerfile`, `compose.yaml` and `.dockerignore` — the entry scripts are what `npm run …` invokes.
+- **Entry scripts** (`check*.js`, `draftCategory.js`) at the repository root, alongside the `Dockerfile`, `compose.yaml`, `.dockerignore` and `renovate.json5` — the entry scripts are what `npm run …` invokes.
 - **`lib/`** — shared core and domain logic (Wikidata/Commons/iNat helpers, the SQLite taxa index, the findings store, Commons wikitext generation).
 - **`report/`** — the HTML report builders.
 - **`server/`** — the Fastify app behind `npm run web`.

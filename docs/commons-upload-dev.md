@@ -308,7 +308,9 @@ dependency** on the core modules — its sole coupling to the rest of the repo i
 **JSON data contract** it reads (§4.2). That makes the eventual spin-out near-mechanical:
 `web/` moves out as-is, and the JSON schema is the interface.
 
-**Spin-out trigger:** when `wikidata-inat-checker` goes public *and* the web service is
+**Spin-out trigger** *(moot — the spin-out was dropped; the repository went public on 2026-08-19
+and nothing moved out, because by then the Fastify backend had made the split theoretical)*:
+when `wikidata-inat-checker` goes public *and* the web service is
 ready to be published (e.g. hosted Toolforge-style like `inat2wiki-dev.toolforge.org`). At
 that point `web/` becomes its own repo; the data-export step (or a future backend) stays
 with the core here, or the core graduates into a published package.
@@ -423,6 +425,12 @@ marked OPEN are still open.
   description **for now** — the tool is not public or publicly known yet.
 - **Re-add** it after the tool is published.
 - Keep `[[Category:<Taxon>]]`.
+
+> **Done, 2026-08-20** — the day after the repository went public. `TRACKING_CATEGORY` is now
+> emitted last in the category list, after the taxon and the geographic/author categories, because
+> it is metadata about how the file arrived rather than a statement about its subject. It really
+> was the one-line change this section was written to make possible. Files uploaded before that
+> date do not carry it and are recoverable from the `uploads` table, which exists for exactly this.
 
 ### 7.2 Uploaded-files backfill list
 
