@@ -306,4 +306,42 @@ Three parties spend the operator's API budget, and the third only arrived with d
 
 The concurrency limits and the contact-carrying User-Agent in `lib/utils.js` are a security
 property as much as politeness — being a badly-behaved client is how a Wikimedia API budget or,
-later, an OAuth grant gets lost.
+later, an OAuth grant gets lost. That User-Agent interpolates `package.json`'s version rather than
+hardcoding it, so it cannot go on announcing a release that shipped a year ago; nothing tests a
+User-Agent string, so the drift would otherwise be silent.
+
+## Dependency policy
+
+Configured in `renovate.json5`, run by `.github/workflows/renovate.yml`. Seven production
+dependencies is few enough that this is cheap and many enough that doing it by hand would not
+happen.
+
+- **A 14-day release-age floor under everything.** Nothing is proposed until it has been public for
+  two weeks. Malicious npm releases are typically yanked within days of discovery, so the wait is
+  what makes unattended automerge defensible at all — and this repository builds its dependencies
+  into a container image it publishes, so a compromised package reaches something that ships.
+- **Security fixes skip that queue**, and the schedule, and the PR limits. That is Renovate's
+  default for `vulnerabilityAlerts` and is deliberately not restated in the config. It reads
+  GitHub's Dependabot alerts, so **Dependency graph and Dependabot alerts must be enabled on the
+  repository** or the whole mechanism is quietly inert.
+- **`osvVulnerabilityAlerts` is on**, which adds more than extra CVE coverage: OSV data lets
+  Renovate recognise a package that has been taken over and refuse to propose updates to it at
+  all, rather than dutifully bumping into the malicious release.
+- **Automerge is gated on the container, not just the unit suite.** Non-major updates merge
+  themselves once `test` *and* `docker` pass — and `docker` builds the image, boots it and makes a
+  request. A Fastify patch that breaks plugin registration fails there rather than reaching `main`.
+  Majors always wait for a human.
+- **The merge gate is GitHub's, not the bot's.** `platformAutomerge` hands the PR to GitHub's
+  native auto-merge, which requires "Allow auto-merge" plus a ruleset requiring those two checks.
+  Without the ruleset the platform may merge before the checks have even started. Note the
+  corollary for a single-maintainer repository: **required reviews must stay off**, or nothing can
+  ever automerge.
+- **The token is not `GITHUB_TOKEN`.** Pull requests opened with it have their workflow runs held
+  in an approval-required state, so CI would need a click per PR and automerge could never be
+  satisfied unattended. A fine-grained PAT or GitHub App token with **Contents** and **Pull
+  requests** write is enough — *not* Workflows write, because this config deliberately does not
+  extend `config:best-practices` and so never rewrites anything under `.github/workflows/`.
+- **Node is grouped.** It is pinned in four machine-readable places that must agree — `.nvmrc`,
+  `engines`, `node-version` in CI, and the Dockerfile's `FROM` — so one release arrives as one PR.
+  It is never automerged, because a Node major also needs prose and a badge changed by hand.
+  `engines: ">=26"` is expected not to move on its own: it is a support floor, and 27 satisfies it.

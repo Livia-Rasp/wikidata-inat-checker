@@ -129,9 +129,11 @@ a new tab). So after you submit a file, tick **Mark as uploaded** on its card �
 browser profile and the checkers can see it. The main page's **Download uploaded list** button
 exports the set as JSON (`{ "exported": …, "uploaded": [ "<filename>", … ] }`).
 
-> Note: the per-tool tracking category (`Media uploaded with wikidata-inat-checker`) is
-> intentionally **not** added yet, since the tool isn't public. The uploaded-files list is
-> what lets those files be back-filled with the category once it is.
+> Every file also gets the tracking category `Media uploaded with wikidata-inat-checker`, so
+> Commons can see what this tool has contributed. It was deliberately withheld while the tool was
+> private and unknown, and **switched on 2026-08-20**, the day after the repository went public.
+> Files uploaded before that do not carry it — the uploaded-files list is what lets them be
+> back-filled.
 
 ## Adding P18 + category in batches
 

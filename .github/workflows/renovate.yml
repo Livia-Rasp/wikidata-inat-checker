@@ -1,0 +1,75 @@
+# Runs Renovate against this repository.
+#
+# Self-hosted rather than the Mend-hosted GitHub App, deliberately: nothing third-party gets write
+# access to a repository that publishes a container image. The same choice the sibling
+# `livias-random-access` made, so one pattern covers both.
+#
+# The policy lives in renovate.json5 and is platform-agnostic. This workflow is the only
+# GitHub-specific piece; moving platforms means replacing this file and nothing else.
+
+name: Renovate
+
+on:
+  # Monday morning, matching the weekly window in renovate.json5. This only decides how often
+  # Renovate gets to look; the config decides what it may do when it does.
+  schedule:
+    - cron: '0 5 * * 1'
+  # So a run can be forced without waiting a week — needed when first setting this up, and when a
+  # CVE lands and the dashboard should be refreshed now.
+  #
+  # It is also the insurance against a documented footgun: GitHub disables scheduled workflows in
+  # public repositories after 60 days with no repository activity. A quiet seven-dependency repo
+  # behind a weekly schedule can plausibly reach that, and Renovate would then go silent rather
+  # than fail loudly. GitHub emails first; running this by hand re-enables it.
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Renovate log level'
+        required: false
+        default: 'info'
+        type: choice
+        options: [info, debug]
+
+# Two runs at once would fight over the same branches.
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # SHA-pinned rather than tag-pinned: this step runs with a token that can write to the
+      # repository, so a moved tag would be a direct path to arbitrary code holding those rights.
+      #
+      # Note renovate.json5 deliberately does not extend `config:best-practices`, so Renovate will
+      # not keep these pins fresh by itself — bumping them is a manual job, and the version is in
+      # the trailing comment so it is at least legible.
+      - name: Renovate
+        uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
+        with:
+          # NOT the default GITHUB_TOKEN. Pull requests opened with it get their workflow runs
+          # held in an approval-required state (GitHub changed this in June 2026 — before that
+          # they did not run at all). Either way CI does not run unattended, so an automerge could
+          # never be satisfied without a human clicking approve on every PR, which defeats the
+          # point. This needs a fine-grained PAT or a GitHub App token.
+          #
+          # Contents and Pull requests write is enough. Workflows write is NOT needed here,
+          # because this config does not pin GitHub Actions to SHAs — see renovate.json5.
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          # Only this repository. Renovate would otherwise try to discover every repository the
+          # token can see, which for a personal account is all of them — and the sibling projects
+          # each get their own decision, tracked in the vault, not one made by a token's scope.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # The config is the file in the repo. Stated explicitly so a future global default
+          # cannot quietly take precedence.
+          RENOVATE_ONBOARDING_CONFIG_FILE_NAME: renovate.json5

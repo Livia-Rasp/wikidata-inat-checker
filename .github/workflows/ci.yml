@@ -82,8 +82,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Two tags: `latest` for pulling, and the commit sha so a deployment can name exactly what
-      # it is running and roll back to something specific.
+      # Three tags, each answering a different question: `latest` for "just give me the current
+      # one", the package version for "the release I would name out loud", and the commit sha for
+      # "exactly this build". A sha is precise but unreadable and a version only moves when
+      # someone bumps it, so neither replaces the other.
       #
       # The owner is lowercased rather than interpolated as-is. Registry paths must be lowercase
       # and this account is `Livia-Rasp`, so the raw value fails with "repository name must be
@@ -94,7 +96,8 @@ jobs:
           set -euo pipefail
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/$OWNER/wikidata-inat-checker"
-          docker tag wikidata-inat-checker "$IMAGE:latest"
-          docker tag wikidata-inat-checker "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
-          docker push "$IMAGE:${{ github.sha }}"
+          VERSION=$(node -p "require('./package.json').version")
+          for TAG in latest "$VERSION" "${{ github.sha }}"; do
+            docker tag wikidata-inat-checker "$IMAGE:$TAG"
+            docker push "$IMAGE:$TAG"
+          done

@@ -1,0 +1,129 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // JSON5 for the comments. The reasoning behind each rule is the expensive part to
+  // reconstruct later, and docs/threat-model.md carries the policy this implements.
+  //
+  // Deliberately platform-agnostic: nothing GitHub-specific lives here except
+  // `platformAutomerge`, which is a no-op elsewhere. The runner is
+  // .github/workflows/renovate.yml — one file to replace if this ever moves off GitHub.
+
+  extends: [
+    'config:recommended',
+    ':maintainLockFilesWeekly',
+  ],
+
+  // Deliberately NOT config:best-practices, which the sibling repo uses. It brings
+  // `helpers:pinGitHubActionDigests` and `docker:pinDigests`, which would rewrite
+  // .github/workflows/ci.yml on the first run — and a token that may edit workflows is a
+  // meaningfully bigger grant than one that may not. Digest pinning on
+  // node:26.7.0-trixie-slim would also open a PR every time the official image rebuilds,
+  // which is the loudest possible setting on a repo this size.
+
+  timezone: 'Europe/Berlin',
+
+  // Monday morning, and a wide window on purpose: Renovate warns that a narrow one can be
+  // missed entirely when a run does not happen to land inside it.
+  schedule: ['* 2-8 * * 1'],
+
+  // Seven dependencies behind a weekly schedule is not much traffic; the schedule is
+  // already the rate limit, so the hourly one only gets in the way.
+  prConcurrentLimit: 3,
+  prHourlyLimit: 0,
+
+  packageRules: [
+    {
+      // ── The supply-chain floor ──────────────────────────────────────────────────────
+      //
+      // Nothing is proposed until it has been public for two weeks. Malicious npm releases
+      // are typically yanked within days of discovery, so the wait is what makes unattended
+      // automerge defensible at all — this repo publishes a container image, so a
+      // compromised dependency gets built into something that ships.
+      //
+      // Must come first and match everything: a later rule wins over an earlier one.
+      //
+      // Note `minimumReleaseAgeBehaviour` defaults to 'timestamp-required' since Renovate
+      // 42, so a datasource without release timestamps would freeze rather than sail
+      // through. Everything here (npm, nodejs.org, Docker Hub, GitHub releases) publishes
+      // timestamps, so nothing stalls.
+      matchPackageNames: ['*'],
+      minimumReleaseAge: '14 days',
+    },
+
+    {
+      // ── One batched PR for everything non-major, automerged ─────────────────────────
+      //
+      // Seven caret-ranged dependencies would otherwise trickle in as seven separate PRs.
+      // Automerge is safe here because the gate is real: `test` runs the suite, and
+      // `docker` builds the image, boots the container and curls it. A Fastify patch that
+      // breaks plugin registration fails that smoke test rather than reaching main.
+      matchManagers: ['npm', 'github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'digest', 'lockFileMaintenance'],
+      // Insurance rather than a filter today — all seven deps are >=1.0.0, but on 0.x a
+      // minor is allowed to break.
+      matchCurrentVersion: '!/^0/',
+      groupName: 'all non-major dependencies',
+      automerge: true,
+    },
+
+    {
+      // ── The runner is not a dependency ──────────────────────────────────────────────
+      //
+      // Renovate's github-runners datasource reads `runs-on: ubuntu-latest` and offers to
+      // pin it to a numbered release. `ubuntu-latest` is deliberate here: this project has
+      // no runner-specific requirements, and tracking whatever GitHub currently ships is
+      // the point of the alias. Found by the extraction dry-run, which is the only way it
+      // would have surfaced before the first PR.
+      matchDatasources: ['github-runners'],
+      enabled: false,
+    },
+
+    {
+      // ── Majors are never automatic ──────────────────────────────────────────────────
+      // Read the changelog, then merge. One at a time.
+      matchUpdateTypes: ['major'],
+      automerge: false,
+    },
+
+    {
+      // ── Node moves as one thing ─────────────────────────────────────────────────────
+      //
+      // Pinned in four machine-readable places that must agree: .nvmrc, package.json
+      // `engines`, `node-version` in ci.yml, and the Dockerfile's FROM tag. Ungrouped,
+      // one Node release means four PRs, each of which leaves the repo disagreeing with
+      // itself until the last lands.
+      //
+      // `group:nodeJs` from config:recommended is NOT enough: it matches only the `docker`
+      // and `node-version` datasources, and `node-version:` in a workflow extracts under
+      // `github-releases`, so setup-node would fall outside the group. It also sets no
+      // groupName. Hence the explicit rule.
+      //
+      // Never automerged: a Node major also needs the README badge and prose changed, and
+      // Renovate cannot do that.
+      //
+      // `engines: '>=26'` is expected NOT to move — 27 still satisfies it, so the default
+      // range strategy leaves it alone. That is intended: the floor is a support promise
+      // and should move when Node 26 is consciously dropped, not automatically.
+      groupName: 'Node.js',
+      matchDepNames: ['node'],
+      matchManagers: ['npm', 'nvm', 'dockerfile', 'github-actions'],
+      automerge: false,
+    },
+  ],
+
+  // Security fixes skip the queue by default — `minimumReleaseAge: null`, `schedule` and
+  // the PR limits are all bypassed for vulnerability alerts without being restated here.
+  // Only the parts that differ from the default belong in this block.
+  //
+  // Reads GitHub's Dependabot alerts, so Dependency graph and Dependabot alerts must be
+  // enabled on the repository or this silently does nothing.
+  vulnerabilityAlerts: {
+    labels: ['security'],
+    automerge: true,
+  },
+
+  // Direct dependencies only, and worth having for more than the CVEs: OSV data lets
+  // Renovate recognise a package that has been taken over and refuse to propose updates
+  // to it at all, rather than dutifully bumping into the malicious release.
+  osvVulnerabilityAlerts: true,
+}

@@ -37,6 +37,19 @@ docker compose up --build                   # the server in a container, http://
 result with the change. The screenshots are documentation and go stale the same way prose does —
 see [docs/screenshots/README.md](docs/screenshots/README.md).
 
+## Versioning
+
+**Every feature bumps `package.json` and says so in the commit subject: `vX.Y.Z: <what changed>`.**
+Minor for a feature, patch for a fix. Intermediate work commits do not bump — a run of commits
+sits at one version and a single `vX.Y.Z:` commit closes the batch.
+
+There is no CHANGELOG, no git tag and no release tooling, on purpose: **`git log --grep '^v[0-9]'`
+is the changelog**, and it cannot drift from what was actually shipped. Same practice as
+`commons-describe-upload-toolbox`.
+
+The version has two consumers, so it is read and never copied: the User-Agent in `lib/utils.js`
+(sent to Wikimedia and iNaturalist) and the container image tag pushed by CI.
+
 No build step. Node 26+ (`node:sqlite` is built in, so there is no native dependency).
 Server environment variables and why each exists: [docs/threat-model.md](docs/threat-model.md).
 
@@ -57,8 +70,8 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 ## Source layout
 
 Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — that is what the
-`npm run …` scripts invoke — next to `Dockerfile`, `compose.yaml` and `.dockerignore`, which
-container tooling requires there. Everything else is grouped:
+`npm run …` scripts invoke — next to `Dockerfile`, `compose.yaml`, `.dockerignore` and
+`renovate.json5`, which their tooling requires there. Everything else is grouped:
 
 - **`lib/`** — data + domain logic: SPARQL/CirrusSearch/Commons helpers and arg parsing
   (`utils.js`), the findings store (`db.js`), the iNat taxa index (`getInatTaxaDb.js`),
