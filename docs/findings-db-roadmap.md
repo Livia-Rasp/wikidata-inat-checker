@@ -7,9 +7,10 @@ below, the ordered work is in [Slices](#slices).
 **Status:** slices 0–5, 5c and 5d are shipped — the findings database, the verification pass, the
 Fastify backend, the confirm-gated done state, on-demand scoped discovery, the backlog search and
 a container that runs. Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope),
-7–8 (the links and names checkers onto the findings table) and 9 (deploying that container, with
-backups). Each slice ships as its own pull request, and each records below what turned out
-differently from the plan — that is the part worth reading.
+7–8 (the links and names checkers onto the findings table), 9 (deploying that container, with
+backups) and 10 (making discovery reachable once it is deployed). Each slice ships as its own pull
+request, and each records below what turned out differently from the plan — that is the part worth
+reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -580,8 +581,40 @@ it onto the home server, and keeping the database safe once it lives there.
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
 
-The ordered plan ends here. Slice 9 is the last thing needed to have the tool running; what follows
-is deliberately outside it.
+### 10. Discovery reachable from a deployed container
+
+Slices 5 and 5b are how the backlog gets fed — on-demand from the app, or automatically once it
+runs low. Both are `privileged: true` routes gated on the loopback peer check in
+[threat-model.md](threat-model.md#privileged-routes--discovery), and slice 5d proved that check is
+not merely inconvenient behind a published port, it is structurally unreachable there: Docker's NAT
+means the peer address the server sees is always the bridge gateway, never `127.x`, so **neither
+on-demand nor scheduled discovery can be triggered from outside the container's own network
+namespace.** A container deployed by slice 9 can only ever serve the backlog it shipped with — after
+that it is a read-only demo, not a worklist, until someone `docker compose exec`s in by hand.
+
+**Scope: replace or supplement the loopback check with something that survives NAT**, without
+turning the two most expensive routes on the server into something an internet caller can trigger.
+The risk being defended is the same one threat-model.md already states for these routes — spending
+the operator's Wikidata/iNaturalist API budget, and later an OAuth grant, not data exposure — so
+whatever mechanism ships has to keep that property: unforgeable by a caller who is merely on the
+same network as the published port, and not dependent on a header a proxy could rewrite (the same
+reason `TRUST_PROXY` does not already fix this).
+
+**Deliberately not designed yet.** This slice is sequenced so it exists on the plan, not because the
+mechanism is decided — that is real design work, to be done when the deployment in slice 9 is
+otherwise in place and this is the thing actually blocking it. Candidates to weigh at that point,
+none chosen: a bearer token set via environment variable and checked on the privileged routes only;
+putting the check behind whatever credential OAuth eventually introduces instead of inventing a
+second scheme; a network-level answer (a VPN or Tailscale hop that makes the caller genuinely local
+again) that needs no change to the server at all. Whichever it is, it should get its own writeup in
+threat-model.md next to the loopback check it replaces or narrows.
+
+**Working means:** a discovery run — on-demand or 5b's scheduled top-up — can be triggered against
+the container from wherever slice 9 puts it, without the privileged routes becoming reachable by
+anyone who can merely reach the published port.
+
+The ordered plan ends here. Slice 10 is the last thing needed for a deployed instance to stay
+usable rather than draining to a fixed backlog; what follows is deliberately outside it.
 
 ## Known: `skipped` does not survive more than one user
 

@@ -132,7 +132,7 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–5, 5c and 5d are done; 5b and 6–9 remain, and
+  restructure around `data/findings.db`. Slices 0–5, 5c and 5d are done; 5b, 6–9 and 10 remain, and
   OAuth is deliberately outside the plan. Three known gaps are
   written up there rather than fixed: **`skipped` is global**, the **ambiguous-match views** need
   a real interface, and a **CLI run killed outright stays `running`** (only the server reconciles).
