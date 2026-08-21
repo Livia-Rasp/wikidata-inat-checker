@@ -136,7 +136,11 @@ Two things follow, and the second is a trap:
 
 - Filling the backlog for a containerised deployment is still a job for the CLI, because only the
   CLI may build the taxa index — a run started inside the image fails in milliseconds with
-  `taxa_index_unavailable`.
+  `taxa_index_unavailable`. Once the container is actually deployed somewhere rather than run
+  locally, this stops being a workaround and becomes the only way in: nothing outside the
+  container's network namespace can reach `/api/discover` at all. Replacing or supplementing this
+  check with something that survives Docker's NAT is slice 10 in
+  [findings-db-roadmap.md](findings-db-roadmap.md) — sequenced, but not yet designed.
 - **Do not size the container's memory on the assumption that discovery cannot run there.** Mount
   the taxa index one day and it can, whereupon a run forks a child that materialises 1.4M rows and
   spikes to ~650 MB. A limit below that gets it OOM-killed, and `SIGKILL` is never reported as a
@@ -326,7 +330,9 @@ happen.
   Dependency graph and Dependabot alerts enabled on the repository, **and `Dependabot alerts:
   Read` on the token itself**. Miss the token half and the dashboard says
   `Cannot access vulnerability alerts` under "Repository Problems" — which is the only place it is
-  reported, so it is worth looking at after any token rotation.
+  reported. The first Dependency Dashboard run was missing it; the grant was added to the token on
+  2026-08-21 and the dashboard's Repository Problems block is clear now. It fails quietly, so it is
+  worth checking again after any token rotation.
 - **`osvVulnerabilityAlerts` is on**, which adds more than extra CVE coverage: OSV data lets
   Renovate recognise a package that has been taken over and refuse to propose updates to it at
   all, rather than dutifully bumping into the malicious release.
