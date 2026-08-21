@@ -14,6 +14,11 @@ const CACHE_FILE = cachePath('cache-links.json');
 const args = parseArgs();
 const limit = parseLimit(args, 200);
 const autoMode = args.auto === true;
+// Skips the P3151 cross-check and the ancestor-chain fetch for *matched* (non-ambiguous) items —
+// only links-ambiguous.html is wanted, and that big fetch (one batch per 50 of potentially tens
+// of thousands of matches) is both unneeded for it and the thing most exposed to WDQS's current
+// instability. The much smaller ambiguous-only ancestor fetch (step 6 below) still runs.
+const ambiguousOnly = args['ambiguous-only'] === true;
 
 /** Finds Wikidata taxa without P3151, matches them against the local iNat DB, writes links.html. */
 async function run() {
@@ -55,7 +60,7 @@ async function run() {
     // 2. Look up taxon names in local iNat taxa database
     if (uncached.length === 0) {
         console.log('No new taxa to scan. Nothing to do.');
-        await generateLinksHTML([], []);
+        if (!ambiguousOnly) await generateLinksHTML([], []);
         await generateAmbiguousHTML([]);
         return;
     }
@@ -86,7 +91,7 @@ async function run() {
 
     if (foundInatIds.length === 0 && ambiguousCandidates.length === 0) {
         console.log('No iNat matches found. Nothing to do.');
-        await generateLinksHTML([], []);
+        if (!ambiguousOnly) await generateLinksHTML([], []);
         await generateAmbiguousHTML([]);
         return;
     }
@@ -95,7 +100,7 @@ async function run() {
     const inatTreeMap = new Map();
     const wdTreeMap   = new Map();
 
-    if (foundInatIds.length > 0) {
+    if (foundInatIds.length > 0 && !ambiguousOnly) {
         // 3. Check only the found iNat IDs against existing Wikidata P3151 mappings
         console.log(`Checking ${foundInatIds.length} found iNat IDs against existing Wikidata P3151 mappings...`);
         const existingP3151 = new Map(); // inatId → {wdUri, taxonName}
@@ -191,7 +196,7 @@ WHERE {
                 inatAmbigTreeMap.set(inatId, taxaDb.getAncestors(inatId));
 
     // 7. Auto-export: filter matches by tree agreement and write links-auto.qs
-    if (autoMode) {
+    if (autoMode && !ambiguousOnly) {
         const safeLines = [];
         for (const m of matches) {
             const wdChain   = wdTreeMap.get(m.qid) ?? [];
@@ -208,7 +213,7 @@ WHERE {
     }
 
     // 8. Generate HTML
-    await generateLinksHTML(matches, conflicts, wdTreeMap, inatTreeMap);
+    if (!ambiguousOnly) await generateLinksHTML(matches, conflicts, wdTreeMap, inatTreeMap);
     await generateAmbiguousHTML(ambiguousCandidates, wdAmbigTreeMap, inatAmbigTreeMap);
     console.log('Done.');
 }

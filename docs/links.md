@@ -23,6 +23,7 @@ npm run links                              # default: 200 taxa
 npm run links -- --limit 1000             # custom limit — fast even for large numbers
 npm run links -- --limit 1000 --iucn EN   # limit + IUCN status filter
 npm run links -- --limit 1000 --auto      # also write output/links-auto.qs (certain matches only)
+npm run links -- --limit 1000 --ambiguous-only  # only output/links-ambiguous.html — see below
 npm run linkStats                          # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
 ```
 
@@ -114,6 +115,64 @@ Matches that fail these criteria still appear in `output/links.html` for manual 
 ```
 Q12345	P3151	"67890"
 ```
+
+## Ambiguous-only mode (`--ambiguous-only`)
+
+Pass `--ambiguous-only` to skip everything `output/links.html` needs — the P3151 cross-check
+against clean matches, the ancestor-chain fetch for every one of them (one Wikidata SPARQL batch
+per 50 matches, which at a `--limit` in the tens of thousands is by far the slowest and most
+WDQS-load-sensitive part of a run), and the conflict bookkeeping — and go straight to writing
+`output/links-ambiguous.html` from the much smaller ambiguous set. Useful whenever `links.html`
+isn't wanted at all, e.g. sourcing a gold-labeling sample of ambiguous cases for an external
+project: cuts a large-`--limit` run from well over an hour down to single-digit minutes, and
+avoids most of the exposure to WDQS's intermittent truncated/slow-response instability, since
+that scales with the number of ancestor-chain batches fetched.
+
+## Known issues
+
+**The Wikidata tree can silently drop real ranks when an ancestor has multiple `P171`
+statements.** `fetchWdAncestorChains` (`lib/utils.js`) rebuilds the linear ancestor chain
+client-side by walking `directParent → parent → parent → ...`, using a `Map` keyed by ancestor
+QID where each ancestor's recorded parent is set via `.set()`. Wikidata's taxonomic graph is not
+a strict tree — an ancestor can carry more than one normal/preferred-rank `wdt:P171` statement
+(alternate or duplicate classification), and `wdt:P171` returns all of them. When that happens,
+whichever SPARQL row arrives last for that ancestor silently overwrites the "correct"
+chain-continuation pointer, and the walk can derail, quietly dropping every subsequent rank from
+the displayed tree without any error.
+
+Reproduce on `Q5049369` ("Cassidulina," in the ambiguous set): its tree-pair in
+`output/links-ambiguous.html` shows the Wikidata column missing Kingdom, Phylum, Subphylum,
+Superorder, Suborder, Infraclass and Subterclass — only Class/Subclass/Order survive — even
+though Wikidata's own `wdt:P171+` data has all of them. Confirm the multi-parent cause directly:
+
+```sh
+curl -sG 'https://query.wikidata.org/sparql' \
+  --data-urlencode 'query=SELECT ?ancestor ?ancestorParent WHERE {
+    wd:Q5049369 wdt:P171+ ?ancestor . ?ancestor wdt:P171 ?ancestorParent .
+  } ORDER BY ?ancestor' \
+  -H 'Accept: application/sparql-results+json'
+```
+
+`Q378385` (Atelostomata, the superorder) comes back bound to two different `?ancestorParent`
+values (Euechinoidea and Irregularia); `Q44631` (the phylum ancestor) has two more. Several nodes
+further up the chain are multi-parent too.
+
+**Confirmed on a second, independent item — `Q2474088` ("Caninae")** — so this isn't a one-off.
+Its tree shows Class through Family intact (Mammalia/Theriiformes/Carnivora/Canoidea/Canidae) but
+Kingdom/Phylum/Subphylum missing, a different derailment point than Q5049369's. Same query
+pattern against `Q2474088` shows `Q25306` (Carnivora, the order itself) bound to **four**
+different `?ancestorParent` values (`mammal`, `Placentalia`, a superorder, and `Carnivoraformes`),
+and `Q160830` (Sarcopterygii, further up toward Kingdom) is multi-parent too — consistent with the
+chain surviving down through Carnivora but derailing above Sarcopterygii before reaching Phylum
+and Kingdom.
+
+Affects both `output/links.html` and `output/links-ambiguous.html`, since both use this function
+— any item whose lineage passes through a multi-parent node is at risk, not just this example.
+Not yet fixed; tracked as a ToDo in the vault. Fix direction, undecided: pick a deterministic
+single parent when several exist (prefer a `preferred`-rank statement if present, stable tiebreak
+otherwise); reconstruct via shortest-path/BFS from item to root instead of one linear pointer
+chain; or walk one hop at a time with a fresh query per level instead of reconstructing
+client-side from a single flattened `P171+` result set.
 
 ## Typical workflow
 
