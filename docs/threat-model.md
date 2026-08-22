@@ -72,6 +72,16 @@ arrive later behind OAuth.
   | `RATE_LIMIT_WRITE_MAX` | 30 | Tighter limit for confirm/skip/uploads/import. |
   | `RATE_LIMIT_DISCOVER_MAX` | 6 | Tighter still, for starting a discovery run, per fixed minute. |
   | `SCREENSHOT_PORT` | 8099 | Only read by `tools/screenshots.mjs`, which starts its own server. |
+  | `TOPUP_ENABLED` | unset | Enables the scheduled top-up (slice 5b) — also needs `DISCOVER_ENABLED`. |
+  | `TOPUP_TAXON` / `TOPUP_IUCN` | unset | The scheduled top-up's one fixed scope. |
+  | `TOPUP_LIMIT` | 500 | `limit` for each scheduled run. |
+  | `TOPUP_RECHECK_AFTER` | discover()'s own default | Days before a negative result is re-checked. |
+  | `TOPUP_CHECK_INTERVAL_MINUTES` | 30 | How often the scheduler evaluates whether to run. |
+  | `TOPUP_QUIET_HOURS_COUNT` | 6 | How many of the 24 UTC hours count as "quiet". |
+  | `TOPUP_QUIET_LOOKBACK_DAYS` | 30 | Rolling window the hourly traffic average is computed over. |
+  | `TOPUP_QUIET_MIN_SAMPLE_DAYS` | 7 | Below this much request history, every hour is eligible. |
+  | `TOPUP_DAILY_DEADLINE_HOUR` | 23 | UTC hour past which today's top-up runs regardless of quiet hours. |
+  | `TOPUP_REQUEST_LOG_RETENTION_DAYS` | 60 | Pruning horizon for the request-volume log. |
 
 ## Write endpoints
 
@@ -131,6 +141,36 @@ a browser on the host gets 403 `not_local`, even with `DISCOVER_ENABLED=1`.
 the real image: `docker compose exec` issuing the same POST to `127.0.0.1:8080` is accepted with
 202. That is the check working as designed, not a hole in it — "local" means local to the server,
 and a process sharing its network namespace is exactly that.
+
+### The scheduled top-up (slice 5b) — why it needs none of the above
+
+`server/scheduledTopup.js` calls `jobs.start()` directly, in the server process, never over HTTP.
+It is therefore not a `privileged` route and is not subject to the loopback-peer check or the
+write guard at all — there is no request for either to inspect. This is not a gap: the trust
+boundary those checks defend is "did this call originate from the server's own process/network
+namespace", and code running inside `server/index.js` already satisfies that trivially. Gating it
+behind a synthetic internal HTTP call would add a mechanism, not a defence.
+
+What *does* gate it is `TOPUP_ENABLED` (off by default) plus a hard requirement for
+`DISCOVER_ENABLED` too, checked at startup in `server/index.js` — a scheduled run spends the exact
+same Wikidata/iNaturalist budget an on-demand one does, so it needs the same consent.
+
+**Verified against the real image, both ways.** Without the taxa index mounted, a scheduled tick
+starts, `openTaxaDb()` throws `taxa_index_unavailable` inside the forked child, and the container
+keeps serving — the same graceful-degradation path slice 5d proved for search. With the real index
+mounted read-only, a scheduled run completes end to end (`triggeredBy: "schedule"`, a finding
+recorded) and a second tick that day correctly skips (`ran_today`).
+
+**One nuance the missing-index run surfaced.** `discover()` (like the on-demand route) resolves and
+validates its scope *before* opening a `runs` row, on purpose — a bad scope should leave no trace.
+But `openTaxaDb()` throws even earlier than that, in `discoverChild.js`, before `discover()` is
+called at all — so a missing taxa index leaves **no run row**, and the scheduler's daily-once gate
+(which reads `runs`) cannot see that an attempt was made. The practical effect: with the index
+absent, the scheduler retries every `TOPUP_CHECK_INTERVAL_MINUTES` instead of once a day, until the
+index appears. Accepted rather than fixed: the failure is cheap (a fork that dies before the ~650MB
+taxa load, not a wasted API call), self-heals the moment the index is built, and the documented
+deployment order already has the index built by the CLI before `TOPUP_ENABLED` is ever set — so
+this is a narrow, low-cost edge case rather than the expected path.
 
 Two things follow, and the second is a trap:
 

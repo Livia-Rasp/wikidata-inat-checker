@@ -222,6 +222,32 @@ only thing that stops it outliving a parent that was killed outright — verifie
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
 
+### Scheduled top-up (`server/scheduledTopup.js`)
+
+Calls `jobs.start()` directly, in the server process — never over HTTP — so it is not a `privileged`
+route and the loopback-peer check never applies to it; see
+[threat-model.md](threat-model.md#the-scheduled-top-up-slice-5b--why-it-needs-none-of-the-above).
+Two things worth knowing before touching it:
+
+- **The decision logic is a pure function, `evaluateTopup()`.** It takes `jobsState`,
+  `lastScheduledRun`, the cached `quiet` set and `nowMs` as plain values and returns
+  `{action, reason}` with no side effect — the whole gate (running-lock, daily-once, quiet-hours,
+  deadline catch-up) is tested through it directly, with no fake timers or DB needed. `tick()` in
+  `createScheduledTopup()` is thin glue around it: fetch the current state, call it, act on the
+  result.
+- **`store.quietHoursOfDay()` is cached for 24h, not recomputed per tick.** That cache *is* the
+  hysteresis the plan asked for — recomputing on every tick would let one noisy hour flip the
+  eligible set tick to tick. A day with too little `request_log` history (`sampleDays` below
+  `TOPUP_QUIET_MIN_SAMPLE_DAYS`) is treated as "every hour eligible", not "wait" — a fresh
+  deployment should not sit idle for a week waiting to earn the right to run.
+
+The daily-once gate reads `runs.triggered_by = 'schedule'`, which means it has the same blind spot
+`discover()`'s own "a bad scope leaves no run behind" design has, one layer further out: a missing
+taxa index throws in `discoverChild.js` **before** `discover()` opens a run row at all, so that
+particular failure is invisible to the gate and gets retried every `TOPUP_CHECK_INTERVAL_MINUTES`
+rather than once a day. Written up in
+[findings-db-roadmap.md](findings-db-roadmap.md#5b-scheduled-top-up--done) as accepted, not fixed.
+
 ### Searching the backlog (`lib/backlogIndex.js`)
 
 Which taxa *already on the worklist* are in a clade. The findings database knows each taxon's iNat

@@ -4,13 +4,13 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–5, 5c and 5d are shipped — the findings database, the verification pass, the
-Fastify backend, the confirm-gated done state, on-demand scoped discovery, the backlog search and
-a container that runs. Remaining: 5b (scheduled top-up), 6 (app shell, area as a discovery scope),
-7–8 (the links and names checkers onto the findings table), 9 (deploying that container, with
-backups) and 10 (making discovery reachable once it is deployed). Each slice ships as its own pull
-request, and each records below what turned out differently from the plan — that is the part worth
-reading.
+**Status:** slices 0–5, 5b, 5c and 5d are shipped — the findings database, the verification pass,
+the Fastify backend, the confirm-gated done state, on-demand scoped discovery, the scheduled
+top-up, the backlog search and a container that runs. Remaining: 6 (app shell, area as a discovery
+scope), 7–8 (the links and names checkers onto the findings table), 9 (deploying that container,
+with backups) and 10 (making discovery reachable once it is deployed). Each slice ships as its own
+pull request, and each records below what turned out differently from the plan — that is the part
+worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -42,10 +42,17 @@ the profile.
 
   **Partly revisited 2026-08-15 (slice 5b).** A schedule is wanted after all, but for a different
   reason than the one rejected here: spreading outbound load onto quiet hours, and accumulating
-  candidates over time so a work session does not have to start by waiting for a discovery run. What
-  stays true is the sentence above it — the table is not meant to be complete — so the scheduled run
-  is **conditional on the backlog being low**, not unconditional. On-demand discovery remains the
-  primary trigger; the schedule reuses its job runner and its single-flight lock.
+  candidates over time so a work session does not have to start by waiting for a discovery run.
+  On-demand discovery remains available; the schedule reuses its job runner and its single-flight
+  lock.
+
+  **Reversed again when 5b was actually built (2026-08-22).** The plan above still gated the
+  scheduled run on the backlog being low. Livia overrode that: a bigger backlog does not hurt here
+  — the whole workflow is "fetch a batch, work through it, fetch more", and there is no cost to
+  fetching before the current batch is exhausted. So the shipped scheduler runs **once a day,
+  unconditionally**, preferring a quiet hour but with a deadline catch-up that overrides quiet
+  hours rather than let a whole day pass with no run. "The table is never meant to be complete"
+  still holds — it just no longer implies a size gate. See slice 5b below for the rest.
 - **SQLite, deliberately** — `journal_mode=WAL`, a `busy_timeout`, `STRICT` tables, one writer by
   discipline, `VACUUM INTO` for backup. Postgres was considered and rejected: it is more ops here,
   and the iNat taxa index stays SQLite regardless, so findings in Postgres would mean two engines
@@ -478,30 +485,65 @@ skip surviving a container restart, search degrading rather than 503ing with no 
 discovery refusing with `not_local`, and a clean stop. Then `docker compose up` against the real
 database as the final check.
 
-### 5b. Scheduled top-up when the backlog runs low
-Added 2026-08-15, after the "no schedule" decision above was revisited. Sequenced **after** slice 5,
-which builds everything it needs: the child-process job runner, the single-flight lock, the status
-record and the outbound caps. This slice is the trigger and the condition, nothing else.
+### 5b. Scheduled top-up — **done**
+Added 2026-08-15, after the "no schedule" decision above was revisited; built 2026-08-22. Sequenced
+**after** slice 5, which built everything it needs: the child-process job runner, the single-flight
+lock, the status record and the outbound caps. This slice is the trigger and the condition, nothing
+else. `server/scheduledTopup.js`, a `runs.triggered_by` column and a `request_log` table (schema
+v4), wired into `buildServer()` and gated by `TOPUP_*` env vars — full table in
+[threat-model.md](threat-model.md).
 
-Decisions made when it was planned, so they do not have to be re-argued:
+Decisions that held from the plan:
 
-- **It only runs when the backlog is low** — below a configured threshold of open findings. This is
-  what keeps it compatible with "the findings table is never meant to be complete": work through
-  nothing and it stops fetching, rather than growing a worklist nobody is touching.
-- **Timing is adaptive on measured request volume**, not a fixed hour. Recommended against at
-  planning time and chosen anyway, so the concerns belong here: it needs traffic history, a
-  definition of "low" and hysteresis to avoid flapping, and it makes the outbound traffic time
-  unpredictable, which is the opposite of what a shared API prefers. Start by recording request
-  volume and only then decide the rule; a fixed hour is the fallback if the signal proves too noisy
-  on a single-user tool.
-- **Off unless configured, with one fixed scope from the environment.** An unattended job that
-  spends Wikimedia and iNaturalist reputation must never be a default, and what it does should be
-  written down rather than inherited from whatever was last clicked in the UI.
-- **On-demand still works exactly as before.** The schedule is another caller of the same runner, so
-  a manual top-up and a scheduled one cannot overlap — the lock already refuses the second.
+- **Off unless configured, with one fixed scope from the environment**, and requiring
+  `DISCOVER_ENABLED` too — a scheduled run spends the same budget an on-demand one does.
+- **Reuses the on-demand job runner and its single-flight lock**, and does so by calling
+  `jobs.start()` **in-process**, never over HTTP — which turned out to mean it needs no privilege
+  mechanism of its own at all: the loopback-peer check in `server/writeGuard.js` only ever applies
+  to an actual HTTP request, and there isn't one. Written up in
+  [threat-model.md](threat-model.md#the-scheduled-top-up-slice-5b--why-it-needs-none-of-the-above).
+- **Timing is adaptive on measured request volume**, the harder option this plan flagged as
+  "recommended against... a fixed hour is the fallback if the signal proves too noisy." Livia chose
+  to build it anyway. `request_log` holds one row per UTC hour bucket, upserted on every `/api/*`
+  request except discovery's own traffic (which would otherwise bias the very signal it feeds);
+  `store.quietHoursOfDay()` averages it per hour-of-day over a rolling window and returns the
+  quietest N hours. The hysteresis the plan asked for is a 24h cache on that computation, not a
+  per-tick recompute — a single noisy hour cannot flip the eligible set tick to tick.
+
+Two things turned out differently, both decided during the build rather than left to guesswork:
+
+- **The backlog-size gate was dropped entirely.** The plan above said "only when the backlog is
+  below a threshold." Livia overruled it: a bigger backlog does not hurt — the workflow is fetch a
+  batch, work through it, fetch more, and there is no cost to fetching before the last batch is
+  gone. The shipped rule is **once a day, unconditionally**, preferring a quiet hour but with a
+  `TOPUP_DAILY_DEADLINE_HOUR` catch-up that overrides quiet hours rather than let a whole day pass
+  with no run — because the server might be down through every quiet hour, or the derived set might
+  simply be wrong yet. "The findings table is never meant to be complete" survives this change; it
+  just no longer implies a size gate.
+- **The daily-once gate has a documented blind spot.** It reads `runs.triggered_by`, and `discover()`
+  deliberately opens no run row until a scope is resolved — "a bad scope leaves no trace of a run"
+  predates this slice. But `openTaxaDb()` throws even earlier than that, inside
+  `discoverChild.js`, before `discover()` is ever reached — so a *missing taxa index* leaves no run
+  row either, and the scheduler retries it every `TOPUP_CHECK_INTERVAL_MINUTES` instead of once a
+  day until the index exists. Accepted rather than fixed: the failure is cheap (a fork that dies
+  before the ~650MB taxa load, no Wikimedia or iNaturalist request spent), it self-heals the moment
+  the index is built, and the documented deployment order already builds the index before
+  `TOPUP_ENABLED` is ever set.
 
 **Working means:** a machine left running accumulates candidates on its own, and a work session
 starts with a backlog already there.
+
+**Verified.** 250 unit tests, including `evaluateTopup`'s decision table exercised directly (no
+timers, no DB) and `createScheduledTopup`'s wiring driven by a captured interval callback. Live,
+from a scratch copy of the real database: a run fired within a minute of the process starting
+(bootstrap path — no request history yet, so every hour was eligible), wrote findings, and recorded
+`triggeredBy: "schedule"`; a second tick the same "day" correctly answered `ran_today` and started
+nothing; ordinary `/api/findings` traffic accumulated in `request_log` while polling
+`/api/discover/status` and starting a run did not; and shutdown stayed clean (the interval is
+`unref()`'d and explicitly stopped in `onClose`, before the store closes). Against the real
+container image, both without and with the taxa index mounted: the missing-index case degraded
+exactly as described above rather than crashing the container, and with the index mounted a
+scheduled run completed end to end and `docker stop` exited in 0.15s.
 
 ### 6. App shell, plus area as a discovery scope
 Introduces the multi-page shell and navigation (the first slice with a second page to justify it),
@@ -756,8 +798,8 @@ When it does happen, three things already decided are worth not re-arguing:
 Wanted, unsequenced, and deliberately not slices. These are what survived `web-app-architecture.md`
 (written before the Fastify decision, absorbed here 2026-08-19); everything else in it was either
 built differently or rejected outright — most notably its scheduled-refresh design, replaced by
-the conditional trigger in slice 5b, and its `core/` extraction, which was never needed once the
-CLI and the server ended up sharing `lib/` directly.
+slice 5b's daily top-up, and its `core/` extraction, which was never needed once the CLI and the
+server ended up sharing `lib/` directly.
 
 - **A shared, server-side enrichment cache** — a different thing from the findings database.
   `web/js/enrich.js` caches place hierarchies, category existence, author categories and taxon
