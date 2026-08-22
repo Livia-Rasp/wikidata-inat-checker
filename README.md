@@ -90,6 +90,7 @@ Run the image checker at least once so the findings database has a backlog, then
 ```sh
 npm run web                     # http://localhost:8080
 DISCOVER_ENABLED=1 npm run web  # …and allow discovery from the app
+TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web  # …and a daily scheduled top-up
 ```
 
 A [Fastify](https://fastify.dev) server (`server/`) serves the app and the findings API over the
@@ -136,6 +137,10 @@ whatever you just searched — the same work `npm run images` does, in a forked 
 and a cancel that keeps what it already found. It is offered, never automatic, and refused from
 anything but a local connection: a run spends your Wikidata and iNaturalist API budget for minutes
 at a time.
+
+With `TOPUP_ENABLED=1` too, the server also runs an unscoped top-up on its own, once a day,
+preferring whichever hour tends to see the least traffic to this app. Off by default; the full
+picture is in [docs/threat-model.md](docs/threat-model.md).
 
 ### Confirming
 

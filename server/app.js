@@ -17,6 +17,7 @@ import discoverRoutes from './routes/discover.js';
 import searchRoutes from './routes/search.js';
 import { openTaxaDb } from '../lib/getInatTaxaDb.js';
 import { createJobs } from './jobs.js';
+import { createScheduledTopup } from './scheduledTopup.js';
 
 const WEB_ROOT = fileURLToPath(new URL('../web/', import.meta.url));
 
@@ -72,12 +73,14 @@ class ApiOnlyLogController extends LogController {
 /**
  * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
  *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
- *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any}} opts
+ *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
+ *          topupConfig?: {enabled: boolean} & Record<string, any>, scheduledTopup?: any}} opts
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({
     store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
     jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
+    topupConfig, scheduledTopup,
 } = {}) {
     const app = Fastify({
         logger,
@@ -159,12 +162,34 @@ export function buildServer({
     // Runs live in a forked child, so the server owns starting and stopping them but never does
     // the work. Injected in tests; created here otherwise.
     const runner = jobs ?? createJobs({ log: app.log });
+
+    // The scheduled top-up (slice 5b) is just another caller of runner.start(), in-process — so it
+    // needs no privilege mechanism of its own; it never goes over HTTP. Off unless configured, and
+    // the request-volume hook it depends on is skipped entirely when it's off, so a server that
+    // never sets TOPUP_ENABLED pays no extra write per request.
+    const topup = topupConfig?.enabled
+        ? (scheduledTopup ?? createScheduledTopup({
+            store, jobs: runner, config: { ...topupConfig, dbFile }, log: app.log,
+        }))
+        : null;
+    if (topup) {
+        app.addHook('onResponse', async (req) => {
+            const url = req.url ?? '';
+            // Excludes discovery's own traffic (the POST that starts a run, and the client-side
+            // status poll) so the scheduler's runs never bias the "quiet" signal they're built from.
+            if (url.startsWith('/api') && !url.startsWith('/api/discover')) store.recordRequest();
+        });
+        topup.start();
+    }
+
     app.register(discoverRoutes, {
         prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex: sharedIndex,
-        rateLimit, allowedHosts,
+        rateLimit, allowedHosts, scheduledTopup: topup,
     });
     // Before the store closes in server/index.js: a child still holding a write handle would
-    // outlive the thing that is supposed to own it.
+    // outlive the thing that is supposed to own it. The scheduler's own interval must stop first,
+    // or a tick could try to start a new run against a store that is about to close.
+    app.addHook('onClose', () => topup?.stop());
     app.addHook('onClose', () => runner.close());
 
     // Fastify's default 404 echoes the requested route back; this one does not.

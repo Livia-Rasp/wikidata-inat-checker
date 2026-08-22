@@ -29,7 +29,9 @@ test('migrate creates the current schema and is idempotent', () => {
     assert.equal(migrate(db), version, 're-running must not throw or bump the version');
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
-    for (const t of ['taxa', 'findings', 'runs', 'uploads']) assert.ok(tables.includes(t), `${t} table exists`);
+    for (const t of ['taxa', 'findings', 'runs', 'uploads', 'request_log']) {
+        assert.ok(tables.includes(t), `${t} table exists`);
+    }
 });
 
 test('the v2 migration runs on an existing v1 database without touching its rows', () => {
@@ -359,4 +361,104 @@ test('the v3 migration classifies the runs that predate it', () => {
     const states = db.prepare('SELECT state FROM runs ORDER BY id').all().map(r => r.state);
     assert.deepEqual(states, ['done', 'interrupted'],
         'a finished run is done; one that never finished never will');
+});
+
+test('the v4 migration backfills triggered_by and adds an empty request_log', () => {
+    // The upgrade path a real installation takes: a populated v3 file, opened by newer code.
+    const db = new DatabaseSync(':memory:');
+    db.exec(`
+        CREATE TABLE taxa (qid TEXT PRIMARY KEY, inat_id TEXT, taxon_name TEXT, rank TEXT, iucn TEXT, first_seen TEXT NOT NULL) STRICT;
+        CREATE TABLE findings (id INTEGER PRIMARY KEY, qid TEXT NOT NULL REFERENCES taxa(qid), kind TEXT NOT NULL,
+            payload TEXT, status TEXT NOT NULL, discovered_at TEXT NOT NULL, checked_at TEXT NOT NULL,
+            verified_at TEXT, resolved_at TEXT, resolution TEXT, UNIQUE (qid, kind)) STRICT;
+        CREATE INDEX idx_findings_worklist ON findings(kind, status);
+        CREATE TABLE runs (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, scope TEXT,
+            started_at TEXT NOT NULL, finished_at TEXT, n_scanned INTEGER, n_found INTEGER,
+            state TEXT NOT NULL DEFAULT 'running', error TEXT) STRICT;
+        CREATE TABLE uploads (id INTEGER PRIMARY KEY, dest_file TEXT NOT NULL UNIQUE, qid TEXT REFERENCES taxa(qid),
+            photo_id TEXT, taxon_name TEXT, is_p18 INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL) STRICT;
+        CREATE INDEX idx_uploads_qid ON uploads(qid);
+        CREATE UNIQUE INDEX idx_uploads_p18 ON uploads(qid) WHERE is_p18 = 1;
+        INSERT INTO runs (tool, scope, started_at, finished_at, state)
+            VALUES ('images', NULL, '2026-01-01', '2026-01-02', 'done');
+        PRAGMA user_version = 3;
+    `);
+
+    migrate(db);
+
+    const run = db.prepare('SELECT triggered_by FROM runs').get();
+    assert.equal(run.triggered_by, 'manual', 'a pre-existing run backfills to manual');
+
+    const store = createFindingsStore(db);
+    assert.equal(store.quietHoursOfDay({ lookbackDays: 30, quietHoursCount: 6 }).sampleDays, 0,
+        'request_log exists and starts empty');
+});
+
+test('startRun records who triggered it, and latestRun can filter by it', () => {
+    const { store } = makeStore();
+    const manualId = store.startRun('images', {});
+    store.finishRun(manualId, { scanned: 1, found: 1 });
+    assert.equal(store.latestRun('images').triggeredBy, 'manual', 'the default');
+
+    const scheduledId = store.startRun('images', {}, 'schedule');
+    store.finishRun(scheduledId, { scanned: 2, found: 2 });
+    assert.equal(store.latestRun('images').triggeredBy, 'schedule', 'latest overall is the scheduled one');
+    assert.equal(store.latestRun('images', { triggeredBy: 'manual' }).id, manualId,
+        'filtering finds the manual run even though it is not the latest');
+});
+
+test('recordRequest accumulates per UTC hour bucket', () => {
+    const { db, store } = makeStore();
+    store.recordRequest('2026-08-22T14');
+    store.recordRequest('2026-08-22T14');
+    store.recordRequest('2026-08-22T15');
+
+    const rows = db.prepare('SELECT hour_bucket, count FROM request_log ORDER BY hour_bucket').all()
+        .map(r => ({ hour_bucket: r.hour_bucket, count: r.count }));
+    assert.deepEqual(rows, [
+        { hour_bucket: '2026-08-22T14', count: 2 },
+        { hour_bucket: '2026-08-22T15', count: 1 },
+    ]);
+});
+
+test('recordRequest defaults to the current hour when no bucket is given', () => {
+    const { db, store } = makeStore();
+    store.recordRequest();
+    const rows = db.prepare('SELECT hour_bucket FROM request_log').all();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].hour_bucket, new Date().toISOString().slice(0, 13));
+});
+
+test('quietHoursOfDay ranks hours by average traffic, with no data treated as zero', () => {
+    const { store } = makeStore();
+    // Hours 10 and 11 are busy every day in the window; every other hour never appears.
+    for (const day of ['2026-08-20', '2026-08-21', '2026-08-22']) {
+        store.recordRequest(`${day}T10`);
+        store.recordRequest(`${day}T10`);
+        store.recordRequest(`${day}T10`);
+        store.recordRequest(`${day}T11`);
+    }
+
+    const { hours, sampleDays } = store.quietHoursOfDay({ lookbackDays: 30, quietHoursCount: 22 });
+    assert.equal(sampleDays, 3, 'three distinct calendar days of history');
+    assert.equal(hours.length, 22, 'the 22 hours with no traffic at all');
+    assert.ok(!hours.includes(10), 'the busiest hour is excluded');
+    assert.ok(!hours.includes(11), 'the second-busiest hour is excluded');
+});
+
+test('quietHoursOfDay ignores buckets outside the lookback window', () => {
+    const { store } = makeStore();
+    store.recordRequest('2020-01-01T05'); // ancient, must not count
+    const { sampleDays } = store.quietHoursOfDay({ lookbackDays: 30, quietHoursCount: 6 });
+    assert.equal(sampleDays, 0);
+});
+
+test('pruneRequestLog deletes only buckets older than the retention window', () => {
+    const { db, store } = makeStore();
+    store.recordRequest('2020-01-01T05');
+    store.recordRequest(); // current hour, must survive
+
+    const deleted = store.pruneRequestLog(60);
+    assert.equal(deleted, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM request_log').get().n, 1);
 });

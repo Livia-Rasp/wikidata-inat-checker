@@ -97,7 +97,8 @@ export function createJobs(opts = {}) {
          *
          * **The claim must be the first thing a handler does**, with no `await` before it: two
          * simultaneous POSTs would otherwise both see `idle` and both fork.
-         * @param {{scope?: object, limit?: number, recheckAfter?: number, dbFile: string}} config
+         * @param {{scope?: object, limit?: number, recheckAfter?: number, dbFile: string,
+         *           triggeredBy?: string}} config
          */
         start(config) {
             if (record.state === 'running') return null;

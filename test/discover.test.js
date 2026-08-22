@@ -240,3 +240,12 @@ test('the run row says what became of the run', async () => {
     assert.equal(failed.state, 'failed');
     assert.equal(failed.error, 'boom', 'a code we chose, never a raw message with a path in it');
 });
+
+test('a run defaults to manual, but a scheduler can mark its own runs', async () => {
+    const { store } = makeStore();
+    await run(store, makeTaxaDb());
+    assert.equal(store.latestRun('images').triggeredBy, 'manual');
+
+    await run(store, makeTaxaDb(), { triggeredBy: 'schedule' });
+    assert.equal(store.latestRun('images').triggeredBy, 'schedule');
+});

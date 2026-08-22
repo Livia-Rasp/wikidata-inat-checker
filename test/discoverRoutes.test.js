@@ -51,7 +51,11 @@ function makeApp(t, opts = {}) {
         store, jobs, discoverEnabled: true, openIndex: makeIndex, dbFile: ':memory:', ...opts,
     });
     t.after(() => app.close());
-    return { app, store, jobs };
+    return { app, store, jobs, db };
+}
+
+function fakeScheduledTopup(status = { quietHours: [2, 3], sampleDays: 10, ranToday: false, deadlineHour: 23 }) {
+    return { start() {}, stop() {}, getStatus: () => status };
 }
 
 /** A request as the app's own page would make it, from a local peer. */
@@ -171,6 +175,43 @@ test('status reports the last run once the live record is gone', async (t) => {
     assert.equal(body.lastRun.state, 'done');
     assert.equal(body.lastRun.found, 2);
     assert.deepEqual(body.lastRun.scope, { iucn: 'CR' });
+});
+
+test('status says which run kind produced the last result', async (t) => {
+    const { app, store } = makeApp(t);
+    const id = store.startRun('images', {}, 'schedule');
+    store.finishRun(id, { scanned: 1, found: 1 });
+
+    assert.equal((await app.inject('/api/discover/status')).json().lastRun.triggeredBy, 'schedule');
+});
+
+test('status has no topup block when scheduling is off', async (t) => {
+    const { app } = makeApp(t);
+    assert.equal((await app.inject('/api/discover/status')).json().topup, null);
+});
+
+test('status surfaces the scheduler\'s own status once top-up is configured', async (t) => {
+    const scheduledTopup = fakeScheduledTopup();
+    const { app } = makeApp(t, { topupConfig: { enabled: true }, scheduledTopup });
+
+    const body = (await app.inject('/api/discover/status')).json();
+    assert.deepEqual(body.topup, { quietHours: [2, 3], sampleDays: 10, ranToday: false, deadlineHour: 23 });
+});
+
+test('requests are logged for the scheduler once top-up is on, but never discovery\'s own traffic', async (t) => {
+    const { app, db } = makeApp(t, { topupConfig: { enabled: true }, scheduledTopup: fakeScheduledTopup() });
+
+    await app.inject({ url: '/api/discover/status' }); // discovery's own traffic — excluded
+    await post(app, '/api/discover', {});              // also excluded
+    await app.inject({ url: '/api/findings' });         // ordinary traffic — logged
+
+    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM request_log').get().n), 1);
+});
+
+test('nothing is logged at all when top-up is off', async (t) => {
+    const { app, db } = makeApp(t); // topupConfig unset
+    await app.inject({ url: '/api/findings' });
+    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM request_log').get().n), 0);
 });
 
 test('cancelling needs something to cancel, and the right run id', async (t) => {

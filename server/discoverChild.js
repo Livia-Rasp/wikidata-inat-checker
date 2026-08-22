@@ -31,14 +31,14 @@ function makeReporter() {
 
 process.once('message', async (msg) => {
     if (!msg || msg.type !== 'start') return;
-    const { scope, limit, recheckAfter, dbFile } = msg.config;
+    const { scope, limit, recheckAfter, dbFile, triggeredBy } = msg.config;
 
     let store;
     try {
         const taxaDb = openTaxaDb();
         store = openFindingsDb(dbFile);
         const result = await discover({
-            store, taxaDb, scope, limit, recheckAfter,
+            store, taxaDb, scope, limit, recheckAfter, triggeredBy,
             onProgress: makeReporter(),
             signal: controller.signal,
         });
