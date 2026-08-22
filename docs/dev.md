@@ -14,6 +14,8 @@ Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit a
 ```
 checkImages.js
   └─ lib/getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
+       → shuffled (utils.shuffle(), seeded via --seed) before the --limit cutoff, so an
+         unscoped/non-IUCN run doesn't always hit the same early slice of allInatIds()' order
   └─ utils.fetchWdTaxaByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
        → taxa with P3151 = a local iNat ID but no P18 (IUCN via OPTIONAL, JS-filtered)
        → --limit caps collected candidates; cached ids skipped to reach new taxa
@@ -30,7 +32,14 @@ checkImages.js
 ### Vernacular names checker (`checkNames.js`)
 ```
 checkNames.js
-  └─ SPARQL → Wikidata: all taxa with P3151
+  └─ lib/getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
+       → shuffled (utils.shuffle(), seeded via --seed) before the --limit cutoff, same reason
+         as the image checker
+  └─ utils.fetchWdTaxaLinkedByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
+       → taxa with P3151 = a local iNat ID, no absence filter (P1843 is filtered downstream,
+         not at query time — --all decides whether taxa with *some* P1843 are still shown)
+       → with --iucn: utils.fetchWdNamesByIucn() runs one direct P141-filtered query instead
+       → --limit caps collected candidates; cached ids skipped to reach new taxa
        └─ lib/generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per item
        └─ lib/getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
        └─ diff: iNat names absent from Wikidata P1843 (case-insensitive, scientific name excluded)
@@ -44,6 +53,7 @@ checkLinks.js
        → get(name) → {inatId, rank} | undefined   (undefined = not found or homonym)
        → getAll(name) → [{inatId, rank}]           (all active taxa sharing the name)
        → allNames() → all distinct iNat names       (drives the Wikidata query)
+       → shuffled (utils.shuffle(), seeded via --seed) before the --limit cutoff — see docs/links.md
   └─ utils.fetchWdTaxaByNames() → Wikidata: query BY iNat name in VALUES POST batches
        → taxa with P225 = an iNat name but no P3151 (IUCN via OPTIONAL, JS-filtered)
        → with --iucn: utils.fetchWdLinksByIucn() runs one direct P141-filtered query instead
@@ -52,7 +62,7 @@ checkLinks.js
   └─ SPARQL → Wikidata: found iNat IDs already on other items (conflict detection)
   └─ SPARQL → Wikidata: P13177 (homonymous taxon) to filter false conflicts
   └─ getInatTaxaDb.getAncestors(inatId): iNat ancestor chain from SQLite (no API call)
-  └─ utils.fetchWdAncestorChains() (wdt:P171+, batches of 50): Wikidata ancestor chain
+  └─ utils.fetchWdAncestorChains() (wdt:P171+, batches of 100, 2 concurrent): Wikidata ancestor chain
   └─ report/generateLinksHTML.js: writes output/links.html + output/inat-links-conflicts.json
   └─ report/generateAmbiguousHTML.js: writes output/links-ambiguous.html (one row per iNat candidate)
 ```

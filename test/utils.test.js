@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    chunk, qidFromUri, escapeHtml, compareAncestorTrees,
-    parseArgs, parseLimit, parseIucnArg,
+    chunk, qidFromUri, escapeHtml, compareAncestorTrees, fetchWdAncestorChains,
+    parseArgs, parseLimit, parseIucnArg, shuffle,
     IUCN_STATUS_QIDS, IUCN_QID_TO_CODE,
     reqInit, HEADERS, FETCH_TIMEOUT_MS, SPARQL_TIMEOUT_MS,
 } from '../lib/utils.js';
@@ -54,6 +54,24 @@ test('parseLimit: positive integer or fallback', () => {
     assert.equal(parseLimit({ limit: '0' }, 5000), 5000);    // not > 0
     assert.equal(parseLimit({ limit: '-3' }, 5000), 5000);
     assert.equal(parseLimit({ limit: 'abc' }, 5000), 5000);
+});
+
+test('shuffle: same seed produces the same order every call', () => {
+    const input = Array.from({ length: 50 }, (_, i) => i);
+    assert.deepEqual(shuffle(input, 42), shuffle(input, 42));
+});
+
+test('shuffle: output is a permutation of the input, input left untouched', () => {
+    const input = Array.from({ length: 20 }, (_, i) => i);
+    const out = shuffle(input, 7);
+    assert.deepEqual(input, Array.from({ length: 20 }, (_, i) => i)); // not mutated
+    assert.equal(out.length, input.length);
+    assert.deepEqual([...out].sort((a, b) => a - b), input);
+});
+
+test('shuffle: different seeds produce different orders', () => {
+    const input = Array.from({ length: 50 }, (_, i) => i);
+    assert.notDeepEqual(shuffle(input, 1), shuffle(input, 2));
 });
 
 test('parseIucnArg: uppercases the code and maps to a QID', () => {
@@ -112,6 +130,84 @@ test('compareAncestorTrees: ranks present on only one side are ignored, and it i
     assert.equal(r.matches, 1);
     assert.equal(r.mismatches, 0);
     assert.deepEqual(r.matchedRanks, ['family']);
+});
+
+/** Builds one fetchWdAncestorChains binding row (SPARQL JSON-binding shape). */
+function ancestorRow(item, directParent, ancestor, name, rankQid, parent) {
+    const uri = (qid) => `http://www.wikidata.org/entity/${qid}`;
+    return {
+        item: { value: uri(item) },
+        directParent: { value: uri(directParent) },
+        ancestor: { value: uri(ancestor) },
+        ancestorName: { value: name },
+        ancestorRank: { value: uri(rankQid) },
+        ...(parent ? { ancestorParent: { value: uri(parent) } } : {}),
+    };
+}
+
+test('fetchWdAncestorChains: a duplicate P171 statement does not truncate the chain', async () => {
+    // Order (Q30) carries two P171 statements: the true continuation (Q40, "Class", which itself
+    // has a name and so appears as its own ancestor row) and a second, dead-end statement (Q999,
+    // which never appears as its own ancestor row — e.g. because it lacks P225, so the required
+    // ?ancestor wdt:P225 ?ancestorName join drops it from the result set entirely). The old
+    // last-row-wins Map used to pick whichever came later in the bindings array; here Q999 does.
+    const rows = [
+        ancestorRow('Q1', 'Q10', 'Q10', 'Genus', 'Q34740', 'Q20'),
+        ancestorRow('Q1', 'Q10', 'Q20', 'Family', 'Q35409', 'Q30'),
+        ancestorRow('Q1', 'Q10', 'Q30', 'Order', 'Q36602', 'Q40'),
+        ancestorRow('Q1', 'Q10', 'Q30', 'Order', 'Q36602', 'Q999'),
+        ancestorRow('Q1', 'Q10', 'Q40', 'Class', 'Q37517', null),
+    ];
+    const treeMap = await fetchWdAncestorChains([{ qid: 'Q1' }], async () => rows, qidFromUri, chunk);
+    assert.deepEqual(treeMap.get('Q1'), [
+        { name: 'Class', rankQid: 'Q37517' },
+        { name: 'Order', rankQid: 'Q36602' },
+        { name: 'Family', rankQid: 'Q35409' },
+        { name: 'Genus', rankQid: 'Q34740' },
+    ]);
+});
+
+test('fetchWdAncestorChains: result does not depend on SPARQL row order', async () => {
+    const rows = [
+        ancestorRow('Q1', 'Q10', 'Q10', 'Genus', 'Q34740', 'Q20'),
+        ancestorRow('Q1', 'Q10', 'Q20', 'Family', 'Q35409', 'Q30'),
+        ancestorRow('Q1', 'Q10', 'Q30', 'Order', 'Q36602', 'Q999'), // dead-end row now comes first
+        ancestorRow('Q1', 'Q10', 'Q30', 'Order', 'Q36602', 'Q40'),
+        ancestorRow('Q1', 'Q10', 'Q40', 'Class', 'Q37517', null),
+    ];
+    const treeMap = await fetchWdAncestorChains([{ qid: 'Q1' }], async () => rows, qidFromUri, chunk);
+    assert.deepEqual(treeMap.get('Q1').map(e => e.name), ['Class', 'Order', 'Family', 'Genus']);
+});
+
+test('fetchWdAncestorChains: a plain single-parent chain still works', async () => {
+    const rows = [
+        ancestorRow('Q1', 'Q10', 'Q10', 'Genus', 'Q34740', 'Q20'),
+        ancestorRow('Q1', 'Q10', 'Q20', 'Family', 'Q35409', null),
+    ];
+    const treeMap = await fetchWdAncestorChains([{ qid: 'Q1' }], async () => rows, qidFromUri, chunk);
+    assert.deepEqual(treeMap.get('Q1'), [
+        { name: 'Family', rankQid: 'Q35409' },
+        { name: 'Genus', rankQid: 'Q34740' },
+    ]);
+});
+
+test('fetchWdAncestorChains: batches run concurrently, bounded by opts.concurrency', async () => {
+    // Two items land in separate 1-item batches (batch size is fixed at 50, so two calls happen
+    // only because chunkFn here artificially splits them one per batch).
+    let inFlight = 0, maxInFlight = 0;
+    const oneItemChunks = (arr) => arr.map(x => [x]);
+    const fakeSparql = async (query) => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise(r => setTimeout(r, 5));
+        inFlight--;
+        const qid = query.match(/wd:(Q\d+)/)[1];
+        return [ancestorRow(qid, 'Q10', 'Q10', 'Genus', 'Q34740', null)];
+    };
+    const items = [{ qid: 'Q1' }, { qid: 'Q2' }, { qid: 'Q3' }];
+    const treeMap = await fetchWdAncestorChains(items, fakeSparql, qidFromUri, oneItemChunks, { concurrency: 2 });
+    assert.equal(treeMap.size, 3);
+    assert.equal(maxInFlight, 2, 'concurrency should be bounded, not unlimited or serial');
 });
 
 test('reqInit identifies us and bounds the request', () => {

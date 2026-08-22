@@ -6,7 +6,7 @@ import { discover, KIND } from './lib/discover.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
 import { openFindingsDb, DEFAULT_RECHECK_DAYS } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
-import { parseArgs, parseLimit } from './lib/utils.js';
+import { parseArgs, parseLimit, DEFAULT_SCAN_SEED } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
 import { runMain } from './lib/cli.js';
 
@@ -14,6 +14,9 @@ const DB_FILE = findingsDbPath();
 
 const args = parseArgs();
 const limit = parseLimit(args, 5000);
+// Fixed seed keeps a from-scratch run reproducible for debugging; override with --seed for a
+// different sample (matters only for the unscoped/non-IUCN scan — see lib/discover.js).
+const seed = Number.parseInt(/** @type {string} */ (args.seed), 10) || DEFAULT_SCAN_SEED;
 
 /**
  * `--recheck-after <days>` — how long a negative finding (no photos, no draft) stays trusted
@@ -64,6 +67,7 @@ async function run() {
             },
             limit,
             recheckAfter: parseRecheckAfter(args),
+            seed,
             onProgress: report,
         });
 

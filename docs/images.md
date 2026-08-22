@@ -49,9 +49,12 @@ npm run images -- --limit 500          # custom limit
 npm run images -- --limit 500 --iucn VU  # limit + IUCN status filter (VU, EN, CR, NT, DD, EX, EW, LC, NE)
 npm run images -- --taxon Orchidaceae  # scope the scan to one clade (orchids only)
 npm run images -- --taxon 47217 --iucn EN  # by iNat ID, combined with an IUCN filter
+npm run images -- --limit 500 --seed 7     # different shuffle of the scan order
 ```
 
 `--limit` caps how many not-yet-cached candidate taxa are collected (each is a real no-image taxon; cached entries are skipped, so re-runs keep reaching new ones rather than re-fetching the same front-of-set). `--iucn` filters by IUCN conservation status (P141), useful for prioritising threatened species. Note the `--` separator after `npm run images` — it's required so npm forwards the flags to the script rather than interpreting them itself.
+
+The candidate ID list — the whole local index, or a `--taxon` clade's descendant set — is shuffled with a seeded, reproducible PRNG before `--limit` caps the candidates, so a limited scan doesn't always hit the same slice of that list's incidental order first. `--seed <n>` (default `42`) picks a different sample; the same seed always reproduces the same order. `--iucn` needs no shuffle: that set is queried directly from Wikidata rather than enumerated by id.
 
 `--taxon <name|id>` scopes the run to a single clade — the given taxon **plus all of its iNat descendants**. It accepts either a scientific name (`Orchidaceae`) or a numeric iNat taxon ID (`47217`). The clade is computed locally from the iNat taxa index's `ancestry` paths (a single sub-second SQLite scan), so a scoped run is typically *faster* than an unscoped one: only the clade's IDs are sent to Wikidata. It composes with `--iucn` and `--limit` (e.g. endangered orchids). If a name is **ambiguous** (a homonym shared by 2+ taxa, e.g. `Iris`), the checker prints the candidate iNat IDs and ranks and exits so you can re-run with the exact ID; an unknown name exits with a "not found" message.
 

@@ -3,9 +3,10 @@
 import { simplify } from 'wikibase-sdk';
 import { fetchEntities } from './lib/generateWikitext.js';
 import { fetchInatNames } from './lib/getInatNames.js';
+import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { generateNamesHTML } from './report/generateNamesHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit } from './lib/utils.js';
+import { qidFromUri, parseArgs, parseIucnArg, parseLimit, fetchWdTaxaLinkedByInatIds, fetchWdNamesByIucn, shuffle, DEFAULT_SCAN_SEED } from './lib/utils.js';
 import { cachePath } from './lib/paths.js';
 import { runMain } from './lib/cli.js';
 
@@ -14,6 +15,10 @@ const CACHE_FILE = cachePath('cache-names.json');
 const args = parseArgs();
 const limit = parseLimit(args, 5000);
 const showAll = args.all === true;
+// allInatIds() (lib/getInatTaxaDb.js) comes back in whatever incidental order SQLite emits it,
+// so an unshuffled --limit run would always hit the same early slice first. Fixed seed keeps a
+// from-scratch run reproducible for debugging; override with --seed for a different sample.
+const seed = Number.parseInt(/** @type {string} */ (args.seed), 10) || DEFAULT_SCAN_SEED;
 
 /** Finds iNat vernacular names absent from Wikidata P1843, writes names.html with QuickStatements. */
 async function run(limit) {
@@ -22,24 +27,33 @@ async function run(limit) {
     const { iucnArg, iucnQid } = parseIucnArg(args);
     if (iucnQid) console.log(`IUCN filter: ${iucnArg} (${iucnQid})`);
     if (!showAll) console.log('Mode: zero-P1843 only (pass --all to include taxa that already have some names)');
-    const query = `SELECT ?item ?inatID
-WHERE {
-  ?item wdt:P31 wd:Q16521 .
-  ?item wdt:P3151 ?inatID .
-${iucnQid ? `  ?item wdt:P141 wd:${iucnQid} .\n` : ''}} LIMIT ${limit}`;
-
-    const bindings = await sparql(query);
-    const inatToWD = new Map();
-    for (const binding of bindings) {
-        inatToWD.set(binding.inatID.value, binding.item.value);
-    }
-    console.log(`Found ${inatToWD.size} taxa with iNat IDs.`);
 
     const cache = loadCache(CACHE_FILE);
     const today = new Date().toISOString().slice(0, 10);
-    const uncached = new Map([...inatToWD].filter(([id]) => !cache[id]));
-    if (uncached.size < inatToWD.size)
-        console.log(`Cache: skipping ${inatToWD.size - uncached.size} already-checked entries, scanning ${uncached.size}.`);
+
+    // Enumerate taxa already linked to iNat (P3151 present), same shape as the links and images
+    // checkers: an IUCN status is selective enough for WDQS to answer directly, otherwise
+    // enumerate by iNat ID in shuffled order and stop once `limit` new-to-the-cache items are
+    // collected — cached ids are skipped as they stream past rather than after the fact, so a
+    // mostly-cached slice does not silently return fewer than `limit` candidates.
+    const taxaDb = await ensureTaxaDb();
+    console.log(iucnQid
+        ? `Querying Wikidata for ${iucnArg} taxa with iNat IDs (limit ${limit})...`
+        : `Querying Wikidata by iNat ID for taxa with iNat IDs (limit ${limit})...`);
+    const source = iucnQid
+        ? fetchWdNamesByIucn(iucnQid)
+        : fetchWdTaxaLinkedByInatIds(shuffle(taxaDb.allInatIds(), seed));
+
+    const uncached = new Map(); // iNat ID → Wikidata URI
+    let cachedSkipped = 0;
+    for await (const row of source) {
+        if (uncached.has(row.inatId)) continue;
+        if (cache[row.inatId]) { cachedSkipped++; continue; }
+        uncached.set(row.inatId, row.wdUri);
+        if (uncached.size >= limit) break;
+    }
+    if (cachedSkipped > 0) console.log(`Cache: skipped ${cachedSkipped} already-checked entries.`);
+    console.log(`Found ${uncached.size} taxa with iNat IDs.`);
 
     // Fetch P225 + P1843 from Wikidata for all items
     const wdUris = [...uncached.values()];
