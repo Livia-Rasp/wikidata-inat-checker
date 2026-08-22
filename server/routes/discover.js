@@ -23,10 +23,12 @@ const START_RATE_LIMIT = { max: Number(process.env.RATE_LIMIT_DISCOVER_MAX ?? 6)
 /**
  * @param {import('fastify').FastifyInstance} app
  * @param {{store: any, jobs: any, dbFile: string, discoverEnabled?: boolean,
- *          openIndex?: () => any}} opts
+ *          openIndex?: () => any, scheduledTopup?: any}} opts
  */
 export default async function discoverRoutes(app, opts) {
-    const { store, jobs, dbFile, discoverEnabled = false, openIndex = openTaxaDb } = opts;
+    const {
+        store, jobs, dbFile, discoverEnabled = false, openIndex = openTaxaDb, scheduledTopup = null,
+    } = opts;
 
     await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
     await app.register(rateLimit, {
@@ -105,11 +107,11 @@ export default async function discoverRoutes(app, opts) {
                 status: jobs.status(),
             });
         }
-        return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled));
+        return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup));
     });
 
     app.get('/discover/status', async () =>
-        publicStatus(jobs.status(), store, discoverEnabled));
+        publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup));
 
     app.post('/discover/cancel', {
         config: { privileged: true, rateLimit: START_RATE_LIMIT },
@@ -144,7 +146,7 @@ export default async function discoverRoutes(app, opts) {
  * What a caller may see: the live record when a run is in flight, the last run from the database
  * once it is over (the in-memory one dies with the process), and never a raw error message.
  */
-function publicStatus(record, store, discoverEnabled) {
+function publicStatus(record, store, discoverEnabled, scheduledTopup) {
     const last = store.latestRun('images');
     return {
         enabled: discoverEnabled,
@@ -160,7 +162,9 @@ function publicStatus(record, store, discoverEnabled) {
         lastRun: last && {
             id: last.id, state: last.state, scope: last.scope,
             startedAt: last.startedAt, finishedAt: last.finishedAt,
-            scanned: last.scanned, found: last.found,
+            scanned: last.scanned, found: last.found, triggeredBy: last.triggeredBy,
         },
+        // The only visibility an unattended scheduled run gets — this project has no alerting.
+        topup: scheduledTopup ? scheduledTopup.getStatus() : null,
     };
 }
