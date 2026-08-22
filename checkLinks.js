@@ -5,7 +5,7 @@ import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { generateLinksHTML } from './report/generateLinksHTML.js';
 import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
 import { loadCache, saveCache } from './lib/cache.js';
-import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk } from './lib/utils.js';
+import { sparql, qidFromUri, parseArgs, parseIucnArg, parseLimit, compareAncestorTrees, fetchWdAncestorChains, fetchWdTaxaByNames, fetchWdLinksByIucn, chunk, shuffle, DEFAULT_SCAN_SEED } from './lib/utils.js';
 import { outputPath, cachePath, ensureParentDir } from './lib/paths.js';
 import { runMain } from './lib/cli.js';
 
@@ -14,6 +14,11 @@ const CACHE_FILE = cachePath('cache-links.json');
 const args = parseArgs();
 const limit = parseLimit(args, 200);
 const autoMode = args.auto === true;
+// SELECT DISTINCT name FROM taxa (allNames(), lib/getInatTaxaDb.js) has no ORDER BY, but
+// SQLite happens to emit it alphabetically — left as-is, the --limit cutoff below would only
+// ever collect early-alphabet names. Fixed seed keeps a from-scratch run reproducible for
+// debugging; override with --seed for a different sample.
+const seed = Number.parseInt(/** @type {string} */ (args.seed), 10) || DEFAULT_SCAN_SEED;
 // Skips the P3151 cross-check and the ancestor-chain fetch for *matched* (non-ambiguous) items —
 // only links-ambiguous.html is wanted, and that big fetch (one batch per 50 of potentially tens
 // of thousands of matches) is both unneeded for it and the thing most exposed to WDQS's current
@@ -42,7 +47,7 @@ async function run() {
         : `Querying Wikidata by iNat name for taxa without P3151 (limit ${limit})...`);
     const source = iucnQid
         ? fetchWdLinksByIucn(iucnQid)
-        : fetchWdTaxaByNames(taxaDb.allNames());
+        : fetchWdTaxaByNames(shuffle(taxaDb.allNames(), seed));
     const uncached = [];
     const seenQids = new Set();
     let cachedSkipped = 0;
