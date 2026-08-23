@@ -4,7 +4,9 @@ Finds iNaturalist vernacular names (common names in any language) that are missi
 
 ## How it works
 
-1. Queries Wikidata for taxon items that have an iNaturalist taxon ID (P3151) — by iNat ID, in bounded `VALUES` POST batches, the same enumeration shape as the image and links checkers (`--iucn` instead runs one direct P141-filtered query). The local ID list is shuffled with a seeded, reproducible PRNG before `--limit` caps the candidates, so a limited scan doesn't always hit the same slice first; override with `--seed <n>` (default `42`).
+1. Queries Wikidata for taxon items that have an iNaturalist taxon ID (P3151). The query goes by iNat ID, in bounded `VALUES` POST batches, the same enumeration shape as the image and links checkers. `--iucn` instead runs one direct P141-filtered query.
+
+   The local ID list is shuffled before `--limit` caps the candidates, so a limited scan does not always hit the same slice first. The shuffle uses a seeded PRNG and is therefore reproducible; override it with `--seed <n>` (default `42`).
 2. Fetches their existing P1843 claims from Wikidata.
 3. Fetches all vernacular names from iNaturalist (`all_names=true`), filtering out invalid entries, scientific-name-locale entries, and names that duplicate the taxon's scientific name.
 4. Compares the two sets (case-insensitive). Names present in iNat but absent from Wikidata are reported.
@@ -24,7 +26,7 @@ npm run names -- --limit 500 --iucn CR --all
 npm run names -- --limit 500 --seed 7     # different shuffle of the scan order
 ```
 
-By default, only taxa with **no** vernacular names on Wikidata (P1843) yet are shown — these are the highest-priority additions. Pass `--all` to also include taxa that already have some names but are still missing certain iNat ones.
+By default only taxa with **no** vernacular names on Wikidata (P1843) are shown. Those are the highest-priority additions. Pass `--all` to also include taxa that have some names already but are still missing others iNaturalist knows.
 
 ## output/names.html columns
 

@@ -1,11 +1,11 @@
 # iNaturalist → Commons upload app
 
 An assisted upload step for the image pipeline. The image checker finds Wikidata taxa with
-an iNaturalist ID but no image; this web app lets you browse those taxa, look at their
+an iNaturalist ID but no image. This web app lets you browse those taxa, look at their
 compatibly-licensed iNaturalist photos, and open the Wikimedia Commons upload form
-**pre-filled** with everything needed — the file URL, license, filename, and a detailed,
+**pre-filled** with everything needed: the file URL, license, filename, and a detailed,
 ready-made description (see [What the file description contains](#what-the-file-description-contains)).
-You review and submit the form yourself; **nothing is uploaded automatically**.
+You review and submit the form yourself. **Nothing is uploaded automatically.**
 
 The design rationale, the inat2wiki prior art it builds on, and the technical research
 behind it are in the [design & research record](commons-upload-dev.md).
@@ -133,9 +133,9 @@ re-visits are fast.
 
 ## Tracking uploads
 
-The app can't tell whether an upload actually went through (it just opens the Commons form in
-a new tab). So after you submit a file, tick **Mark as uploaded** on its card — it gets an
-"uploaded" badge and is recorded in the findings database, which means it survives a cleared
+The app cannot tell whether an upload actually went through. It only opens the Commons form in a
+new tab. So after you submit a file, tick **Mark as uploaded** on its card. The card gets an
+"uploaded" badge and the file is recorded in the findings database, so it survives a cleared
 browser profile and the checkers can see it. The main page's **Download uploaded list** button
 exports the set as JSON (`{ "exported": …, "uploaded": [ "<filename>", … ] }`).
 
@@ -168,9 +168,9 @@ instead of editing items one by one.
   "Other sites" / Multilingual Sites link — not the P373 statement). The category is the
   taxon's own name; the filename is the one the upload form used.
 - Click **Copy**, paste into the QuickStatements *Import* box, and run the batch. The picks stay
-  in the panel — they are cleared by **confirmation**, not by copying, because that is the point
-  at which the edit is known to exist. (Copying used to clear them, which meant a batch you never
-  actually pasted left no trace of what it was supposed to do.)
+  in the panel. They are cleared by **confirmation**, not by copying, because confirmation is the
+  point at which the edit is known to exist. Copying used to clear them, which meant a batch you
+  never actually pasted left no trace of what it was supposed to do.
 
 The panel is built in the browser from the picks you make, which are stored in the findings
 database; nothing is submitted to Wikidata automatically.
@@ -178,7 +178,7 @@ database; nothing is submitted to Wikidata automatically.
 ## Confirming what actually landed
 
 **A taxon is never marked done because you said so.** Copying QuickStatements is not evidence
-that you pasted them, and a batch can apply one statement and not the other — so the app asks
+that you pasted them, and a batch can apply one statement and not the other. So the app asks
 Wikidata instead.
 
 Press **Confirm** on a row, or **Confirm pending** for everything you have picked, and the
@@ -187,27 +187,31 @@ edit as missing seconds after you made it). The finding becomes `done` only when
 image (P18) and the commonswiki sitelink are there. Otherwise it stays on the worklist and says
 which half is missing, which is usually the useful part.
 
-A confirm that fails changes nothing, and re-running it is safe — a QuickStatements batch can sit
-queued for a while. If Wikidata itself cannot be reached you get a "try again" rather than a
-false answer. Use **Skip** for a taxon that will never have a Commons category, since it would
-otherwise never confirm.
+A confirm that fails changes nothing, and re-running it is safe. A QuickStatements batch can sit
+queued for a while. If Wikidata itself cannot be reached you get a "try again" rather than a false
+answer. Use **Skip** for a taxon that will never have a Commons category, since it would otherwise
+never confirm.
 
 ## How it fits together
 
 - `checkImages.js` records findings in `data/findings.db`; the server serves them as
   `GET /api/findings` — the only link between the core tools and the app.
-- The app is four pages, sharing one persistent nav (`web/js/shell.js`) with a per-workflow open
-  count and a dark/light toggle: **`index.html`** the worklist, **`taxon.html`** one taxon's
-  photos, **`search.html`** the backlog search — which clade a finding is in, what a clade holds,
-  and a scoped discovery started from a button (`GET /api/search`, `POST /api/discover`) — and
-  **`area.html`**, a Leaflet map (vendored, `web/vendor/leaflet/`) over the same discovery
-  pipeline scoped by `{lat, lng, radius}` instead of a clade, plus its own free preview
-  (`GET /api/discover/area`, read-only, no findings recorded). Both table pages render their rows
-  through the same `web/js/rows.js`.
-- The `web/` app has **no build step** (plain HTML/JS/CSS): it reads the open backlog from
-  `GET /api/findings` and, from the browser, queries the iNaturalist API (photos, places, taxon
+- The app is four pages sharing one persistent nav (`web/js/shell.js`), which carries a
+  per-workflow open count and a dark/light toggle:
+  - **`index.html`**, the worklist.
+  - **`taxon.html`**, one taxon's photos.
+  - **`search.html`**, the backlog search: which clade a finding is in, what a clade holds, and a
+    scoped discovery started from a button (`GET /api/search`, `POST /api/discover`).
+  - **`area.html`**, a vendored Leaflet map (`web/vendor/leaflet/`) over the same discovery
+    pipeline, scoped by `{lat, lng, radius}` instead of a clade, plus its own free preview
+    (`GET /api/discover/area`, read-only, no findings recorded).
+
+  Both table pages render their rows through the same `web/js/rows.js`.
+- The `web/` app has **no build step**, just plain HTML/JS/CSS. It reads the open backlog from
+  `GET /api/findings`. From the browser it queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service
-  (author categories) — all CORS-open — then builds the Commons upload URL client-side.
+  (author categories), all of which are CORS-open. It then builds the Commons upload URL
+  client-side.
 - `npm run web` runs the Fastify server in `server/`, which serves both `web/` and that API from
   `data/findings.db`. It binds `127.0.0.1` by default; see [threat-model.md](threat-model.md) for the
   threat model and the environment variables.

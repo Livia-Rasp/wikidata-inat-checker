@@ -85,8 +85,8 @@ survives across runs and across tools.
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `npm run web` | the `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
 
-The image, names and links checkers take `--limit <n>` and `--iucn <code>` (`CR`, `EN`, `VU`, …);
-the image checker also takes `--taxon <name|iNat id>` to scope a run to one clade. The `--` after
+The image, names and links checkers take `--limit <n>` and `--iucn <code>` (`CR`, `EN`, `VU`, …).
+The image checker also takes `--taxon <name|iNat id>` to scope a run to one clade. The `--` after
 `npm run <tool>` is required so npm forwards the flags to the script.
 
 ```sh
@@ -95,10 +95,10 @@ npm run images -- --taxon Orchidaceae     # orchids only (the taxon and its iNat
 npm run links  -- --limit 1000 --iucn EN  # 1000 Endangered taxa
 ```
 
-Reports land in `output/`, cross-run caches in `cache/`, and the image checker's accumulated
-backlog in `data/findings.db`. All three are gitignored and created on first run. Clearing
-`output/` and `cache/` is safe; **`data/` is not** — it is the only record of what has been
-found and worked through.
+Reports land in `output/`, cross-run caches in `cache/`, and the accumulated backlog in
+`data/findings.db`. All three are gitignored and created on first run. Clearing `output/` and
+`cache/` is safe. **`data/` is not.** It is the only record of what has been found and worked
+through, and nothing can reconstruct it.
 
 ## The upload app
 
@@ -111,10 +111,11 @@ TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web  # …and a daily scheduled top-u
 ```
 
 A [Fastify](https://fastify.dev) server (`server/`) serves the app and the findings API over the
-same database the checkers write. It binds `127.0.0.1` by default — exposing it on a network is a
-deliberate act (`HOST=…` plus `ALLOW_REMOTE_WRITES`, and `ALLOWED_HOSTS` too, or the write guard
-refuses every confirm under a hostname it does not recognise). The threat model, every header, and
-the full list of environment variables are in [docs/threat-model.md](docs/threat-model.md).
+same database the checkers write. It binds `127.0.0.1` by default. Putting it on a network takes
+three deliberate settings, not one: `HOST`, `ALLOW_REMOTE_WRITES`, and `ALLOWED_HOSTS`. Without
+the third the write guard refuses every confirm under a hostname it does not recognise. The threat
+model, every header and every environment variable are in
+[docs/threat-model.md](docs/threat-model.md).
 
 Nothing is uploaded or edited automatically. The app hands you a pre-filled Commons upload form
 and a QuickStatements batch, and you submit both yourself.
