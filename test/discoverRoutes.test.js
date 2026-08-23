@@ -73,7 +73,7 @@ test('a run starts and answers 202 with its status', async (t) => {
 
     assert.equal(res.statusCode, 202);
     assert.equal(res.json().state, 'running');
-    assert.deepEqual(jobs.calls[0].start.scope, { taxon: null, iucn: 'VU' });
+    assert.deepEqual(jobs.calls[0].start.scope, { taxon: null, iucn: 'VU', lat: null, lng: null, radius: null });
     assert.equal(jobs.calls[0].start.limit, 25);
 });
 
@@ -102,6 +102,16 @@ test('a known taxon is accepted', async (t) => {
     assert.equal((await post(app, '/api/discover', { taxon: 'Orchidaceae' })).statusCode, 202);
 });
 
+test('a well-formed area scope is accepted and reaches the runner whole', async (t) => {
+    const { app, jobs } = makeApp(t);
+    const res = await post(app, '/api/discover', { lat: 48.147, lng: 11.589, radius: 10 });
+
+    assert.equal(res.statusCode, 202);
+    assert.deepEqual(jobs.calls[0].start.scope, {
+        taxon: null, iucn: null, lat: 48.147, lng: 11.589, radius: 10,
+    });
+});
+
 for (const [what, body] of [
     ['a LIKE wildcard', { taxon: '%' }],
     ['an underscore wildcard', { taxon: '_' }],
@@ -111,6 +121,15 @@ for (const [what, body] of [
     ['an absurd limit', { limit: 99999 }],
     ['a zero limit', { limit: 0 }],
     ['an unknown field', { nope: 1 }],
+    ['lat without lng/radius', { lat: 48 }],
+    ['lng without lat/radius', { lng: 11 }],
+    ['radius without lat/lng', { radius: 5 }],
+    ['lat out of range', { lat: 200, lng: 11, radius: 5 }],
+    ['lng out of range', { lat: 48, lng: 400, radius: 5 }],
+    ['radius zero', { lat: 48, lng: 11, radius: 0 }],
+    ['radius negative', { lat: 48, lng: 11, radius: -1 }],
+    ['an area scope combined with a taxon', { lat: 48, lng: 11, radius: 5, taxon: 'Orchidaceae' }],
+    ['an area scope combined with an IUCN code', { lat: 48, lng: 11, radius: 5, iucn: 'VU' }],
 ]) {
     test(`${what} is rejected by the schema`, async (t) => {
         const { app, jobs } = makeApp(t);

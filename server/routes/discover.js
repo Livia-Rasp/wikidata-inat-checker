@@ -9,6 +9,7 @@ import writeGuard from '../writeGuard.js';
 import { IUCN_STATUS_QIDS } from '../../lib/utils.js';
 import { openTaxaDb, TaxaIndexUnavailable, taxaIndexIsStale } from '../../lib/getInatTaxaDb.js';
 import { resolveTaxonScope, DiscoveryError } from '../../lib/discover.js';
+import { resolveAreaScope } from '../../lib/areaCandidates.js';
 
 /**
  * A taxon is either an iNat id or a name. The digits branch is load-bearing beyond parsing:
@@ -60,6 +61,12 @@ export default async function discoverRoutes(app, opts) {
                 properties: {
                     taxon: { type: 'string', pattern: TAXON_PATTERN },
                     iucn: { type: 'string', enum: Object.keys(IUCN_STATUS_QIDS) },
+                    // No hard maximum is documented on iNaturalist's own radius parameter; this is
+                    // a server-side sanity ceiling, not a UX cap — the app's own slider stops
+                    // well short of it with a typed-input escape hatch above that.
+                    lat: { type: 'number', minimum: -90, maximum: 90 },
+                    lng: { type: 'number', minimum: -180, maximum: 180 },
+                    radius: { type: 'number', exclusiveMinimum: 0, maximum: 20000 },
                     limit: { type: 'integer', minimum: 1, maximum: 5000, default: 500 },
                     recheckAfter: { type: 'integer', minimum: 0, maximum: 3650 },
                 },
@@ -77,17 +84,32 @@ export default async function discoverRoutes(app, opts) {
         // requests would both see an idle runner and both fork.
         const body = /** @type {any} */ (req.body) ?? {};
         const config = {
-            scope: { taxon: body.taxon ?? null, iucn: body.iucn ?? null },
+            scope: {
+                taxon: body.taxon ?? null, iucn: body.iucn ?? null,
+                lat: body.lat ?? null, lng: body.lng ?? null, radius: body.radius ?? null,
+            },
             limit: body.limit ?? 500,
             recheckAfter: body.recheckAfter,
             dbFile,
         };
 
+        // No "clade near a point" combination in this slice — not because it is hard, but because
+        // nothing has asked for it yet, and each of the three scopes already means something on
+        // its own.
+        if (config.scope.lat != null && (config.scope.taxon || config.scope.iucn)) {
+            return reply.status(400).send({
+                statusCode: 400, error: 'Bad Request', code: 'unsupported_scope_combination',
+                message: 'An area scope cannot be combined with a taxon or IUCN scope.',
+            });
+        }
+
         // Validate the scope here rather than in the child: a name lookup is an indexed query on
-        // an already-open handle, so a 400 costs microseconds, while the expensive parts of the
-        // scope (the descendant scan) stay where they cannot block the event loop.
+        // an already-open handle, and lat/lng/radius need no lookup at all, so a 400 costs
+        // microseconds, while the expensive parts of the scope (the descendant scan) stay where
+        // they cannot block the event loop.
         try {
             if (config.scope.taxon) resolveTaxonScope(config.scope.taxon, taxaIndex());
+            resolveAreaScope(config.scope);
         } catch (err) {
             if (err instanceof TaxaIndexUnavailable) return indexUnavailable(reply, err);
             if (err instanceof DiscoveryError) {

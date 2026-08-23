@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
 import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
 import { discover, resolveTaxonScope, resolveTaxonId, resolveIucn, DiscoveryError } from '../lib/discover.js';
+import { resolveAreaScope } from '../lib/areaCandidates.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -132,6 +133,65 @@ test('a bad scope leaves no run behind', async () => {
         (err) => err.code === 'unknown_iucn');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0,
         'the scope is resolved before the run row is opened');
+});
+
+// ---- area scope: lat/lng/radius given together or not at all ----
+
+test('no lat/lng/radius is not an area scope', () => {
+    assert.equal(resolveAreaScope({}), null);
+    assert.equal(resolveAreaScope({ taxon: 'Orchidaceae' }), null);
+});
+
+test('a partial area scope throws rather than guessing the rest', () => {
+    for (const partial of [{ lat: 48 }, { lat: 48, lng: 11 }, { radius: 5 }]) {
+        assert.throws(() => resolveAreaScope(partial), (err) => {
+            assert.ok(err instanceof DiscoveryError);
+            assert.equal(err.code, 'incomplete_area_scope');
+            return true;
+        });
+    }
+});
+
+test('an out-of-range area scope throws', () => {
+    for (const bad of [
+        { lat: 200, lng: 11, radius: 5 },
+        { lat: 48, lng: -400, radius: 5 },
+        { lat: 48, lng: 11, radius: 0 },
+        { lat: 48, lng: 11, radius: -1 },
+    ]) {
+        assert.throws(() => resolveAreaScope(bad), (err) => err.code === 'invalid_area_scope');
+    }
+});
+
+test('a well-formed area scope resolves to numbers', () => {
+    assert.deepEqual(resolveAreaScope({ lat: '48.147', lng: '11.589', radius: '10' }),
+        { lat: 48.147, lng: 11.589, radius: 10 });
+});
+
+test('a bad area scope leaves no run behind either', async () => {
+    const { db, store } = makeStore();
+    await assert.rejects(
+        () => discover({ store, taxaDb: makeTaxaDb(), scope: { lat: 48 } }),
+        (err) => err.code === 'incomplete_area_scope');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0);
+});
+
+test('an area scope flows through discover() like any other candidate source', async () => {
+    const { store } = makeStore();
+    const area = { lat: 48.147, lng: 11.589, radius: 10 };
+    const result = await run(store, makeTaxaDb(), {
+        ids: ['41970', '42048'],
+        withPhotos: new Set(['41970']),
+        withDrafts: new Set(['41970']),
+        scope: area,
+    });
+
+    assert.deepEqual(store.statusCounts('image'), { open: 1, no_photos: 1 });
+    // The run row remembers the scope that produced it — the same reason taxon/iucn are recorded.
+    assert.deepEqual(store.latestRun('images').scope, {
+        iucn: null, taxon: null, limit: 5000, ...area,
+    });
+    assert.equal(result.runId, store.latestRun('images').id);
 });
 
 // ---- recording ----
