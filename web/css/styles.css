@@ -1,6 +1,7 @@
 /* Tokens for what this app already looked like, so new rules stop inventing another grey. Existing
    rules keep their literals until they are next touched — a big-bang restyle is not this slice. */
 :root {
+  --bg: #fff;
   --ink: #222;
   --muted-ink: #555;
   --faint: #888;
@@ -44,7 +45,76 @@
   --iucn-ne: #e9e9e4;
 }
 
-body { font-family: sans-serif; padding: 1.5em; color: var(--ink); }
+/* Dark palette. The IUCN badge colours above are the published Red List scale and are
+   deliberately absent here — they read correctly to anyone who works with this data regardless of
+   which theme the app is in, so they stay the same in both rather than being re-themed. */
+:root[data-theme="dark"] {
+  --bg: #14161a;
+  --ink: #e6e6e6;
+  --muted-ink: #a3a9b0;
+  --faint: #7d8288;
+  --accent: #5b9bd5;
+  --accent-ink: #7fb3e0;
+  --accent-wash: #1c2c3d;
+  --surface: #1e2126;
+  --rule: #2c3038;
+  --edge: #3a3f47;
+  --good: #7bc47f;
+  --good-bg: #17301a;
+  --ok: #6fcf74;
+  --warn: #e0a458;
+  --on-accent: #10131a;
+  --surface-alt: #262a30;
+  --surface-soft: #23262c;
+  --card-bg: #1c1f24;
+  --card-edge: #3a3f47;
+  --hairline: #2c3038;
+  --lic-bg: #17263a;
+  --lic-ink: #a9c8ef;
+  --banner-bg: #3a2f10;
+  --banner-edge: #5a4a1a;
+  --disabled: #52565c;
+  --p18-ink: #e0a458;
+  --offer-thin-edge: #24384a;
+  --offer-thin-bg: #16222c;
+}
+
+/* Followed only when nothing was explicitly chosen — an explicit choice, light or dark, always
+   wins over the OS preference. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #14161a;
+    --ink: #e6e6e6;
+    --muted-ink: #a3a9b0;
+    --faint: #7d8288;
+    --accent: #5b9bd5;
+    --accent-ink: #7fb3e0;
+    --accent-wash: #1c2c3d;
+    --surface: #1e2126;
+    --rule: #2c3038;
+    --edge: #3a3f47;
+    --good: #7bc47f;
+    --good-bg: #17301a;
+    --ok: #6fcf74;
+    --warn: #e0a458;
+    --on-accent: #10131a;
+    --surface-alt: #262a30;
+    --surface-soft: #23262c;
+    --card-bg: #1c1f24;
+    --card-edge: #3a3f47;
+    --hairline: #2c3038;
+    --lic-bg: #17263a;
+    --lic-ink: #a9c8ef;
+    --banner-bg: #3a2f10;
+    --banner-edge: #5a4a1a;
+    --disabled: #52565c;
+    --p18-ink: #e0a458;
+    --offer-thin-edge: #24384a;
+    --offer-thin-bg: #16222c;
+  }
+}
+
+body { font-family: sans-serif; padding: 1.5em; color: var(--ink); background: var(--bg); }
 h1 { font-size: 1.2em; margin-bottom: 0.3em; }
 p  { margin: 0 0 1em; color: var(--muted-ink); font-size: 0.9em; }
 a { color: var(--accent); }
@@ -59,6 +129,48 @@ a { color: var(--accent); }
 
 .page-link { font-size: 0.85em; font-weight: 600; text-decoration: none; }
 .page-link:hover { text-decoration: underline; }
+
+/* ---- app shell: the nav across every page, and the theme toggle ----
+   A ledger strip, not a SaaS navbar: each workflow is a compartment with a tally, like a specimen
+   tray label, separated by hairlines rather than boxed into pill buttons — the app's buttons are
+   outlined throughout, never filled, and this keeps the same register. */
+.shell {
+  display: flex; align-items: center; gap: 1.2em; flex-wrap: wrap;
+  margin: -1.5em -1.5em 1.5em; padding: 0.6em 1.5em;
+  border-bottom: 1px solid var(--rule); background: var(--surface);
+}
+.shell-brand {
+  font-size: 0.8em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted-ink); white-space: nowrap;
+}
+.shell-nav { display: flex; flex-wrap: wrap; flex: 1; }
+.shell-tile {
+  display: flex; flex-direction: column; gap: 0.1em; justify-content: center;
+  padding: 0.25em 1em; border-left: 1px solid var(--rule);
+  border-bottom: 2px solid transparent;
+  text-decoration: none; color: var(--ink);
+}
+.shell-tile:first-child { border-left: none; }
+a.shell-tile:hover { color: var(--accent); }
+.shell-tile-label {
+  font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.shell-tile-count {
+  font-family: monospace; font-size: 0.82em; color: var(--muted-ink);
+  font-variant-numeric: tabular-nums;
+}
+.shell-tile-caption { font-size: 0.72em; font-style: italic; color: var(--faint); }
+.shell-tile-active { border-bottom-color: var(--accent); }
+.shell-tile-active .shell-tile-label { color: var(--accent-ink); }
+/* Same dimmed-opacity language as .chip-empty: still legible, but reads as not-yet-work rather
+   than a greyed-out error state. */
+.shell-tile-disabled { opacity: 0.4; cursor: default; }
+.shell-theme-toggle {
+  font-size: 0.78em; padding: 0.3em 0.7em; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
+  color: var(--muted-ink); white-space: nowrap;
+}
+.shell-theme-toggle:hover { border-color: var(--accent); color: var(--accent-ink); }
 
 /* ---- IUCN badges (shared with the HTML reports, which inline the same colours) ---- */
 .iucn-col { width: 4em; text-align: center; }
@@ -268,6 +380,7 @@ a { color: var(--accent); }
 
 @media (max-width: 40em) {
   body { padding: 1em 0.8em; }
+  .shell { margin: -1em -0.8em 1em; padding: 0.6em 0.8em; }
   .finder-box input { font-size: 1em; }
 }
 

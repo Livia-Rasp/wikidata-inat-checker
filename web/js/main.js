@@ -17,6 +17,9 @@ import { state } from './state.js';
 import { legacy } from './cache.js';
 import { createRowTable } from './rows.js';
 import { createPager, PAGE_SIZE } from './pager.js';
+import { mountShell } from './shell.js';
+
+mountShell('images');
 
 const $ = (id) => document.getElementById(id);
 
