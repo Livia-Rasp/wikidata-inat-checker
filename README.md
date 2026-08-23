@@ -4,57 +4,74 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A526-brightgreen)](.nvmrc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Finds the gaps in Wikidata's taxon items — missing images, missing vernacular names, missing
-iNaturalist links — and turns them into worklists you can actually work through, complete with
-the Wikitext or QuickStatements each fix needs.
+Finds Wikidata taxon items that are missing an image, a vernacular name or an iNaturalist link,
+and hands you the exact Wikitext or QuickStatements each fix needs.
 
-Under that sits a reconciliation pipeline: iNaturalist's open-data taxon dump (**1.4 million
-active taxa**) is built into a local SQLite index, which is then matched against Wikidata over
-**batched SPARQL** — a query-by-value inversion, because the filtered sets on the Wikidata side
-run to millions of rows and the public query service times out scanning them. Everything is
-bounded by the two APIs' published rate budgets. Findings accumulate in a persistent database
-rather than being overwritten each run, so a backlog survives, and nothing is marked done until
-the edit has been confirmed live on Wikidata.
-
-The image half also ships a small web app that walks a photo from iNaturalist to Wikimedia
-Commons to Wikidata, pre-filling each step.
+> **Built with AI pair-programming.** The architecture, the SPARQL inversion, the
+> confirm-before-done design and the threat model are mine.
 
 ![The taxon gallery: an image-less taxon's CC-licensed iNaturalist photos, each with its license, photographer, a pre-filled Commons upload link and a Wikidata-image pick](docs/screenshots/gallery.jpg)
 
 <sub>Photos of *Bulbophyllum radicans* by Lachlan Copeland (CC BY-SA) and Lucas Christofides
-(CC BY), via iNaturalist — shown here as the app renders them.</sub>
+(CC BY), via iNaturalist. Shown here as the app renders them.</sub>
 
-## Installation
+## Impact
 
-Requires Node.js 26+ — the SQLite index uses the built-in `node:sqlite` module, so there is no
-native build step. A `.nvmrc` pins the version (`nvm use`).
+| | |
+|---|---|
+| **1.4M** | active iNaturalist taxa indexed locally, as SQLite |
+| **1,043** | Wikidata taxon items reconciled against that index so far |
+| **400** | image gaps found that can actually be closed: a CC-licensed photo exists |
+| **643** | checked and ruled out. No Commons-compatible licence, so they never reach the worklist |
+| **428** | of the taxa checked carry an IUCN threat category |
+| **284** | unit tests, 85% line coverage, zero dev dependencies |
+
+Nothing is marked done because a human said so. The app queues the edits and you run them. The
+server then asks live Wikidata whether both halves landed, the image (P18) and the Commons
+category sitelink. Only then does a finding close.
+
+<sub>Figures from the author's own findings database, August 2026.</sub>
+
+## Quick start
+
+Node.js 26+. The SQLite index uses the built-in `node:sqlite` module, so there is no native build
+step. `.nvmrc` pins the version (`nvm use`).
 
 ```sh
 git clone https://github.com/Livia-Rasp/wikidata-inat-checker.git
 cd wikidata-inat-checker
 npm install
-```
 
-Seven runtime dependencies, no dev dependencies and no build step. They are kept current by
-Renovate, which holds every release for two weeks before proposing it and merges non-major bumps
-itself once the tests and the container smoke test pass — see
-[docs/threat-model.md](docs/threat-model.md#dependency-policy).
-
-> **First run downloads data.** The first checker that needs the taxon index fetches
-> iNaturalist's open-data taxon dump (~189 MB) and builds a ~236 MB SQLite index in
-> `~/.cache/wikidata-inat-checker/`. That takes a couple of minutes once; every run afterwards
-> reads it locally. The dump is refreshed every 30 days.
-
-## Quick start
-
-```sh
 npm run images -- --limit 200 --iucn EN   # find 200 Endangered taxa that have no image
 npm run web                               # work through them at http://localhost:8080
 ```
 
-The first command fills the backlog; the second is where you actually do the work — pick a
-photo, upload it to Commons through a pre-filled form, queue the Wikidata edits, confirm they
-landed. Re-run the first whenever the worklist runs low.
+The first command fills the backlog. The second is where the work happens: pick a photo, upload it
+to Commons through a pre-filled form, queue the Wikidata edits, confirm they landed. Re-run the
+first whenever the worklist runs low.
+
+> **First run downloads data.** The first checker that needs the taxon index fetches
+> iNaturalist's open-data taxon dump (~189 MB) and builds a ~236 MB SQLite index in
+> `~/.cache/wikidata-inat-checker/`. That takes a couple of minutes, once. Every run afterwards
+> reads it locally. The dump is refreshed every 30 days.
+
+Seven runtime dependencies, no dev dependencies, no build step. Renovate holds every release for
+two weeks before proposing it, then merges non-major bumps itself once the tests and the container
+smoke test pass. See the
+[dependency policy](docs/threat-model.md#dependency-policy).
+
+## How it works
+
+iNaturalist publishes its full taxon dump as open data. This builds it into a local SQLite index,
+then reconciles that index against Wikidata over batched SPARQL.
+
+The reconciliation is inverted on purpose. The obvious query, "every Wikidata taxon with an iNat
+ID but no image", runs to millions of rows and the public query service times out scanning it. So
+the query goes the other way: take known values from the local index and ask Wikidata about those,
+in batches. Everything stays inside both APIs' published rate budgets.
+
+Findings accumulate in `data/findings.db` instead of being overwritten each run, so a backlog
+survives across runs and across tools.
 
 ## Tools
 
