@@ -210,8 +210,11 @@ is argument parsing and HTML rendering around it. Four things about it are load-
   `process.exit(1)` on an unknown taxon or IUCN code, which over HTTP is a remote kill. The digits
   test in `resolveTaxonScope` is also a guard, not just parsing: `descendantInatIds` interpolates the
   id into LIKE patterns, so `%` would match a 3M-row table.
-- **Every scope reduces to a candidate stream.** `candidateSource` is the seam; slice 6's area scope
-  is a third source over the same tail, not a third branch through it.
+- **Every scope reduces to a candidate stream.** `candidateSource` is the seam: `{taxon}` and
+  `{iucn}` each pick a source function, and `{lat, lng, radius}` (slice 6) is a third one —
+  `fetchAreaCandidates` in `lib/areaCandidates.js`, `resolveAreaScope` validating the scope the same
+  way `resolveIucn` does. `discover()`'s downstream logic (`inatBatches`, `recordBatch`) never knows
+  which source it was handed.
 
 `server/jobs.js` is the state machine: one child at a time (claimed synchronously — an `await`
 between the check and the set would let two POSTs both fork), a wall-clock cap *and* a progress
@@ -221,6 +224,49 @@ only thing that stops it outliving a parent that was killed outright — verifie
 
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
+
+### Area as a scope (`lib/areaCandidates.js`, `GET /api/discover/area`)
+
+Three functions, each with one job:
+
+- `resolveAreaScope(scope)` — `null` if `lat`/`lng`/`radius` are all absent (no area scope given),
+  throws `DiscoveryError` on a partial or out-of-range one, otherwise the three as numbers. Mirrors
+  `resolveIucn`'s shape so `discover()` reads it the same way.
+- `fetchAreaCandidates(area, opts)` — species observed nearby (`fetchAreaSpecies`, iNat
+  `species_counts`, paginated), cross-referenced through `fetchWdTaxaByInatIds` — the same
+  P3151-present/P18-absent SPARQL test every other image-scope candidate goes through, not a second
+  query shape. `opts.species` lets a caller that already has the map (the CLI, to avoid paying for
+  Step 1 twice) hand it in directly.
+- `fetchAreaEnrichment(taxonIds, area, opts)` — one iNat request per taxon (`order_by=observed_on`),
+  taking the latest date from the first result and up to 3 of the same page's photos. **This is the
+  fix** for a real bug: the area checker used to batch 20 taxa per request
+  (`taxon_id=id1,id2,...id20`) against one fixed-size shared result window, so taxa that did not
+  dominate that window's ordering came back with nothing — verified live (25km around Munich, 331
+  qualifying taxa, 69 with a blank date) before the fix, and again after (all 8 sampled taxa
+  correct, including a cross-check against a direct single-taxon iNat call). Per-taxon requests have
+  nothing shared to starve.
+
+`GET /api/discover/area` (`server/routes/discover.js`) is a preview, not a run: it calls
+`fetchAreaSpecies` + `fetchAreaCandidates` only, never `fetchAreaEnrichment` and never `discover()`
+— nothing is recorded. That split exists because this route answers **synchronously in the request
+handler**, unlike `POST /discover` which forks a child and returns before the real work starts;
+`fetchAreaEnrichment` against a real sample was measured at minutes, not seconds, which is well past
+the server's `requestTimeout` (30s). So the route is bounded two ways — `radius` capped at 50km
+(tighter than `POST /discover`'s 20000km sanity ceiling) and the species sample capped at `limit`
+(≤500) — and enrichment happens **client-side**, one row at a time, in `web/js/area.js`, the same
+pattern `web/js/gallery.js` already uses for its own cards. `fetchAreaEnrichment` itself is used
+only by the CLI (`checkArea.js`), which has no such time limit.
+
+`fetchAreaSpecies`'s `onTotal` callback exists solely so the preview route can report the *true*
+species count (`totalSpecies`) even when `maxPages` stops it from fetching all of them — a
+side-channel rather than a return-shape change, so the CLI and the existing tests, which just want
+the `Map`, are untouched.
+
+`checkArea.js` is a thin CLI wrapper around all three, following the `checkImages.js` precedent:
+`fetchAreaSpecies` → `fetchAreaCandidates` (materialized once, since both `discover()` and the
+report need the same list) → `discover({scope: area, candidateSource: candidates})` →
+`fetchAreaEnrichment` → `generateAreaHTML` (unchanged; its signature never needed to know where its
+inputs came from).
 
 ### Scheduled top-up (`server/scheduledTopup.js`)
 

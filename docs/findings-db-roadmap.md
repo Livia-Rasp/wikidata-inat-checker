@@ -4,13 +4,12 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–5, 5b, 5c and 5d are shipped — the findings database, the verification pass,
-the Fastify backend, the confirm-gated done state, on-demand scoped discovery, the scheduled
-top-up, the backlog search and a container that runs. Remaining: 6 (app shell, area as a discovery
-scope), 7–8 (the links and names checkers onto the findings table), 9 (deploying that container,
-with backups) and 10 (making discovery reachable once it is deployed). Each slice ships as its own
-pull request, and each records below what turned out differently from the plan — that is the part
-worth reading.
+**Status:** slices 0–6 are shipped — the findings database, the verification pass, the Fastify
+backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
+backlog search, a container that runs, the app shell and area as a discovery scope. Remaining: 7–8
+(the links and names checkers onto the findings table), 9 (deploying that container, with backups)
+and 10 (making discovery reachable once it is deployed). Each slice ships as its own pull request,
+and each records below what turned out differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -584,6 +583,70 @@ than each inventing:
   (`lib/discover.js` hardcodes `KIND`); slices 7 and 8 each need their own run to be startable from
   the app, through the same forked child, the same single-flight lock and the same status polling.
   That is one runner taking a `tool` argument, not three runners — `runs.tool` already records which.
+
+**Done, 2026-08-23.** Eight commits, each verified live against real Wikidata and iNaturalist data
+rather than only unit-tested — the enrichment fix in particular was reproduced first (25km around
+Munich, 331 qualifying taxa, 69 with a blank "latest observation" date under the old batched code)
+and re-checked after against the same taxa. Several things turned out differently from the plan
+above:
+
+- **Two of the bullets above were deliberately *not* built.** The `tool`-argument runner
+  generalization and `?kind=`-aware search plumbing are both real work with no caller yet — links
+  and names don't exist as a findings kind until slices 7 and 8 give them one, so building either
+  now would be designing for a requirement that doesn't exist. `runs.tool` and
+  `createBacklogIndex`'s `kind` parameter are already there for those slices to use; nothing in
+  this one narrows how they will.
+- **Shell nav shows all four workflows now, decided with Livia before building it.** Links and
+  Names render as disabled "not yet migrated" placeholders (real counts via the existing
+  `statusCounts(kind)`, always 0 until their slices land) rather than being held back until they
+  have something to show — the data-driven `NAV` array in `web/js/shell.js` means slices 7/8 flip
+  one `enabled: true` each, not a shell rewrite.
+- **A route the plan didn't anticipate: `GET /api/discover/area`.** The original shape was one
+  server-side round trip — candidates *and* enrichment (photos, latest date) in one response,
+  reusing `fetchAreaEnrichment` directly. Measuring that function against the Munich reproduction
+  (331 taxa, ~1.1s/request) put it at minutes, not seconds — well past the server's 30s
+  `requestTimeout`, which only became a real constraint once there was a concrete number to check it
+  against. The route now does Steps 1–2 only (bounded to a 50km radius and a ≤500-species sample,
+  answering in ~6s even for a 6,000-species area) and returns instantly; `web/js/area.js` fetches
+  enrichment lazily, one row at a time, straight from iNat — the same client-side pattern
+  `gallery.js` already used for its own cards, which is what made the fallback cheap to build once
+  the server-side version turned out not to fit. Gated `privileged` + `DISCOVER_ENABLED` like
+  `POST /discover`, not left unprivileged like search, because it makes real outbound requests
+  (search deliberately does not) — see [threat-model.md](threat-model.md#privileged-routes--discovery).
+- **The enrichment fix's own request shape was simplified during the build.** The plan (and
+  `docs/area.md`'s prior "Known limitation" text) described fixing dates and photos with the
+  checker's original two-request-per-batch shape, just per taxon instead of batched. Built as one
+  combined `order_by=observed_on` request per taxon instead — the first result gives the latest
+  date, up to three of the same page give photos — trading "most-faved" photo ordering for
+  "most-recent" in exchange for half as many requests, which mattered more once every request was
+  its own network round trip rather than one twentieth of one.
+- **Two real bugs, both found by clicking through it, neither visible from reading the code:**
+  reformatting the lat/lng/radius text fields on every keystroke (to keep the map in sync) fought
+  the user's own typing and corrupted the field — `"48.147"` became `"4.000001.147"` — fixed by
+  never rewriting a field the user is actively typing into; and Leaflet measuring its container
+  once, before the flexbox layout around it had settled, leaving the map rendered too small until
+  `invalidateSize()` was added on next frame and on window resize. Caught by Livia looking at the
+  real page, not by any of the verification steps that came before.
+- **Screenshot regeneration surfaced a determinism gap unrelated to area itself.** The headless
+  browser's own ambient `prefers-color-scheme` decided every screenshot's theme (dark, this time) —
+  not a deliberate choice, and liable to flip on a different machine or Chromium version.
+  `tools/screenshots.mjs` now pins it via CDP; dark was the deliberate pick once asked. `area.jpg`
+  is a JPEG, not a PNG — map tiles are photographic-density raster content, 2.9MB as a PNG versus
+  672KB as a JPEG, the same reason `gallery.jpg` isn't one either.
+- **Leaflet is vendored under `web/vendor/leaflet/`, not npm-installed.** This repo has no build
+  step anywhere and serves `web/` as static files, so an npm dependency would sit in `node_modules`
+  where the browser can never reach it without exactly the build/copy machinery the project has
+  avoided everywhere else — and the library never runs server-side, so it doesn't belong in
+  `package.json`'s Renovate-tracked dependency set either. Downloaded by hand instead, pinned and
+  documented in `web/vendor/leaflet/README.md`.
+
+**Verified.** 284 unit tests. Live: a real scoped area run near Munich recorded 5 findings end to
+end via `curl` before the UI existed, then 239 more through the finished `/area` page (Preview
+showing the same taxon and the same 2026-05-31 latest-observation date independently confirmed
+against a direct iNat call, Add to worklist completing with the job-status UI updating correctly
+throughout); the CSS tokenization pass confirmed pixel-identical in light mode before the dark
+palette was added on top of it; every button's text confirmed legible in both themes after the
+dark-mode color-contrast fix; and all four screenshots regenerated and visually checked.
 
 ### 7. Links checker → `kind=link` and a `/links` subpage
 Migrates `checkLinks.js` onto the findings table with P3151 as the verification predicate, keeping

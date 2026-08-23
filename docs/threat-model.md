@@ -120,8 +120,8 @@ iNaturalist and Commons traffic under the operator's identity. WDQS bans clients
 limits and iNaturalist blocks above 10,000 requests a day, so the thing being protected here is not
 data — it is the **ability to keep using those APIs at all**.
 
-`POST /api/discover` and `/api/discover/cancel` are therefore marked `config: { privileged: true }`,
-which adds two requirements on top of the write guard:
+`POST /api/discover`, `/api/discover/cancel` and `GET /api/discover/area` are therefore marked
+`config: { privileged: true }`, which adds two requirements on top of the write guard:
 
 1. **A loopback peer address.** Not `Host` — that is client-controlled, and `curl -H 'Host: localhost'`
    forges it from anywhere. `req.socket.remoteAddress` cannot be forged by the caller, so it is what
@@ -130,6 +130,15 @@ which adds two requirements on top of the write guard:
    when the read view goes public.**
 2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
    not be live merely because nobody turned it off.
+
+**`GET /api/discover/area` is a read, but privileged rather than unprivileged like search (below) —
+on purpose.** What makes the search routes safe to leave open is that they "make no outbound
+request"; this one makes several (iNat, then WDQS) every time it is called, spending the same
+"ability to keep using those APIs at all" budget `POST /discover` does, just without writing
+anything. It answers synchronously in the request handler rather than forking, so it is additionally
+bounded on `radius` (50km, tighter than `POST /discover`'s 20000km sanity ceiling) and on how many
+species it samples (`limit`, ≤500) — bounds that exist for the server's own 30s `requestTimeout`,
+not for politeness. See [dev.md](dev.md#area-as-a-scope-libareacandidatesjs-get-apidiscoverarea).
 
 **Consequence in a container: the check does exactly what it says, which is narrower than "no
 discovery in containers".** The peer address for a request arriving through a published port is the

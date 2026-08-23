@@ -2,6 +2,10 @@
 
 Finds Wikidata taxon items that lack an image (P18) among all species observed within a geographic radius. Useful for targeting a specific location — a nature reserve, a city, a field trip area — and identifying which local species still need photos on Wikidata.
 
+This is the CLI. For picking a point on a map instead of typing coordinates, and a free preview
+before spending anything, see the web app's [area picker](commons-upload.md#area-picker-areahtml).
+Both run the same underlying pipeline (below) and feed the same shared backlog.
+
 ## How it works
 
 Area is a discovery *scope* on the image kind (`{lat, lng, radius}`, alongside `--taxon` and

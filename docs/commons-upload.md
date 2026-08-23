@@ -35,6 +35,16 @@ Then open <http://localhost:8080/>:
 
    ![The backlog search](screenshots/search.png)
 
+1c. **Area** (`area.html`) — click a map (or type coordinates) to pick a point and a radius; the
+   radius circle follows either way. **Preview** answers fast and for free: it looks at the
+   most-observed species near the point and shows which lack a Wikidata image, with photos and
+   the latest observation date filled in per row as they load. **Add to worklist** is the one
+   control here that spends anything — it runs the same scoped discovery as Search's "Find more",
+   checking every species in the area rather than just the most-observed sample, and records what
+   it finds into the shared backlog above.
+
+   ![The area picker: a map with a marker and radius circle, and a preview table of species missing a Wikidata image nearby](screenshots/area.jpg)
+
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
@@ -186,10 +196,14 @@ otherwise never confirm.
 
 - `checkImages.js` records findings in `data/findings.db`; the server serves them as
   `GET /api/findings` — the only link between the core tools and the app.
-- The app is three pages: **`index.html`** the worklist, **`taxon.html`** one taxon's photos, and
-  **`search.html`** the backlog search — which clade a finding is in, what a clade holds, and the
-  only place a scoped discovery can be started (`GET /api/search`, and `POST /api/discover` behind
-  a button). Both table pages render their rows through the same `web/js/rows.js`.
+- The app is four pages, sharing one persistent nav (`web/js/shell.js`) with a per-workflow open
+  count and a dark/light toggle: **`index.html`** the worklist, **`taxon.html`** one taxon's
+  photos, **`search.html`** the backlog search — which clade a finding is in, what a clade holds,
+  and a scoped discovery started from a button (`GET /api/search`, `POST /api/discover`) — and
+  **`area.html`**, a Leaflet map (vendored, `web/vendor/leaflet/`) over the same discovery
+  pipeline scoped by `{lat, lng, radius}` instead of a clade, plus its own free preview
+  (`GET /api/discover/area`, read-only, no findings recorded). Both table pages render their rows
+  through the same `web/js/rows.js`.
 - The `web/` app has **no build step** (plain HTML/JS/CSS): it reads the open backlog from
   `GET /api/findings` and, from the browser, queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service
