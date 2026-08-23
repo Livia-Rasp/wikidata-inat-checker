@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchAreaCandidates } from '../lib/areaCandidates.js';
+import { fetchAreaCandidates, fetchAreaEnrichment } from '../lib/areaCandidates.js';
 
 const noWait = async () => {};
 const AREA = { lat: 48.147, lng: 11.589, radius: 10 };
@@ -59,6 +59,61 @@ test('a species with no matching Wikidata candidate is never yielded', async () 
 
     assert.equal(out.length, 1);
     assert.equal(out[0].inatId, '1');
+});
+
+// ---- fetchAreaEnrichment: the fix for the shared-window starvation bug ----
+
+test('every taxon gets its own photos and date, never starved by a batchmate', async () => {
+    // The old batched shape (`taxon_id=id1,id2,...id20`) returned one fixed-size window shared
+    // across the whole batch, ordered globally — so a taxon that never won that ordering came back
+    // empty even though it had qualifying observations. A per-taxon fetch has nothing to share, so
+    // this stub deliberately gives every one of 25 taxa its own real observation: if the fix
+    // regressed to a shared window, taxa past the old window's size (60 for photos, 20 for dates)
+    // would come back empty here.
+    const taxonIds = Array.from({ length: 25 }, (_, i) => String(i + 1));
+    const getJsonFn = async (url) => {
+        const taxonId = new URL(url, 'http://x').searchParams.get('taxon_id');
+        return {
+            results: [{
+                observed_on: `2026-0${(Number(taxonId) % 9) + 1}-01`,
+                photos: [{ url: 'https://example.com/square.jpg' }],
+                id: Number(taxonId) * 1000,
+            }],
+        };
+    };
+    const { obsMap, latestDateMap } = await fetchAreaEnrichment(taxonIds, AREA, {
+        inatLimiter: noWait, getJsonFn,
+    });
+
+    for (const taxonId of taxonIds) {
+        assert.ok(latestDateMap.has(taxonId), `taxon ${taxonId} got a date`);
+        assert.ok(obsMap.has(taxonId), `taxon ${taxonId} got a photo`);
+    }
+    assert.equal(latestDateMap.size, 25);
+    assert.equal(obsMap.size, 25);
+});
+
+test('a taxon with no qualifying observations gets neither a date nor a photo, not a crash', async () => {
+    const getJsonFn = async () => ({ results: [] });
+    const { obsMap, latestDateMap } = await fetchAreaEnrichment(['1'], AREA, {
+        inatLimiter: noWait, getJsonFn,
+    });
+    assert.equal(obsMap.has('1'), false);
+    assert.equal(latestDateMap.has('1'), false);
+});
+
+test('at most 3 photos per taxon, and the square thumbnail is upgraded to small', async () => {
+    const getJsonFn = async () => ({
+        results: Array.from({ length: 5 }, (_, i) => ({
+            observed_on: '2026-01-01',
+            id: i,
+            photos: [{ url: 'https://example.com/photos/1/square.jpg' }],
+        })),
+    });
+    const { obsMap } = await fetchAreaEnrichment(['1'], AREA, { inatLimiter: noWait, getJsonFn });
+    const photos = obsMap.get('1');
+    assert.equal(photos.length, 3);
+    assert.ok(photos.every((p) => p.photoUrl.includes('/small.jpg')));
 });
 
 test('species_counts is paginated until the page is short or the total is reached', async () => {
