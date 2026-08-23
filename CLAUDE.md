@@ -31,7 +31,7 @@ npm run screenshots                         # regenerate docs/screenshots/ (need
 
 docker compose up --build                   # the server in a container, http://localhost:8080
                                             # bind-mounts ./data; server only — no checkers, and
-                                            # discovery cannot start there (see threat-model.md)
+                                            # discovery cannot start there (see container.md)
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -67,6 +67,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
+| Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 
 ## Source layout
 
