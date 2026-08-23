@@ -58,6 +58,12 @@ const IMG_HOSTS = [
     'inaturalist-open-data.s3.amazonaws.com',
     'static.inaturalist.org',
     'www.inaturalist.org',
+    // OpenStreetMap's tile subdomains, for area.html's map — Leaflet itself is vendored (no
+    // script-src/style-src change needed), but map tiles are always fetched live. CSP source
+    // lists have no subdomain wildcard, so the three are named individually.
+    'a.tile.openstreetmap.org',
+    'b.tile.openstreetmap.org',
+    'c.tile.openstreetmap.org',
 ];
 
 /**

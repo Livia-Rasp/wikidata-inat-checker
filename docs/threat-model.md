@@ -244,6 +244,11 @@ would be discovered by users rather than by tests.
   - `img-src` naming the iNat photo hosts, which are **not** the hosts the app fetches JSON from:
     open-licensed photos come from `inaturalist-open-data.s3.amazonaws.com`. Miss it and every
     thumbnail is blocked while the page still renders — a silent failure.
+  - `img-src` also names OpenStreetMap's three tile subdomains (`a`/`b`/`c.tile.openstreetmap.org`),
+    for `area.html`'s map (slice 6). **`script-src`/`style-src` needed no change for this** — Leaflet
+    itself is vendored under `web/vendor/leaflet/` rather than loaded from a CDN `<script>` tag, so
+    it is same-origin like every other file in `web/`; only the map tiles are genuinely fetched live,
+    and they are images, not script or fetch/XHR, so `connect-src` is untouched too.
   - `connect-src` naming the six APIs `web/js/*` calls directly.
   - Hosts are listed **without a scheme**, so one policy works for `http://localhost` and a future
     `https://` deployment.
