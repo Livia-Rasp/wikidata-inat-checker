@@ -63,9 +63,9 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | Vernacular names | `checkNames.js` | iNat common names missing from P1843 | [names.md](docs/names.md) |
 | iNat links | `checkLinks.js` | taxa with a name but no P3151, matched to iNat | [links.md](docs/links.md) |
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
-| Area checker | `checkArea.js` | image-less taxa observed near a location | [area.md](docs/area.md) |
+| Area checker | `checkArea.js` | image-less taxa observed near a location; also a discovery scope in the app (`/area`) | [area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist | [commons-upload.md](docs/commons-upload.md) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 
 ## Source layout

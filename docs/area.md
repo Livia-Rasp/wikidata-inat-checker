@@ -2,25 +2,35 @@
 
 Finds Wikidata taxon items that lack an image (P18) among all species observed within a geographic radius. Useful for targeting a specific location — a nature reserve, a city, a field trip area — and identifying which local species still need photos on Wikidata.
 
+This is the CLI. For picking a point on a map instead of typing coordinates, and a free preview
+before spending anything, see the web app's [area picker](commons-upload.md#area-picker-areahtml).
+Both run the same underlying pipeline (below) and feed the same shared backlog.
+
 ## How it works
 
-1. Queries iNaturalist for all species with research-grade observations within the specified radius (`/v1/observations/species_counts` with `lat`, `lng`, `radius`). No license filter — the intent is to photograph these species yourself. Paginates until all results are fetched.
-2. For each iNat taxon ID found, queries Wikidata via a SPARQL VALUES lookup to find items where P3151 matches and P18 (image) is absent.
-3. For each qualifying taxon, fetches up to 3 sample observations from the area (ordered by community votes) for thumbnails, and the date of its latest observation there.
-4. Exports `output/area.html` — a list of taxa with their Wikidata link, iNat taxon link, observation count in the area, the latest observation date, and clickable photo thumbnails linking to the individual observations.
+Area is a discovery *scope* on the image kind (`{lat, lng, radius}`, alongside `--taxon` and
+`--iucn`), the same shared pipeline as `checkImages.js` — `checkArea.js` is a thin CLI wrapper
+around `lib/discover.js` and `lib/areaCandidates.js`.
+
+1. `fetchAreaSpecies` (`lib/areaCandidates.js`) queries iNaturalist for all species with
+   research-grade observations within the specified radius (`/v1/observations/species_counts`
+   with `lat`, `lng`, `radius`). No license filter — the intent is to photograph these species
+   yourself. Paginates until all results are fetched.
+2. `fetchAreaCandidates` cross-references those iNat taxon IDs against Wikidata via
+   `fetchWdTaxaByInatIds` — the same P3151-present/P18-absent SPARQL lookup every other
+   image-scope candidate goes through, not a separate query shape.
+3. `discover()` records the result exactly like a `--taxon` or `--iucn` run: a CC-licensed photo
+   and a generated draft make a candidate `open` in `data/findings.db`, so an area run feeds the
+   same shared worklist the web app and the other checkers work through — not just this report.
+4. `fetchAreaEnrichment` fetches one iNat request per qualifying taxon (`order_by=observed_on`),
+   taking the latest observation date from the first result and up to 3 of the same page's
+   photos — deliberately one request per taxon, not a shared batch, so no taxon's enrichment can
+   be crowded out by another's.
+5. `generateAreaHTML` exports `output/area.html` — a list of taxa with their Wikidata link, iNat
+   taxon link, observation count in the area, the latest observation date, and clickable photo
+   thumbnails linking to the individual observations.
 
 No cache — results reflect live Wikidata and iNat state at the time of the run.
-
-### Known limitation — under-filled photo/date enrichment (to fix)
-
-The taxa list is always complete (it comes from the fully-paginated Step 1). But the photo and
-"latest observation" enrichment (Steps 3a/3b in `checkArea.js`) queries **20 taxa at once
-against a single fixed result window** — 60 rows for photos, 20 for dates. When a few taxa
-dominate that window, the others get no rows back, so the report shows "no photo found" and a
-blank date for taxa that actually *do* have qualifying observations. The date column is
-worst-hit (20 taxa share only 20 rows). This misrepresents those taxa; it is slated to be
-fixed by fetching per taxon instead of relying on a shared batch window. See the
-`TODO(area-enrichment)` comment in `checkArea.js`.
 
 ## Usage
 

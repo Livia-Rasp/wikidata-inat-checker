@@ -13,6 +13,9 @@ import { getJson, postJson } from './api.js';
 import { createRowTable, escapeHtml } from './rows.js';
 import { createTopup, describe } from './topup.js';
 import { createPager, PAGE_SIZE } from './pager.js';
+import { mountShell } from './shell.js';
+
+mountShell('images');
 
 const $ = (id) => document.getElementById(id);
 

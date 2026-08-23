@@ -120,8 +120,8 @@ iNaturalist and Commons traffic under the operator's identity. WDQS bans clients
 limits and iNaturalist blocks above 10,000 requests a day, so the thing being protected here is not
 data — it is the **ability to keep using those APIs at all**.
 
-`POST /api/discover` and `/api/discover/cancel` are therefore marked `config: { privileged: true }`,
-which adds two requirements on top of the write guard:
+`POST /api/discover`, `/api/discover/cancel` and `GET /api/discover/area` are therefore marked
+`config: { privileged: true }`, which adds two requirements on top of the write guard:
 
 1. **A loopback peer address.** Not `Host` — that is client-controlled, and `curl -H 'Host: localhost'`
    forges it from anywhere. `req.socket.remoteAddress` cannot be forged by the caller, so it is what
@@ -130,6 +130,15 @@ which adds two requirements on top of the write guard:
    when the read view goes public.**
 2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
    not be live merely because nobody turned it off.
+
+**`GET /api/discover/area` is a read, but privileged rather than unprivileged like search (below) —
+on purpose.** What makes the search routes safe to leave open is that they "make no outbound
+request"; this one makes several (iNat, then WDQS) every time it is called, spending the same
+"ability to keep using those APIs at all" budget `POST /discover` does, just without writing
+anything. It answers synchronously in the request handler rather than forking, so it is additionally
+bounded on `radius` (50km, tighter than `POST /discover`'s 20000km sanity ceiling) and on how many
+species it samples (`limit`, ≤500) — bounds that exist for the server's own 30s `requestTimeout`,
+not for politeness. See [dev.md](dev.md#area-as-a-scope-libareacandidatesjs-get-apidiscoverarea).
 
 **Consequence in a container: the check does exactly what it says, which is narrower than "no
 discovery in containers".** The peer address for a request arriving through a published port is the
@@ -244,6 +253,11 @@ would be discovered by users rather than by tests.
   - `img-src` naming the iNat photo hosts, which are **not** the hosts the app fetches JSON from:
     open-licensed photos come from `inaturalist-open-data.s3.amazonaws.com`. Miss it and every
     thumbnail is blocked while the page still renders — a silent failure.
+  - `img-src` also names OpenStreetMap's three tile subdomains (`a`/`b`/`c.tile.openstreetmap.org`),
+    for `area.html`'s map (slice 6). **`script-src`/`style-src` needed no change for this** — Leaflet
+    itself is vendored under `web/vendor/leaflet/` rather than loaded from a CDN `<script>` tag, so
+    it is same-origin like every other file in `web/`; only the map tiles are genuinely fetched live,
+    and they are images, not script or fetch/XHR, so `connect-src` is untouched too.
   - `connect-src` naming the six APIs `web/js/*` calls directly.
   - Hosts are listed **without a scheme**, so one policy works for `http://localhost` and a future
     `https://` deployment.

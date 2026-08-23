@@ -1,154 +1,95 @@
 #!/usr/bin/env node
 // @ts-check
-import { reqInit, sparql, createRateLimiter, parseArgs, chunk } from './lib/utils.js';
+// CLI wrapper: parse arguments, run a geographically-scoped discovery, render the area report. The
+// work itself is lib/discover.js (recording, shared with every other scope) and
+// lib/areaCandidates.js (the area-specific candidate list and photo/date enrichment) — see
+// docs/dev.md.
+import { discover, DiscoveryError } from './lib/discover.js';
+import { resolveAreaScope, fetchAreaSpecies, fetchAreaCandidates, fetchAreaEnrichment } from './lib/areaCandidates.js';
 import { generateAreaHTML } from './report/generateAreaHTML.js';
-import { runMain } from './lib/cli.js';
+import { openFindingsDb } from './lib/db.js';
+import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
+import { parseArgs } from './lib/utils.js';
+import { findingsDbPath } from './lib/paths.js';
+import { runMain, UsageError } from './lib/cli.js';
 
-const INAT_API = 'https://api.inaturalist.org/v1';
-
-/** GET a JSON endpoint, throwing on a non-ok status (clearer than a JSON parse error). */
-async function getJson(url) {
-    const r = await fetch(url, reqInit());
-    if (!r.ok) throw new Error(`iNat HTTP ${r.status}`);
-    return r.json();
-}
+const DB_FILE = findingsDbPath();
 
 const args = parseArgs();
-const lat    = parseFloat(args.lat);
-const lng    = parseFloat(args.lng);
-const radius = parseFloat(args.radius);
 
-if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) {
-    console.error('Usage: node checkArea.js --lat <lat> --lng <lng> --radius <km>');
-    console.error('Example: node checkArea.js --lat 48.147 --lng 11.589 --radius 10');
-    process.exit(1);
+/** @returns {{lat: number, lng: number, radius: number}} */
+function parseArea() {
+    try {
+        const area = resolveAreaScope({ lat: args.lat, lng: args.lng, radius: args.radius });
+        if (area) return area;
+    } catch (err) {
+        if (err instanceof DiscoveryError) throw new UsageError(err.message);
+        throw err;
+    }
+    throw new UsageError('Usage: node checkArea.js --lat <lat> --lng <lng> --radius <km>',
+        ['Example: node checkArea.js --lat 48.147 --lng 11.589 --radius 10']);
 }
 
-/** Finds species observed in a geographic area that have Wikidata items lacking images. */
-async function run() {
-    const inatLimiter   = createRateLimiter(1100);
-    const sparqlLimiter = createRateLimiter(500);
-
-    // Step 1: every species with a research-grade observation in the area. Deliberately no
-    // license filter — unlike the image checker, the point here is to photograph these yourself.
-    console.log(`Querying iNat for species within ${radius} km of ${lat}, ${lng}...`);
-    /** @type {{taxonId: string, taxonName: string, commonName: string, count: number}[]} */
-    const species = [];
-    let page = 1, total = Infinity;
-    while (species.length < total) {
-        await inatLimiter();
-        const params = new URLSearchParams({
-            lat: String(lat), lng: String(lng), radius: String(radius),
-            quality_grade: 'research',
-            per_page: '500',
-            page: String(page++),
-        });
-        const data = await getJson(`${INAT_API}/observations/species_counts?${params}`);
-        total = data.total_results;
-        for (const r of data.results) {
-            species.push({
-                taxonId:    String(r.taxon.id),
-                taxonName:  r.taxon.name,
-                commonName: r.taxon.preferred_common_name ?? '',
-                count:      r.count,
-            });
-        }
-        if (page % 3 === 1 || species.length >= total) console.log(`  ${species.length}/${total} species fetched`);
-        if (data.results.length === 0) break;
-    }
-    console.log(`iNat: ${species.length} species with research-grade observations in area`);
-
-    // Step 2: check which have a Wikidata item (P3151) that lacks an image (P18)
-    console.log('Checking Wikidata for items without images...');
-    /** @type {Map<string, {wdUri: string, wdName: string}>} */
-    const noImage = new Map();
-    for (const batch of chunk(species, 200)) {
-        await sparqlLimiter();
-        const values = batch.map(s => `"${s.taxonId}"`).join(' ');
-        const query = `SELECT ?item ?inatId ?taxonName WHERE {
-  VALUES ?inatId { ${values} }
-  ?item wdt:P3151 ?inatId .
-  OPTIONAL { ?item wdt:P225 ?taxonName . }
-  FILTER NOT EXISTS { ?item wdt:P18 ?img . }
-}`;
-        const bindings = await sparql(query);
-        for (const b of bindings) {
-            noImage.set(b.inatId.value, {
-                wdUri:  b.item.value,
-                wdName: b.taxonName?.value ?? '',
-            });
-        }
-    }
-    console.log(`Wikidata: ${noImage.size} items in area lack an image`);
-
-    if (noImage.size === 0) {
-        console.log('Nothing to report — all taxa in this area already have Wikidata images.');
-        return;
-    }
-
-    // Step 3: fetch up to 3 sample observations per qualified taxon
-    console.log('Fetching sample observations and latest dates...');
-    const qualified = species.filter(s => noImage.has(s.taxonId));
-
-    // TODO(area-enrichment): Steps 3a/3b enrich each qualified taxon with photos and a latest
-    // date by querying 20 taxa at once against a FIXED result window (per_page 60 for photos,
-    // 20 for dates). That window is shared across the whole batch, so when a few taxa dominate
-    // the results the others get no rows back — the report then shows "no photo found" and a
-    // blank date for taxa that DO have qualifying observations. (The taxa themselves are never
-    // dropped: `qualified` comes from the fully-paginated Step 1 and is always rendered whole.)
-    // The date column is worst-hit: 20 taxa share only 20 date rows, so up to 19 can come back
-    // empty. Fix by fetching per taxon (one request each, or paginate until every taxon in the
-    // batch is covered) rather than relying on a single shared window. See docs/area.md.
-
-    // Step 3a — photos ordered by votes for best thumbnail quality
-    /** @type {Map<string, {obsId: number, photoUrl: string}[]>} */
-    const obsMap = new Map();
-    for (const batch of chunk(qualified, 20)) {
-        await inatLimiter();
-        const ids = batch.map(s => s.taxonId).join(',');
-        const params = new URLSearchParams({
-            taxon_id: ids,
-            lat: String(lat), lng: String(lng), radius: String(radius),
-            quality_grade: 'research',
-            per_page: '60',
-            order_by: 'votes',
-        });
-        const data = await getJson(`${INAT_API}/observations?${params}`);
-        for (const obs of data.results ?? []) {
-            const tid = String(obs.taxon?.id);
-            if (!obsMap.has(tid)) obsMap.set(tid, []);
-            const bucket = obsMap.get(tid);
-            if (bucket.length < 3 && obs.photos?.length) {
-                const url = obs.photos[0].url.replace('square', 'small');
-                bucket.push({ obsId: obs.id, photoUrl: url });
+/** Turn discover()'s progress events back into the lines this tool has always printed. */
+function report(p) {
+    switch (p.phase) {
+        case 'checking':
+            if (p.taxa !== undefined) {
+                if (p.alreadyKnown > 0) console.log(`Findings DB: skipped ${p.alreadyKnown} taxa already recorded.`);
+                return console.log(`Checking ${p.taxa} taxa against iNat for CC0/CC-BY/CC-BY-SA photos...`);
             }
-        }
+            if (p.batch % 5 === 0 || p.batch === p.batches) {
+                console.log(`progress: batch ${p.batch}/${p.batches}, available so far: ${p.matched}`);
+            }
+            return;
+        case 'done':
+            return console.log(
+                `Recorded: ${p.open} open, ${p.noDraft} with photos but no draft, ${p.noPhotos} without photos`
+                + (p.failed ? `, ${p.failed} unanswered (will retry)` : '') + '.');
     }
+}
 
-    // Step 3b — latest observation date per taxon (ordered by observed_on desc)
-    /** @type {Map<string, string>} */
-    const latestDateMap = new Map();
-    for (const batch of chunk(qualified, 20)) {
-        await inatLimiter();
-        const ids = batch.map(s => s.taxonId).join(',');
-        const params = new URLSearchParams({
-            taxon_id: ids,
-            lat: String(lat), lng: String(lng), radius: String(radius),
-            quality_grade: 'research',
-            per_page: '20',
-            order_by: 'observed_on',
-            order: 'desc',
+async function run() {
+    const area = parseArea();
+    const taxaDb = await ensureTaxaDb();
+    const store = openFindingsDb(DB_FILE);
+    try {
+        console.log(`Querying iNat for species within ${area.radius} km of ${area.lat}, ${area.lng}...`);
+        const species = await fetchAreaSpecies(area);
+        console.log(`iNat: ${species.size} species with research-grade observations in area`);
+
+        console.log('Checking Wikidata for items without images...');
+        // Materialized once: discover()'s candidateSource and the report both need the same list,
+        // and building it spends a real SPARQL query — fetching it twice would double that cost
+        // for no reason.
+        const candidates = [];
+        for await (const row of fetchAreaCandidates(area, { species })) candidates.push(row);
+        console.log(`Wikidata: ${candidates.length} items in area lack an image`);
+
+        if (candidates.length === 0) {
+            console.log('Nothing to report — all taxa in this area already have Wikidata images.');
+            return;
+        }
+
+        await discover({ store, taxaDb, scope: area, candidateSource: candidates, onProgress: report });
+
+        console.log('Fetching sample observations and latest dates...');
+        const { obsMap, latestDateMap } = await fetchAreaEnrichment(
+            candidates.map((c) => c.inatId), area);
+
+        generateAreaHTML({
+            lat: area.lat, lng: area.lng, radius: area.radius,
+            totalSpecies: species.size,
+            qualified: candidates.map((c) => ({
+                taxonId: c.inatId, taxonName: c.taxonName, commonName: c.commonName, count: c.count,
+            })),
+            noImage: new Map(candidates.map((c) => [c.inatId, { wdUri: c.wdUri, wdName: c.taxonName }])),
+            obsMap,
+            latestDateMap,
         });
-        const data = await getJson(`${INAT_API}/observations?${params}`);
-        for (const obs of data.results ?? []) {
-            const tid = String(obs.taxon?.id);
-            if (!latestDateMap.has(tid) && obs.observed_on)
-                latestDateMap.set(tid, obs.observed_on);
-        }
+    } finally {
+        store.close();
     }
-
-    // Step 4: generate HTML
-    generateAreaHTML({ lat, lng, radius, totalSpecies: species.length, qualified, noImage, obsMap, latestDateMap });
 }
 
 runMain(run);

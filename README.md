@@ -64,7 +64,7 @@ landed. Re-run the first whenever the worklist runs low.
 | Verification | `npm run verify` | prunes the backlog, re-renders reports | [docs/images.md](docs/images.md#verification) |
 | Vernacular names | `npm run names` | `output/names.html` | [docs/names.md](docs/names.md) |
 | iNat links | `npm run links` | `output/links.html`, `output/links-ambiguous.html` | [docs/links.md](docs/links.md) |
-| Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html` | [docs/area.md](docs/area.md) |
+| Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html`, and the shared backlog | [docs/area.md](docs/area.md) |
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `npm run web` | the `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
 
@@ -142,6 +142,17 @@ With `TOPUP_ENABLED=1` too, the server also runs an unscoped top-up on its own, 
 preferring whichever hour tends to see the least traffic to this app. Off by default; the full
 picture is in [docs/threat-model.md](docs/threat-model.md).
 
+### Area picker (`area.html`)
+
+Click a map to drop a pin, or type coordinates — the radius circle follows either way. **Preview**
+is a free read: it looks at the most-observed species near the point and shows which lack a
+Wikidata image, filling in photos and the latest observation date per row as they load. **Add to
+worklist** is the one control that spends anything: it runs the same scoped discovery as Search's
+**Find more**, checking every species in the area rather than just the sample Preview shows, and
+records what it finds into the shared backlog.
+
+![The area picker: a map with a marker and radius circle, and a preview table of species missing a Wikidata image nearby](docs/screenshots/area.jpg)
+
 ### Confirming
 
 Nothing is marked done because you said so. Copy the QuickStatements batch, run it, then press
@@ -168,9 +179,10 @@ keeps the host's ownership, so the container has to run as whoever owns `./data`
 WINC_UID=$(id -u) WINC_GID=$(id -g) docker compose up --build
 ```
 
-Two limits worth knowing. **"Find more" does not work from the host browser** — discovery requires
-a request from the server's own machine, and through a published port the container sees the
-bridge gateway instead; fill the backlog with the CLI, which is what it is for. And the
+Two limits worth knowing. **"Find more", and the area page's Preview and Add to worklist, do not
+work from the host browser** — all three are privileged routes requiring a request from the
+server's own machine, and through a published port the container sees the bridge gateway instead;
+fill the backlog with the CLI, which is what it is for. And the
 **iNaturalist taxa index is not in the image**: ~236 MB of derived data that only the CLI may
 build. Without it the app still serves everything, with search falling back to name matching
 rather than failing.

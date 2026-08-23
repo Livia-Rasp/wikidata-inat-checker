@@ -63,6 +63,20 @@ const TARGETS = [
         crop: `document.querySelectorAll('#tbody tr')[0].getBoundingClientRect().bottom`,
     },
     {
+        file: 'area.jpg',
+        // Map tiles are photographic-density raster content, the same reason gallery.jpg below
+        // isn't a PNG — this was 2.9 MB as one.
+        format: 'jpeg',
+        quality: 85,
+        // lat/lng/radius pre-fill the picker (area.js reads them the same way search.html reads
+        // ?taxon=) — a fresh profile has no localStorage history, so without this the capture would
+        // show the empty first-load view rather than the picker in a state someone would leave it.
+        url: `${ORIGIN}/area.html?lat=48.147&lng=11.589&radius=15`,
+        ready: `!!document.querySelector('.leaflet-marker-icon') && !!document.querySelector('path.leaflet-interactive')
+            && !!document.querySelector('.leaflet-tile-loaded')`,
+        crop: `document.querySelector('.area-picker').getBoundingClientRect().bottom`,
+    },
+    {
         file: 'gallery.jpg',
         url: `${ORIGIN}/taxon.html?${new URLSearchParams(GALLERY)}`,
         // Photographs, so PNG is the wrong container — it was 5 MB where JPEG is a few hundred KB
@@ -203,6 +217,13 @@ async function main() {
     cdp = await connect(target.webSocketDebuggerUrl);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
+    // Pinned rather than left to the headless browser's own ambient default (which is what decided
+    // it, unrequested, the first time this ran) — otherwise a future regeneration on a different
+    // machine or Chromium version could silently flip every screenshot's theme with no real UI
+    // change behind it. Dark is the deliberate choice for these docs, made when slice 6 added the
+    // toggle; a fresh profile has no localStorage theme tag, so web/js/shell.js falls back to
+    // prefers-color-scheme, which this forces.
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 
     mkdirSync(OUT_DIR, { recursive: true });
     for (const t of TARGETS) {

@@ -10,6 +10,9 @@ import {
     findGeoCategories, findAuthorCategories,
 } from './enrich.js';
 import { state } from './state.js';
+import { mountShell } from './shell.js';
+
+mountShell('images');
 
 const API = 'https://api.inaturalist.org/v1/observations';
 const PER_PAGE = 200;
