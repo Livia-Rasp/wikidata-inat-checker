@@ -27,6 +27,7 @@ npm run web                                 # Fastify: serves web/ + the API, lo
 DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
 TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web   # …and a daily scheduled top-up (see threat-model.md)
 npm test                                    # unit suite (node --test over test/*.test.js)
+npm run test:coverage                       # …with the CI coverage floor enforced (a ratchet)
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
 
 docker compose up --build                   # the server in a container, http://localhost:8080

@@ -18,7 +18,12 @@ jobs:
           node-version: '26'
           cache: npm
       - run: npm ci
-      - run: npm test
+
+      # Coverage is a ratchet, not a target. The floors in the test:coverage script sit just
+      # under what the suite actually reaches, so a change that removes coverage fails here
+      # instead of being noticed months later. Raise them when the real number rises; never
+      # lower them to make a red build green.
+      - run: npm run test:coverage
 
   # Build the image so it cannot rot unnoticed — a dependency bump or a Node version move would
   # otherwise only surface the next time someone deployed — then publish it from pushes to main.

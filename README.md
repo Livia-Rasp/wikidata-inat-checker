@@ -1,6 +1,7 @@
 # wikidata-inat-checker
 
 [![CI](https://github.com/Livia-Rasp/wikidata-inat-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/Livia-Rasp/wikidata-inat-checker/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A587%25-brightgreen)](.github/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A526-brightgreen)](.nvmrc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -24,7 +25,7 @@ and hands you the exact Wikitext or QuickStatements each fix needs.
 | **400** | image gaps found that can actually be closed: a CC-licensed photo exists |
 | **643** | checked and ruled out. No Commons-compatible licence, so they never reach the worklist |
 | **428** | of the taxa checked carry an IUCN threat category |
-| **284** | unit tests, 85% line coverage, zero dev dependencies |
+| **316** | unit tests, 88% line coverage, zero dev dependencies |
 
 Nothing is marked done because a human said so. The app queues the edits and you run them. The
 server then asks live Wikidata whether both halves landed, the image (P18) and the Commons
