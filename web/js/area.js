@@ -250,10 +250,20 @@ $('worklist-cancel').addEventListener('click', () => {
 
 // ---- boot ----
 
-const last = loadLast();
-if (last) {
-    map.setView([last.lat, last.lng], 11);
-    commitChosen(last.lat, last.lng, last.radius, { reformatFields: true });
+/** ?lat=&lng=&radius= — a deep link, the same way search.html reads ?taxon=. Takes priority over
+ *  the remembered last-used point: a link someone was actually given should win over whatever this
+ *  browser happened to have open last. */
+function fromQueryString() {
+    const p = new URLSearchParams(location.search);
+    const lat = Number(p.get('lat')), lng = Number(p.get('lng')), radius = Number(p.get('radius'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) return null;
+    return { lat, lng, radius };
+}
+
+const initial = fromQueryString() ?? loadLast();
+if (initial) {
+    map.setView([initial.lat, initial.lng], 11);
+    commitChosen(initial.lat, initial.lng, initial.radius, { reformatFields: true });
 } else {
     map.setView([20, 0], 2); // no prior point — a wide view, waiting for a click
 }
