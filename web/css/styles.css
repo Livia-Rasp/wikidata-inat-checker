@@ -11,7 +11,23 @@
   --rule: #e8e8e8;
   --edge: #ccc;
   --good: #5a5;
+  --good-bg: #eef6ee;
+  --ok: #2a2;
   --warn: #a60;
+  --on-accent: #fff;
+  --surface-alt: #f0f0f0;
+  --surface-soft: #f8f8f8;
+  --card-bg: #fff;
+  --card-edge: #ddd;
+  --hairline: #eee;
+  --lic-bg: #e8f0ff;
+  --lic-ink: #234;
+  --banner-bg: #fff8e5;
+  --banner-edge: #e8d9a0;
+  --disabled: #bbb;
+  --p18-ink: #c60;
+  --offer-thin-edge: #d6e0ec;
+  --offer-thin-bg: #f4f7fb;
 
   /* The IUCN Red List's own category colours (report/generateHTML.js keeps the same values).
      Using the published palette means the badges read correctly to anyone who works with this
@@ -28,10 +44,10 @@
   --iucn-ne: #e9e9e4;
 }
 
-body { font-family: sans-serif; padding: 1.5em; color: #222; }
+body { font-family: sans-serif; padding: 1.5em; color: var(--ink); }
 h1 { font-size: 1.2em; margin-bottom: 0.3em; }
-p  { margin: 0 0 1em; color: #555; font-size: 0.9em; }
-a { color: #36c; }
+p  { margin: 0 0 1em; color: var(--muted-ink); font-size: 0.9em; }
+a { color: var(--accent); }
 
 /* The app had no visible focus ring at all: every interactive element was keyboard-reachable and
    invisible once you got there. */
@@ -64,10 +80,10 @@ a { color: #36c; }
 #controls { margin-bottom: 0.75em; display: flex; gap: 0.75em; align-items: center; }
 #hide-done, #sort button {
   font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;
-  border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
 }
-#sort button.active { background: #36c; color: #fff; border-color: #36c; }
-.muted { color: #888; font-size: 0.8em; }
+#sort button.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.muted { color: var(--faint); font-size: 0.8em; }
 
 /* ---- QuickStatements panel ---- */
 #qs-panel { margin: 0 0 1em; }
@@ -76,10 +92,10 @@ a { color: #36c; }
 }
 #qs-copy, #qs-confirm, #import-run {
   font-size: 0.85em; padding: 0.25em 0.6em; cursor: pointer;
-  border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
 }
 #qs-copy:disabled, #qs-confirm:disabled { opacity: 0.5; cursor: default; }
-#qs-confirm { border-color: #5a5; background: #eef6ee; }
+#qs-confirm { border-color: var(--good); background: var(--good-bg); }
 
 /* ================= search page =================
    The page is a navigator, not a filter box: you type a clade, see where it sits in the tree, and
@@ -96,7 +112,7 @@ a { color: #36c; }
 .finder-box input {
   flex: 1; min-width: 0;
   font-size: 1.15em; font-family: inherit; padding: 0.4em 0.6em;
-  border: 1px solid var(--edge); border-radius: 4px; background: #fff; color: var(--ink);
+  border: 1px solid var(--edge); border-radius: 4px; background: var(--card-bg); color: var(--ink);
 }
 .finder-box input::placeholder { color: var(--faint); font-style: italic; }
 .finder-box input:focus { border-color: var(--accent); }
@@ -181,7 +197,7 @@ a { color: #36c; }
   position: relative; overflow: hidden;
   display: inline-flex; align-items: baseline; gap: 0.4em;
   font: inherit; font-size: 0.95em; padding: 0.25em 0.6em 0.35em;
-  border: 1px solid var(--rule); border-radius: 3px; background: #fff; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 3px; background: var(--card-bg); cursor: pointer;
 }
 .comp:hover { border-color: var(--accent); }
 .comp-name { font-style: italic; }
@@ -216,16 +232,16 @@ a { color: #36c; }
   border: 1px solid var(--rule); border-radius: 4px; background: var(--surface);
 }
 .offer[hidden] { display: none; }
-.offer-thin { border-color: #d6e0ec; background: #f4f7fb; }
+.offer-thin { border-color: var(--offer-thin-edge); background: var(--offer-thin-bg); }
 .offer-btn {
   font: inherit; font-size: 0.9em; font-weight: 600; padding: 0.3em 0.7em; cursor: pointer;
   border: 1px solid var(--accent); background: var(--accent-wash); border-radius: 4px;
   color: var(--accent-ink);
 }
-.offer-thin .offer-btn { background: var(--accent); color: #fff; }
+.offer-thin .offer-btn { background: var(--accent); color: var(--on-accent); }
 .offer-btn:disabled { opacity: 0.5; cursor: default; }
 .offer button[hidden] { display: none; }
-.offer code { font-size: 0.95em; background: #fff; padding: 0 0.3em; border-radius: 2px; }
+.offer code { font-size: 0.95em; background: var(--card-bg); padding: 0 0.3em; border-radius: 2px; }
 
 .status:empty { display: none; }
 
@@ -263,7 +279,7 @@ a { color: #36c; }
 #import-banner {
   display: flex; gap: 0.8em; align-items: center; margin: 0 0 1em;
   padding: 0.6em 0.8em; font-size: 0.9em;
-  background: #fff8e5; border: 1px solid #e8d9a0; border-radius: 4px;
+  background: var(--banner-bg); border: 1px solid var(--banner-edge); border-radius: 4px;
 }
 /* An author `display` beats the UA stylesheet's [hidden] rule, so the banner would otherwise
    sit there empty forever once there is nothing left to import. */
@@ -271,27 +287,27 @@ a { color: #36c; }
 #qs-text {
   width: 100%; box-sizing: border-box; min-height: 4.5em; resize: vertical;
   font-family: monospace; font-size: 0.82em; line-height: 1.5;
-  padding: 0.5em 0.75em; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8;
+  padding: 0.5em 0.75em; border: 1px solid var(--card-edge); border-radius: 4px; background: var(--surface-soft);
 }
 
 /* ---- main table (mirrors drafts.html) ---- */
 table { border-collapse: collapse; width: 100%; }
-th { text-align: left; padding: 0.5em 0.75em; background: #f0f0f0;
-     border-bottom: 2px solid #ccc; font-size: 0.85em; }
-td { vertical-align: top; padding: 0.4em 0.75em; border-bottom: 1px solid #e8e8e8; }
+th { text-align: left; padding: 0.5em 0.75em; background: var(--surface-alt);
+     border-bottom: 2px solid var(--edge); font-size: 0.85em; }
+td { vertical-align: top; padding: 0.4em 0.75em; border-bottom: 1px solid var(--rule); }
 .check-col { width: 5.5em; }
 .check-col button {
   display: block; width: 100%; margin-bottom: 0.25em;
   font-size: 0.78em; padding: 0.2em 0.4em; cursor: pointer;
-  border: 1px solid #ccc; background: #f6f6f6; border-radius: 4px;
+  border: 1px solid var(--edge); background: var(--surface); border-radius: 4px;
 }
-.confirm-btn { border-color: #5a5; background: #eef6ee; }
+.confirm-btn { border-color: var(--good); background: var(--good-bg); }
 .check-col button:disabled { opacity: 0.5; cursor: default; }
 .row-msg { display: block; margin-top: 0.35em; font-size: 0.8em; }
-.row-msg.ok { color: #2a2; }
-.row-msg.warn { color: #a60; }
+.row-msg.ok { color: var(--ok); }
+.row-msg.warn { color: var(--warn); }
 tr.done td { opacity: 0.35; }
-tr.done .draft { background: #f0f0f0; cursor: default; }
+tr.done .draft { background: var(--surface-alt); cursor: default; }
 tr.hide-done { display: none; }
 .wd-col { width: 9em; white-space: nowrap; }
 .wd-col a { font-family: monospace; font-size: 0.9em; }
@@ -302,14 +318,14 @@ tr.hide-done { display: none; }
 .draft-col { position: relative; }
 .draft {
   font-family: monospace; font-size: 0.82em; white-space: pre-wrap;
-  background: #f8f8f8; padding: 0.5em 0.75em; border: 1px solid #ddd;
+  background: var(--surface-soft); padding: 0.5em 0.75em; border: 1px solid var(--card-edge);
   border-radius: 4px; cursor: pointer; margin: 0; line-height: 1.5;
   transition: background 0.15s;
 }
-.draft:hover { background: #eef6ee; border-color: #5a5; }
+.draft:hover { background: var(--good-bg); border-color: var(--good); }
 .hint {
   display: none; position: absolute; top: 0.4em; right: 0.75em;
-  background: #2a2; color: #fff; font-size: 0.75em;
+  background: var(--ok); color: var(--on-accent); font-size: 0.75em;
   padding: 0.2em 0.5em; border-radius: 3px; pointer-events: none;
 }
 
@@ -321,49 +337,49 @@ tr.hide-done { display: none; }
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 .card {
-  border: 1px solid #ddd; border-radius: 6px; overflow: hidden;
-  display: flex; flex-direction: column; background: #fff;
+  border: 1px solid var(--card-edge); border-radius: 6px; overflow: hidden;
+  display: flex; flex-direction: column; background: var(--card-bg);
 }
-.card .thumb { display: block; background: #f0f0f0; }
+.card .thumb { display: block; background: var(--surface-alt); }
 .card .thumb img { display: block; width: 100%; height: 200px; object-fit: cover; }
 .card .meta {
   display: flex; gap: 0.5em; align-items: center; flex-wrap: wrap;
-  padding: 0.4em 0.6em; font-size: 0.78em; color: #555;
+  padding: 0.4em 0.6em; font-size: 0.78em; color: var(--muted-ink);
 }
 .card .lic {
-  background: #e8f0ff; color: #234; border-radius: 3px;
+  background: var(--lic-bg); color: var(--lic-ink); border-radius: 3px;
   padding: 0.05em 0.4em; font-weight: bold;
 }
 .card .faves { margin-left: auto; }
 .card .upload {
   display: block; text-align: center; text-decoration: none;
-  padding: 0.5em; background: #36c; color: #fff; font-size: 0.85em;
+  padding: 0.5em; background: var(--accent); color: var(--on-accent); font-size: 0.85em;
   margin-top: auto;
 }
-.card .upload:hover { background: #25a; }
-.card .upload.disabled { background: #bbb; cursor: default; pointer-events: none; }
+.card .upload:hover { background: var(--accent-ink); }
+.card .upload.disabled { background: var(--disabled); cursor: default; pointer-events: none; }
 
 /* "Mark as uploaded" + badge (§7.2) */
 .card .mark {
   display: flex; align-items: center; gap: 0.4em;
-  padding: 0.35em 0.6em; font-size: 0.78em; color: #555; cursor: pointer;
-  border-top: 1px solid #eee;
+  padding: 0.35em 0.6em; font-size: 0.78em; color: var(--muted-ink); cursor: pointer;
+  border-top: 1px solid var(--hairline);
 }
 .card .thumb { position: relative; }
 .card .badge {
   display: none; position: absolute; top: 0.4em; left: 0.4em;
-  background: #2a2; color: #fff; font-size: 0.7em; font-weight: bold;
+  background: var(--ok); color: var(--on-accent); font-size: 0.7em; font-weight: bold;
   padding: 0.15em 0.45em; border-radius: 3px; text-transform: uppercase;
 }
 .card.uploaded .badge { display: inline-block; }
-.card.uploaded { border-color: #2a2; }
+.card.uploaded { border-color: var(--ok); }
 .card.uploaded img { opacity: 0.6; }
 
 /* "Use as Wikidata image (P18)" picker — single-select across the gallery */
 .card .p18 {
   display: flex; align-items: center; gap: 0.4em;
-  padding: 0.35em 0.6em; font-size: 0.78em; color: #555; cursor: pointer;
-  border-top: 1px solid #eee;
+  padding: 0.35em 0.6em; font-size: 0.78em; color: var(--muted-ink); cursor: pointer;
+  border-top: 1px solid var(--hairline);
 }
-.card.p18-selected { border-color: #c60; box-shadow: 0 0 0 1px #c60; }
-.card.p18-selected .p18 { color: #c60; font-weight: bold; }
+.card.p18-selected { border-color: var(--p18-ink); box-shadow: 0 0 0 1px var(--p18-ink); }
+.card.p18-selected .p18 { color: var(--p18-ink); font-weight: bold; }
