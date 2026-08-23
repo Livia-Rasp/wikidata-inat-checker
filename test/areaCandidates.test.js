@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchAreaCandidates, fetchAreaEnrichment } from '../lib/areaCandidates.js';
+import { fetchAreaCandidates, fetchAreaEnrichment, fetchAreaSpecies } from '../lib/areaCandidates.js';
 
 const noWait = async () => {};
 const AREA = { lat: 48.147, lng: 11.589, radius: 10 };
@@ -136,4 +136,21 @@ test('species_counts is paginated until the page is short or the total is reache
 
     assert.equal(calls, 2, 'stopped once every species had been fetched');
     assert.deepEqual(out.map((r) => r.inatId).sort(), ['1', '2', '3']);
+});
+
+test('maxPages bounds Step 1 independent of how much more there is to fetch', async () => {
+    let calls = 0;
+    // An endpoint that always has another page — without a bound this would paginate forever.
+    const getJsonFn = async (url) => {
+        calls++;
+        const page = Number(new URL(url, 'http://x').searchParams.get('page'));
+        return {
+            total_results: 999999,
+            results: [{ taxon: { id: page, name: `Species ${page}` }, count: 1 }],
+        };
+    };
+    const species = await fetchAreaSpecies(AREA, { inatLimiter: noWait, getJsonFn, maxPages: 3 });
+
+    assert.equal(calls, 3);
+    assert.equal(species.size, 3);
 });

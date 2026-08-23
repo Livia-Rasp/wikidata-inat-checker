@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iNat → Commons — area</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+</head>
+<body class="area-page">
+  <div id="shell"></div>
+  <h1>Find species missing photos near a place</h1>
+  <p>
+    Click the map to drop a pin, or type coordinates — the radius circle follows either way.
+    <strong>Preview</strong> looks at the most-observed species there for free; <strong>Add to
+    worklist</strong> spends Wikidata and iNaturalist's API budget checking every species in the
+    area and records what it finds in the shared backlog.
+  </p>
+
+  <div class="area-picker">
+    <div id="map" role="application" aria-label="Click to choose a location"></div>
+    <div class="area-fields">
+      <label>Latitude <input id="lat" type="text" inputmode="decimal" placeholder="48.147"></label>
+      <label>Longitude <input id="lng" type="text" inputmode="decimal" placeholder="11.589"></label>
+      <label>Radius (km)
+        <span class="radius-row">
+          <input id="radius-slider" type="range" min="0.5" max="50" step="0.5" value="10">
+          <input id="radius" type="text" inputmode="decimal" value="10">
+        </span>
+      </label>
+      <p class="muted" id="radius-hint"></p>
+      <div class="area-actions">
+        <button type="button" id="preview-run" disabled>Preview this area</button>
+        <button type="button" id="worklist-run" disabled>Add to worklist</button>
+        <button type="button" id="worklist-cancel" hidden>Cancel</button>
+      </div>
+      <p id="area-status" class="status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div class="table-scroll">
+    <table id="results-table" hidden>
+      <thead>
+        <tr>
+          <th>Taxon</th>
+          <th>Wikidata</th>
+          <th class="count-col">Obs.</th>
+          <th>Latest obs.</th>
+          <th>Photos</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/area.js"></script>
+</body>
+</html>

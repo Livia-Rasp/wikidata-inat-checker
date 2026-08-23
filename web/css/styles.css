@@ -496,3 +496,63 @@ tr.hide-done { display: none; }
 }
 .card.p18-selected { border-color: var(--p18-ink); box-shadow: 0 0 0 1px var(--p18-ink); }
 .card.p18-selected .p18 { color: var(--p18-ink); font-weight: bold; }
+
+/* ================= area page =================
+   Pick a point and a radius, then look before spending anything — the same "offer, never act"
+   register as the search page's own control, just with a map standing in for the query box. */
+
+.area-picker {
+  display: flex; flex-wrap: wrap; gap: 1.2em; align-items: flex-start; margin: 0 0 1.2em;
+}
+#map {
+  flex: 2 1 26em; min-width: 18em; height: 22em;
+  border: 1px solid var(--edge); border-radius: 6px;
+  background: var(--surface); /* visible while the tiles are still loading */
+}
+.area-fields {
+  flex: 1 1 16em; min-width: 14em;
+  display: flex; flex-direction: column; gap: 0.6em; font-size: 0.9em;
+}
+.area-fields label { display: flex; flex-direction: column; gap: 0.25em; font-weight: 600; }
+.area-fields input[type="text"] {
+  font: inherit; font-size: 1em; padding: 0.35em 0.5em;
+  border: 1px solid var(--edge); border-radius: 4px; background: var(--card-bg); color: var(--ink);
+}
+.area-fields input[type="text"]:focus { border-color: var(--accent); }
+.radius-row { display: flex; gap: 0.6em; align-items: center; }
+.radius-row input[type="range"] { flex: 1; }
+.radius-row input[type="text"] { width: 4.5em; flex: none; }
+#radius-hint { margin: -0.3em 0 0; min-height: 1.2em; color: var(--warn); font-size: 0.8em; }
+.area-actions { display: flex; flex-wrap: wrap; gap: 0.5em; align-items: center; }
+#preview-run, #worklist-run, #worklist-cancel {
+  font: inherit; font-size: 0.9em; font-weight: 600; padding: 0.4em 0.8em; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent-wash); color: var(--accent-ink);
+  border-radius: 4px;
+}
+#worklist-run { border-color: var(--good); background: var(--good-bg); color: var(--ink); }
+#preview-run:disabled, #worklist-run:disabled { opacity: 0.5; cursor: default; }
+#worklist-cancel { border-color: var(--edge); background: var(--surface); color: var(--ink); }
+
+.area-page .table-scroll table { min-width: 44em; }
+.area-page .taxon-cell { font-size: 0.9em; }
+.area-page .taxon-cell a { color: var(--ink); text-decoration: none; }
+.area-page .taxon-cell a:hover { text-decoration: underline; }
+.area-page .common { color: var(--faint); font-size: 0.85em; }
+.area-page .wd-cell { font-family: monospace; font-size: 0.85em; white-space: nowrap; }
+.count-col { text-align: right; }
+.area-page .count-cell { text-align: right; font-size: 0.85em; color: var(--muted-ink); white-space: nowrap; }
+.area-page .date-cell {
+  font-size: 0.85em; color: var(--muted-ink); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.area-page .photos-cell { white-space: nowrap; }
+.area-page .photos-cell img {
+  width: 70px; height: 52px; object-fit: cover; border-radius: 3px;
+  border: 1px solid var(--card-edge); vertical-align: middle; margin-right: 3px;
+}
+.area-page .photos-cell a:last-child img { margin-right: 0; }
+.area-page .no-photo { font-size: 0.8em; color: var(--faint); }
+
+@media (max-width: 40em) {
+  #map { flex-basis: 100%; height: 16em; }
+  .area-fields { flex-basis: 100%; }
+}

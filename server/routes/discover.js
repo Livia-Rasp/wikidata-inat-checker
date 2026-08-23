@@ -9,7 +9,7 @@ import writeGuard from '../writeGuard.js';
 import { IUCN_STATUS_QIDS } from '../../lib/utils.js';
 import { openTaxaDb, TaxaIndexUnavailable, taxaIndexIsStale } from '../../lib/getInatTaxaDb.js';
 import { resolveTaxonScope, DiscoveryError } from '../../lib/discover.js';
-import { resolveAreaScope } from '../../lib/areaCandidates.js';
+import { resolveAreaScope, fetchAreaSpecies, fetchAreaCandidates } from '../../lib/areaCandidates.js';
 
 /**
  * A taxon is either an iNat id or a name. The digits branch is load-bearing beyond parsing:
@@ -24,11 +24,13 @@ const START_RATE_LIMIT = { max: Number(process.env.RATE_LIMIT_DISCOVER_MAX ?? 6)
 /**
  * @param {import('fastify').FastifyInstance} app
  * @param {{store: any, jobs: any, dbFile: string, discoverEnabled?: boolean,
- *          openIndex?: () => any, scheduledTopup?: any}} opts
+ *          openIndex?: () => any, scheduledTopup?: any,
+ *          fetchAreaSpeciesFn?: typeof fetchAreaSpecies, fetchAreaCandidatesFn?: typeof fetchAreaCandidates}} opts
  */
 export default async function discoverRoutes(app, opts) {
     const {
         store, jobs, dbFile, discoverEnabled = false, openIndex = openTaxaDb, scheduledTopup = null,
+        fetchAreaSpeciesFn = fetchAreaSpecies, fetchAreaCandidatesFn = fetchAreaCandidates,
     } = opts;
 
     await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
@@ -130,6 +132,80 @@ export default async function discoverRoutes(app, opts) {
             });
         }
         return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup));
+    });
+
+    // A read, but not an unprivileged one like /search: unlike that route, this one makes real
+    // outbound requests (iNat, then WDQS) — it spends the same "ability to keep using those APIs
+    // at all" budget POST /discover does, just without writing anything. Gated and rate-limited
+    // the same way. Answers synchronously in the request handler (no fork, unlike POST /discover),
+    // which is why radius and limit are bounded tighter than that route's own sanity ceilings —
+    // this has to fit inside the server's request timeout, not just be polite to iNaturalist.
+    app.get('/discover/area', {
+        config: { privileged: true, rateLimit: START_RATE_LIMIT },
+        schema: {
+            querystring: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['lat', 'lng', 'radius'],
+                properties: {
+                    lat: { type: 'number', minimum: -90, maximum: 90 },
+                    lng: { type: 'number', minimum: -180, maximum: 180 },
+                    radius: { type: 'number', exclusiveMinimum: 0, maximum: 50 },
+                    limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+                },
+            },
+        },
+    }, async (req, reply) => {
+        if (!discoverEnabled) {
+            return reply.status(403).send({
+                statusCode: 403, error: 'Forbidden', code: 'discover_disabled',
+                message: 'Discovery is off. Set DISCOVER_ENABLED=1 to allow this server to spend '
+                    + 'your Wikidata and iNaturalist API budget.',
+            });
+        }
+        const q = /** @type {any} */ (req.query);
+        let area;
+        try {
+            area = resolveAreaScope(q);
+        } catch (err) {
+            if (err instanceof DiscoveryError) {
+                return reply.status(400).send({
+                    statusCode: 400, error: 'Bad Request', code: err.code, message: err.message,
+                });
+            }
+            throw err;
+        }
+
+        // species_counts sorts by observation count descending, so the first page already holds
+        // the most-observed species — what "preview this area" wants first anyway — and a single
+        // page (per_page maxes out at 500, same as this route's own limit ceiling) is enough for
+        // any limit this route allows, so Step 1 costs exactly one request regardless of how much
+        // more the area actually holds.
+        let totalSpecies = 0;
+        const species = await fetchAreaSpeciesFn(area, { maxPages: 1, onTotal: (t) => { totalSpecies = t; } });
+        const sample = new Map([...species.entries()].slice(0, q.limit));
+
+        const qualified = [];
+        for await (const row of fetchAreaCandidatesFn(area, { species: sample })) {
+            qualified.push({
+                inatId: row.inatId, qid: row.qid, wdUri: row.wdUri,
+                taxonName: row.taxonName, commonName: row.commonName, count: row.count,
+            });
+        }
+        qualified.sort((a, b) => b.count - a.count);
+
+        return {
+            totalSpecies,
+            sampled: sample.size,
+            // True whenever the sample did not cover every species this area has, so the caller
+            // can say "showing the N most-observed — there may be more" rather than implying this
+            // is exhaustive. Enrichment (photos, latest date) is deliberately not done here — it
+            // is one iNat request per qualifying taxon, which for a real sample would routinely
+            // blow past the request timeout; web/js/area.js fetches it per row, lazily, the same
+            // way gallery.js already does for its own cards.
+            mayBeIncomplete: sample.size < totalSpecies,
+            qualified,
+        };
     });
 
     app.get('/discover/status', async () =>

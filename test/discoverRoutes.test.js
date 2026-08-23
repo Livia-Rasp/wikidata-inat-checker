@@ -67,6 +67,18 @@ const post = (app, url, payload, headers = {}) => app.inject({
     payload: payload ?? {},
 });
 
+/** A GET as the app's own page would make it, from a local peer — privileged routes check the
+ *  peer address on every verb, but GET is a safe method so the Host/fetch-metadata checks never
+ *  apply to it. */
+const get = (app, url, remoteAddress = '127.0.0.1') => app.inject({ method: 'GET', url, remoteAddress });
+
+/** A fetchAreaCandidatesFn stub yielding rows shaped like fetchAreaCandidates's own output. */
+function areaCandidatesFn(rows) {
+    return async function* (_area, _opts) {
+        for (const r of rows) yield { wdUri: `http://www.wikidata.org/entity/${r.qid}`, iucnQid: null, ...r };
+    };
+}
+
 test('a run starts and answers 202 with its status', async (t) => {
     const { app, jobs } = makeApp(t);
     const res = await post(app, '/api/discover', { iucn: 'VU', limit: 25 });
@@ -173,6 +185,75 @@ test('a non-local peer cannot spend the operator\'s API budget', async (t) => {
     assert.equal(res.statusCode, 403);
     assert.equal(res.json().reason, 'not_local');
     assert.deepEqual(jobs.calls, []);
+});
+
+// ---- GET /discover/area: a preview, not a run — reads live from iNat/Wikidata but writes nothing ----
+
+test('a well-formed area preview returns the sample, sorted by count, with mayBeIncomplete', async (t) => {
+    const { app } = makeApp(t, {
+        fetchAreaSpeciesFn: async (_area, { onTotal }) => {
+            onTotal(3);
+            return new Map([
+                ['1', { taxonName: 'A', commonName: '', count: 5 }],
+                ['2', { taxonName: 'B', commonName: '', count: 50 }],
+            ]);
+        },
+        fetchAreaCandidatesFn: areaCandidatesFn([
+            { qid: 'Q1', inatId: '1', taxonName: 'A', commonName: '', count: 5 },
+            { qid: 'Q2', inatId: '2', taxonName: 'B', commonName: '', count: 50 },
+        ]),
+    });
+    const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10');
+
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.totalSpecies, 3);
+    assert.equal(body.sampled, 2);
+    assert.equal(body.mayBeIncomplete, true, 'the sample (2) did not cover the true total (3)');
+    assert.deepEqual(body.qualified.map((q) => q.qid), ['Q2', 'Q1'], 'sorted by count, highest first');
+});
+
+test('mayBeIncomplete is false once the sample covers everything the area has', async (t) => {
+    const { app } = makeApp(t, {
+        fetchAreaSpeciesFn: async (_area, { onTotal }) => {
+            onTotal(1);
+            return new Map([['1', { taxonName: 'A', commonName: '', count: 5 }]]);
+        },
+        fetchAreaCandidatesFn: areaCandidatesFn([
+            { qid: 'Q1', inatId: '1', taxonName: 'A', commonName: '', count: 5 },
+        ]),
+    });
+    const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10');
+    assert.equal(res.json().mayBeIncomplete, false);
+});
+
+for (const [what, qs] of [
+    ['no lat', 'lng=11&radius=5'],
+    ['no lng', 'lat=48&radius=5'],
+    ['no radius', 'lat=48&lng=11'],
+    ['lat out of range', 'lat=200&lng=11&radius=5'],
+    ['radius over this route\'s tighter ceiling', 'lat=48&lng=11&radius=51'],
+    ['radius zero', 'lat=48&lng=11&radius=0'],
+    ['limit over the ceiling', 'lat=48&lng=11&radius=5&limit=501'],
+]) {
+    test(`area preview: ${what} is rejected by the schema`, async (t) => {
+        const { app } = makeApp(t);
+        assert.equal((await get(app, `/api/discover/area?${qs}`)).statusCode, 400, what);
+    });
+}
+
+test('an area preview needs discovery switched on too', async (t) => {
+    const { app } = makeApp(t, { discoverEnabled: false });
+    const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10');
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().code, 'discover_disabled');
+});
+
+test('an area preview cannot be triggered by a non-local peer', async (t) => {
+    const { app } = makeApp(t);
+    const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10', '203.0.113.7');
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().reason, 'not_local');
 });
 
 test('status is readable by anyone, and says whether discovery is even on', async (t) => {

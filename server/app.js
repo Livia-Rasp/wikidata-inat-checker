@@ -80,13 +80,14 @@ class ApiOnlyLogController extends LogController {
  * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
  *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
  *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
- *          topupConfig?: {enabled: boolean} & Record<string, any>, scheduledTopup?: any}} opts
+ *          topupConfig?: {enabled: boolean} & Record<string, any>, scheduledTopup?: any,
+ *          fetchAreaSpeciesFn?: Function, fetchAreaCandidatesFn?: Function}} opts
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({
     store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
     jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
-    topupConfig, scheduledTopup,
+    topupConfig, scheduledTopup, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
 } = {}) {
     const app = Fastify({
         logger,
@@ -190,7 +191,7 @@ export function buildServer({
 
     app.register(discoverRoutes, {
         prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex: sharedIndex,
-        rateLimit, allowedHosts, scheduledTopup: topup,
+        rateLimit, allowedHosts, scheduledTopup: topup, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
     });
     // Before the store closes in server/index.js: a child still holding a write handle would
     // outlive the thing that is supposed to own it. The scheduler's own interval must stop first,

@@ -65,11 +65,12 @@ export function createTopup({ onStatus, onSettled = () => {}, intervalMs = 2000 
         poll,
         watch,
 
-        /** @param {{taxon?: string, iucn?: string, limit?: number}} scope */
+        /** @param {{taxon?: string, iucn?: string, lat?: number, lng?: number, radius?: number, limit?: number}} scope */
         async start(scope) {
             const body = { limit: scope.limit ?? 200 };
             if (scope.taxon) body.taxon = scope.taxon;
             if (scope.iucn) body.iucn = scope.iucn;
+            if (scope.lat != null) { body.lat = scope.lat; body.lng = scope.lng; body.radius = scope.radius; }
             await postJson('api/discover', body);
             watch();
         },

@@ -19,7 +19,7 @@ const NAV = [
     { id: 'images', label: 'Images', href: 'index.html', kind: 'image', enabled: true },
     { id: 'link', label: 'Links', href: null, kind: 'link', enabled: false, caption: 'Not yet migrated' },
     { id: 'name', label: 'Names', href: null, kind: 'name', enabled: false, caption: 'Not yet migrated' },
-    { id: 'area', label: 'Area', href: null, kind: null, enabled: false, caption: 'Coming in this slice' },
+    { id: 'area', label: 'Area', href: 'area.html', kind: null, enabled: true, caption: 'Find species missing photos near a place' },
 ];
 
 function tileHtml(item, activeId) {
