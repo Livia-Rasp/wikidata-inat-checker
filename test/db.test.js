@@ -123,12 +123,13 @@ test('an upload with no resolvable taxon is still recorded', () => {
     assert.deepEqual(store.p18Picks(), {}, 'and it can never become a pick');
 });
 
-test('getFinding translates an id, and says nothing for an unknown one', () => {
+test('getFinding translates an id, carries the raw payload, and says nothing for an unknown one', () => {
     const { store } = makeStore();
-    seed(store, 'Q1', 'open');
+    seed(store, 'Q1', 'open', { wikitext: 'draft' });
     const id = store.openFindings('image')[0].id;
 
-    assert.deepEqual(store.getFinding(id), { id, qid: 'Q1', kind: 'image', status: 'open' });
+    assert.deepEqual(store.getFinding(id),
+        { id, qid: 'Q1', kind: 'image', status: 'open', payload: { wikitext: 'draft' } });
     // The trap: markVerified silently updates zero rows, so without this an unknown id would
     // look like a successful confirm.
     assert.equal(store.getFinding(999_999), undefined);

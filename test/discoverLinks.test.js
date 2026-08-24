@@ -125,8 +125,8 @@ test('an unclaimed single match becomes open, carrying evidence and auto-eligibi
     assert.equal(payload.autoEligible, true, 'family + genus + subfamily agreeing clears the --auto bar');
 });
 
-test('an already-claimed inatId under a different QID becomes a conflict', async () => {
-    const { store } = makeStore();
+test('an already-claimed inatId under a different QID becomes a conflict, chains kept for the review UI', async () => {
+    const { db, store } = makeStore();
     const taxaDb = makeTaxaDb();
     const result = await discoverLinks({
         store, taxaDb,
@@ -141,6 +141,9 @@ test('an already-claimed inatId under a different QID becomes a conflict', async
     const rows = store.listFindings({ kind: 'link', status: 'conflict' });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].qid, 'Q1');
+    const payload = JSON.parse(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload);
+    assert.equal(payload.wdChain.length, 3);
+    assert.ok(Array.isArray(payload.inatChain));
 });
 
 test('a conflict already linked by P13177 is filtered out, not recorded', async () => {
@@ -159,17 +162,21 @@ test('a conflict already linked by P13177 is filtered out, not recorded', async 
     assert.equal(store.listFindings({ kind: 'link', status: 'conflict' }).length, 0);
 });
 
-test('a name shared by 2+ local taxa becomes ambiguous, one candidate per local match', async () => {
-    const { store } = makeStore();
+test('a name shared by 2+ local taxa becomes ambiguous, one candidate per local match, chains kept for the review UI', async () => {
+    const { db, store } = makeStore();
     const taxaDb = makeTaxaDb();
     const result = await discoverLinks({
         store, taxaDb,
         candidateSource: candidates([{ qid: 'Q3', taxonName: 'Ambigua' }]),
-        sparqlFn: makeSparqlStub({ chains: { Q3: [] } }),
+        sparqlFn: makeSparqlStub({ chains: { Q3: FELID_CHAIN } }),
     });
     assert.equal(result.ambiguous, 1);
     const rows = store.listFindings({ kind: 'link', status: 'ambiguous' });
     assert.equal(rows.length, 1);
+    const payload = JSON.parse(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload);
+    assert.equal(payload.wdChain.length, 3, 'the WD chain is kept in full, not just the evidence summary');
+    assert.equal(payload.candidates.length, 2);
+    for (const c of payload.candidates) assert.ok(Array.isArray(c.inatChain), `${c.inatId} carries its own iNat chain`);
 });
 
 test('a taxon scope keeps only candidates whose local match falls inside it', async () => {

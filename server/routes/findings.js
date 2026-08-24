@@ -6,6 +6,7 @@
 import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
 import { confirmByKind } from '../../lib/confirm.js';
+import { pickCandidate } from '../../lib/pick.js';
 import writeGuard from '../writeGuard.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
@@ -218,6 +219,34 @@ export default async function findingsRoutes(app, opts) {
         store.markSkipped(finding.qid, finding.kind, /** @type {any} */ (req.body)?.reason);
         store.clearP18Pick(finding.qid);
         return { id: finding.id, qid: finding.qid, status: 'skipped' };
+    });
+
+    app.post('/findings/:id/pick', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            params: {
+                type: 'object',
+                properties: { id: { type: 'integer', minimum: 1 } },
+                required: ['id'],
+            },
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['inatId'],
+                properties: { inatId: { type: 'string', pattern: '^[0-9]+$' } },
+            },
+        },
+    }, async (req, reply) => {
+        const { inatId } = /** @type {any} */ (req.body);
+        const result = pickCandidate(store, /** @type {any} */ (req.params).id, inatId);
+        if (!result.picked) {
+            const status = result.reason === 'not_found' ? 404 : 400;
+            return reply.status(status).send({
+                statusCode: status, error: status === 404 ? 'Not Found' : 'Bad Request',
+                code: result.reason,
+            });
+        }
+        return result;
     });
 
     // ---- uploads and the pending P18 pick ----

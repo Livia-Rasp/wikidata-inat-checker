@@ -260,6 +260,37 @@ test('skipping settles a finding and clears its pick', async (t) => {
     assert.ok(store.skipQids('image').has('Q1'), 'and discovery will not offer it again');
 });
 
+test('POST /findings/:id/pick flips an ambiguous finding to open with the chosen candidate', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', taxonName: 'Grania' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'link', status: 'ambiguous',
+        payload: { candidates: [
+            { inatId: '111', rank: 'genus', evidence: { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'order'] }, score: null, scoredBy: null },
+        ] },
+    });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const res = await post(app, `/api/findings/${id}/pick`, { inatId: '111' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().picked, true);
+    assert.deepEqual((await app.inject('/api/findings?kind=link&status=open')).json().taxa.map(r => r.qid), ['Q9']);
+});
+
+test('POST /findings/:id/pick refuses a candidate that was never offered', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', taxonName: 'Grania' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'link', status: 'ambiguous',
+        payload: { candidates: [{ inatId: '111', rank: 'genus', evidence: { matches: 0, mismatches: 0, matchedRanks: [] }, score: null, scoredBy: null }] },
+    });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const res = await post(app, `/api/findings/${id}/pick`, { inatId: '999' });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().code, 'unknown_candidate');
+});
+
 test('an unknown finding id is a 404, not a silent success', async (t) => {
     const { app } = makeApp(t, { fetchFn: fakeApi('both') });
     assert.equal((await post(app, '/api/findings/999999/skip')).statusCode, 404);
