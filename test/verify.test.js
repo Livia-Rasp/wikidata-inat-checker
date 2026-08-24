@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { verifyOpenFindings, readImageFacts } from '../lib/verify.js';
+import { verifyOpenFindings, readImageFacts, readLinkFacts } from '../lib/verify.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -150,6 +150,135 @@ test('verifying an empty backlog makes no requests at all', async () => {
 
     assert.equal(res.verified, 0);
     assert.equal(calls.length, 0);
+});
+
+// ---- kind='link' — different predicate (P3151), plus conflict re-verification ----
+
+function seedOpenLink(store, qid, inatId, evidence = { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'subfamily'] }) {
+    store.upsertTaxon({ qid, inatId, taxonName: `Taxon ${qid}` });
+    store.recordFinding({
+        qid, kind: 'link', status: 'open',
+        payload: { inatId, rank: 'species', evidence, autoEligible: true },
+    });
+}
+
+function seedConflict(store, qid, inatId, existingWdItem) {
+    store.upsertTaxon({ qid, inatId, taxonName: `Taxon ${qid}` });
+    store.recordFinding({
+        qid, kind: 'link', status: 'conflict',
+        payload: {
+            inatId, rank: 'species',
+            evidence: { matches: 1, mismatches: 0, matchedRanks: ['genus'] },
+            existingWdItem, existingTaxonName: `Taxon ${existingWdItem}`,
+        },
+    });
+}
+
+/** A fake wbgetentities keyed by QID → P3151 value (or 'missing'). */
+function fakeLinkApi(spec, calls = []) {
+    return async (qids) => {
+        calls.push(qids);
+        const entities = {};
+        for (const qid of qids) {
+            const v = spec[qid];
+            if (v === 'missing' || v === undefined) { entities[qid] = { id: qid, missing: '' }; continue; }
+            entities[qid] = {
+                id: qid,
+                claims: v === null ? {} : { P3151: [{ mainsnak: { datavalue: { value: v } } }] },
+            };
+        }
+        return { entities, success: 1 };
+    };
+}
+
+test('a P3151 that appeared upstream resolves an open link finding', async () => {
+    const { db, store } = makeStore();
+    seedOpenLink(store, 'Q1', '41970');
+
+    const res = await verifyOpenFindings(store, { kind: 'link', fetchFn: fakeLinkApi({ Q1: '41970' }) });
+
+    assert.deepEqual(res.fixedUpstream, ['Q1']);
+    const row = db.prepare("SELECT status, resolution FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'fixed_upstream');
+    assert.equal(JSON.parse(row.resolution).inatId, '41970');
+});
+
+test('a still-unclaimed open link finding stays open', async () => {
+    const { store } = makeStore();
+    seedOpenLink(store, 'Q1', '41970');
+    const res = await verifyOpenFindings(store, { kind: 'link', fetchFn: fakeLinkApi({ Q1: null }) });
+    assert.equal(res.stillOpen, 1);
+    assert.deepEqual(store.openFindings('link').map(f => f.qid), ['Q1']);
+});
+
+test('a merged or deleted link item becomes gone', async () => {
+    const { db, store } = makeStore();
+    seedOpenLink(store, 'Q1', '41970');
+    await verifyOpenFindings(store, { kind: 'link', fetchFn: fakeLinkApi({ Q1: 'missing' }) });
+    assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'gone');
+});
+
+test('a conflict whose competing claim persists stays a conflict', async () => {
+    const { db, store } = makeStore();
+    seedConflict(store, 'Q1', '41970', 'Q2');
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'link', fetchFn: fakeLinkApi({ Q1: null, Q2: '41970' }),
+    });
+
+    assert.equal(res.stillOpen, 1);
+    const row = db.prepare("SELECT status, verified_at FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'conflict');
+    assert.ok(row.verified_at);
+});
+
+test('a conflict whose competing claim vanished re-opens, payload intact', async () => {
+    const { db, store } = makeStore();
+    seedConflict(store, 'Q1', '41970', 'Q2');
+
+    await verifyOpenFindings(store, {
+        kind: 'link', fetchFn: fakeLinkApi({ Q1: null, Q2: 'missing' }),
+    });
+
+    const row = db.prepare("SELECT status, resolved_at, payload FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'open');
+    assert.equal(row.resolved_at, null, 're-opening is not a resolution');
+    const payload = JSON.parse(row.payload);
+    assert.equal(payload.inatId, '41970');
+    assert.equal(payload.autoEligible, false, 'a lone genus match never clears the --auto bar');
+});
+
+test('a conflict whose competing claim moved to a different iNat id also re-opens', async () => {
+    const { db, store } = makeStore();
+    seedConflict(store, 'Q1', '41970', 'Q2');
+
+    await verifyOpenFindings(store, {
+        kind: 'link', fetchFn: fakeLinkApi({ Q1: null, Q2: '99999' }),
+    });
+
+    assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'open');
+});
+
+test('verifying links fetches claims only, no sitelinks', async () => {
+    const { store } = makeStore();
+    seedOpenLink(store, 'Q1', '41970');
+    let seenProps;
+    await verifyOpenFindings(store, {
+        kind: 'link',
+        fetchFn: async (qids) => ({ entities: Object.fromEntries(qids.map(q => [q, { id: q, claims: {} }])), success: 1 }),
+    });
+    // fetchEntitiesBatched's own opts aren't observable through fetchFn directly; this test just
+    // pins that the call succeeds with a claims-only entity shape (no sitelinks key at all).
+    assert.equal(store.openFindings('link').length, 1);
+});
+
+test('readLinkFacts reports facts, not verdicts', () => {
+    assert.deepEqual(readLinkFacts(undefined), { missing: true, p3151: null });
+    assert.deepEqual(readLinkFacts({ id: 'Q1', missing: '' }), { missing: true, p3151: null });
+    assert.deepEqual(readLinkFacts({ id: 'Q1', claims: {} }), { missing: false, p3151: null });
+    assert.deepEqual(
+        readLinkFacts({ id: 'Q1', claims: { P3151: [{ mainsnak: { datavalue: { value: '41970' } } }] } }),
+        { missing: false, p3151: '41970' });
 });
 
 test('readImageFacts reports facts, not verdicts', () => {

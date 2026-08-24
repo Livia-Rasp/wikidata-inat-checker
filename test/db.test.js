@@ -240,6 +240,7 @@ test('openFindings returns only open rows, shaped for the report', () => {
         taxonName: 'Taxon Q1',
         iucn: 'VU',
         wikitext: '{{Species|Panthera onca|}}',
+        payload: { wikitext: '{{Species|Panthera onca|}}' },
     });
     assert.equal(typeof rows[0].id, 'number', 'the row carries the finding id the API addresses');
 });
