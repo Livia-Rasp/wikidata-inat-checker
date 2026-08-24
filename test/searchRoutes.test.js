@@ -67,7 +67,28 @@ test('an unscoped search is the whole open backlog', async (t) => {
     assert.deepEqual(body.composition, { under: null, entries: [] });
     // The row contract is the findings route's, not a second one.
     assert.deepEqual(Object.keys(body.taxa[0]).sort(),
-        ['id', 'inatTaxonId', 'iucn', 'kind', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+        ['id', 'inatTaxonId', 'iucn', 'kind', 'payload', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+});
+
+test('kind=link searches the link backlog independently from images', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', inatId: '9001', taxonName: 'Bulbophyllum alpha' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'link', status: 'open',
+        payload: { inatId: '9001', rank: 'species', evidence: { matches: 0, mismatches: 0, matchedRanks: [] }, autoEligible: false },
+    });
+
+    const images = (await get(app, '/api/search')).json();
+    assert.equal(images.total, 4, 'the default kind is still images');
+
+    const links = (await get(app, '/api/search?kind=link')).json();
+    assert.equal(links.total, 1);
+    assert.equal(links.taxa[0].qid, 'Q9');
+});
+
+test('an unknown kind is rejected by the schema', async (t) => {
+    const { app } = makeApp(t);
+    assert.equal((await get(app, '/api/search?kind=nope')).statusCode, 400);
 });
 
 test('a clade search filters, resolves and describes', async (t) => {

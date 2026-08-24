@@ -17,7 +17,7 @@ const THEME_KEY = 'winc-theme';
  */
 const NAV = [
     { id: 'images', label: 'Images', href: 'index.html', kind: 'image', enabled: true },
-    { id: 'link', label: 'Links', href: null, kind: 'link', enabled: false, caption: 'Not yet migrated' },
+    { id: 'link', label: 'Links', href: 'links.html', kind: 'link', enabled: true },
     { id: 'name', label: 'Names', href: null, kind: 'name', enabled: false, caption: 'Not yet migrated' },
     { id: 'area', label: 'Area', href: 'area.html', kind: null, enabled: true, caption: 'Find species missing photos near a place' },
 ];

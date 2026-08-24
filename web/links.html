@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iNat → Commons — missing iNaturalist links</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="shell"></div>
+  <h1>Missing iNaturalist links <span id="count" class="muted"></span></h1>
+  <p>
+    Wikidata taxa with a scientific name but no iNaturalist link (P3151). Click a QuickStatements
+    line to copy it, or Confirm to check live Wikidata directly.
+    <span id="generated" class="muted"></span>
+  </p>
+  <div id="controls">
+    <a class="page-link" href="search.html?kind=link">Search the backlog →</a>
+    <button id="hide-done">Hide done</button>
+  </div>
+  <section id="qs-panel">
+    <div class="qs-head">
+      <strong>QuickStatements</strong> — high-confidence matches
+      <span id="qs-count" class="muted"></span>
+      <button id="qs-copy" disabled>Copy</button>
+      <button id="qs-confirm" disabled>Confirm pending</button>
+      <span id="qs-hint" class="muted"></span>
+    </div>
+    <textarea id="qs-text" readonly placeholder="Open matches whose ancestor taxonomy agrees on 3+ ranks, including family or order, appear here automatically — the same bar checkLinks.js --auto uses. Copy, run the batch, then Confirm pending."></textarea>
+  </section>
+  <p id="status"></p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th class="check-col"></th>
+          <th>Wikidata item</th>
+          <th class="iucn-col">IUCN</th>
+          <th>iNat taxon</th>
+          <th>Confidence</th>
+          <th>QuickStatements (click to copy)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <nav id="pager" class="pager" aria-label="Backlog pages" hidden></nav>
+
+  <section id="review">
+    <h2>Needs review <span id="review-count" class="muted"></span></h2>
+    <p>
+      <strong>Ambiguous</strong> matches: one Wikidata item, several same-named iNat taxa — pick
+      the one whose taxonomy agrees. <strong>Conflicts</strong>: the matched iNat id is already
+      claimed by a different Wikidata item — Skip unless you can resolve it by hand (a
+      <code>P13177</code> statement, or fixing the name on one side). The Taxonomy column shows WD
+      and iNat ranks side by side: <span class="legend-match">green</span> agrees,
+      <span class="legend-mismatch">red</span> disagrees.
+    </p>
+    <div id="review-list"></div>
+  </section>
+
+  <script type="module" src="js/links.js"></script>
+</body>
+</html>

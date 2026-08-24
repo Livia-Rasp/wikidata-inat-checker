@@ -61,6 +61,7 @@ export default async function discoverRoutes(app, opts) {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                    tool: { type: 'string', enum: ['images', 'links'], default: 'images' },
                     taxon: { type: 'string', pattern: TAXON_PATTERN },
                     iucn: { type: 'string', enum: Object.keys(IUCN_STATUS_QIDS) },
                     // No hard maximum is documented on iNaturalist's own radius parameter; this is
@@ -85,7 +86,9 @@ export default async function discoverRoutes(app, opts) {
         // Claimed first and synchronously: with an await in front of this, two simultaneous
         // requests would both see an idle runner and both fork.
         const body = /** @type {any} */ (req.body) ?? {};
+        const tool = body.tool ?? 'images';
         const config = {
+            tool,
             scope: {
                 taxon: body.taxon ?? null, iucn: body.iucn ?? null,
                 lat: body.lat ?? null, lng: body.lng ?? null, radius: body.radius ?? null,
@@ -102,6 +105,14 @@ export default async function discoverRoutes(app, opts) {
             return reply.status(400).send({
                 statusCode: 400, error: 'Bad Request', code: 'unsupported_scope_combination',
                 message: 'An area scope cannot be combined with a taxon or IUCN scope.',
+            });
+        }
+        // Links has no area-scope equivalent — checkLinks.js never had one, and nothing proposes
+        // "links near a point" as a concept.
+        if (tool === 'links' && config.scope.lat != null) {
+            return reply.status(400).send({
+                statusCode: 400, error: 'Bad Request', code: 'unsupported_scope_combination',
+                message: 'Links discovery has no area scope.',
             });
         }
 
@@ -131,7 +142,7 @@ export default async function discoverRoutes(app, opts) {
                 status: jobs.status(),
             });
         }
-        return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup));
+        return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup, tool));
     });
 
     // A read, but not an unprivileged one like /search: unlike that route, this one makes real
@@ -208,8 +219,17 @@ export default async function discoverRoutes(app, opts) {
         };
     });
 
-    app.get('/discover/status', async () =>
-        publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup));
+    app.get('/discover/status', {
+        schema: {
+            querystring: {
+                type: 'object',
+                additionalProperties: false,
+                properties: { tool: { type: 'string', enum: ['images', 'links'], default: 'images' } },
+            },
+        },
+    }, async (req) =>
+        publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup,
+            /** @type {any} */ (req.query).tool ?? 'images'));
 
     app.post('/discover/cancel', {
         config: { privileged: true, rateLimit: START_RATE_LIMIT },
@@ -243,9 +263,11 @@ export default async function discoverRoutes(app, opts) {
 /**
  * What a caller may see: the live record when a run is in flight, the last run from the database
  * once it is over (the in-memory one dies with the process), and never a raw error message.
+ * `tool` picks whose "last run" is reported when idle — live progress from `record` needs no such
+ * choice, since only one tool can ever be running at a time.
  */
-function publicStatus(record, store, discoverEnabled, scheduledTopup) {
-    const last = store.latestRun('images');
+function publicStatus(record, store, discoverEnabled, scheduledTopup, tool = 'images') {
+    const last = store.latestRun(tool === 'links' ? 'links' : 'images');
     return {
         enabled: discoverEnabled,
         indexStale: taxaIndexIsStale(),

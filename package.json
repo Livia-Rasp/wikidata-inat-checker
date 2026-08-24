@@ -1,6 +1,6 @@
 {
   "name": "wikidata-inat-checker",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Finds gaps in Wikidata's taxon items — missing images, vernacular names and iNaturalist links — by reconciling a local SQLite index of iNaturalist's 1.4M-taxon dump against Wikidata over batched SPARQL, with an assisted iNaturalist-to-Wikimedia-Commons photo upload app",
   "type": "module",
   "engines": {

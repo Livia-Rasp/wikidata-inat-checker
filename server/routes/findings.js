@@ -5,7 +5,8 @@
 // the ones later slices add.
 import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
-import { confirmFindings } from '../../lib/confirm.js';
+import { confirmByKind } from '../../lib/confirm.js';
+import { pickCandidate } from '../../lib/pick.js';
 import writeGuard from '../writeGuard.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
@@ -56,6 +57,10 @@ export const findingSchema = {
         taxonName: { type: ['string', 'null'] },
         iucn: { type: ['string', 'null'] },
         wikitext: { type: ['string', 'null'] },
+        // The raw kind-specific payload (evidence, autoEligible, candidates, …) — wikitext above
+        // is kept as its own field for existing callers; this is how a per-kind row renderer reads
+        // everything else without each kind growing its own projected field on the row contract.
+        payload: { type: ['object', 'null'], additionalProperties: true },
     },
 };
 
@@ -148,7 +153,7 @@ export default async function findingsRoutes(app, opts) {
     /** Answers 503 rather than 500 when Wikidata is the thing that failed, leaving rows untouched. */
     const confirm = async (ids, reply) => {
         try {
-            return { results: await confirmFindings(store, ids, { fetchFn: opts.fetchFn }) };
+            return { results: await confirmByKind(store, ids, { fetchFn: opts.fetchFn }) };
         } catch (err) {
             // A confirm that could not reach Wikidata has decided nothing. Saying so is the
             // difference between "try again" and "this server is broken".
@@ -214,6 +219,34 @@ export default async function findingsRoutes(app, opts) {
         store.markSkipped(finding.qid, finding.kind, /** @type {any} */ (req.body)?.reason);
         store.clearP18Pick(finding.qid);
         return { id: finding.id, qid: finding.qid, status: 'skipped' };
+    });
+
+    app.post('/findings/:id/pick', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            params: {
+                type: 'object',
+                properties: { id: { type: 'integer', minimum: 1 } },
+                required: ['id'],
+            },
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['inatId'],
+                properties: { inatId: { type: 'string', pattern: '^[0-9]+$' } },
+            },
+        },
+    }, async (req, reply) => {
+        const { inatId } = /** @type {any} */ (req.body);
+        const result = pickCandidate(store, /** @type {any} */ (req.params).id, inatId);
+        if (!result.picked) {
+            const status = result.reason === 'not_found' ? 404 : 400;
+            return reply.status(status).send({
+                statusCode: status, error: status === 404 ? 'Not Found' : 'Bad Request',
+                code: result.reason,
+            });
+        }
+        return result;
     });
 
     // ---- uploads and the pending P18 pick ----

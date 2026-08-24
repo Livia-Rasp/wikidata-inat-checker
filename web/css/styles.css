@@ -1,6 +1,11 @@
 /* Tokens for what this app already looked like, so new rules stop inventing another grey. Existing
    rules keep their literals until they are next touched — a big-bang restyle is not this slice. */
 :root {
+  /* Without this, native form controls (textarea, scrollbar, etc.) render with light-mode UA
+     chrome even while the page's own dark palette is active — #qs-text's inherited `color` was
+     legible on paper but Chromium was still painting some of its own control chrome for light
+     mode underneath it. */
+  color-scheme: light;
   --bg: #fff;
   --ink: #222;
   --muted-ink: #555;
@@ -49,6 +54,7 @@
    deliberately absent here — they read correctly to anyone who works with this data regardless of
    which theme the app is in, so they stay the same in both rather than being re-themed. */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #14161a;
   --ink: #e6e6e6;
   --muted-ink: #a3a9b0;
@@ -83,6 +89,7 @@
    wins over the OS preference. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    color-scheme: dark;
     --bg: #14161a;
     --ink: #e6e6e6;
     --muted-ink: #a3a9b0;
@@ -400,7 +407,8 @@ a.shell-tile:hover { color: var(--accent); }
 #qs-text {
   width: 100%; box-sizing: border-box; min-height: 4.5em; resize: vertical;
   font-family: monospace; font-size: 0.82em; line-height: 1.5;
-  padding: 0.5em 0.75em; border: 1px solid var(--card-edge); border-radius: 4px; background: var(--surface-soft);
+  padding: 0.5em 0.75em; border: 1px solid var(--card-edge); border-radius: 4px;
+  background: var(--surface-soft); color: var(--ink);
 }
 
 /* ---- main table (mirrors drafts.html) ---- */
@@ -555,4 +563,77 @@ tr.hide-done { display: none; }
 @media (max-width: 40em) {
   #map { flex-basis: 100%; height: 16em; }
   .area-fields { flex-basis: 100%; }
+}
+
+/* ================= links page =================
+   The worklist table above reuses rows.js as-is (via createRowTable); everything below is new:
+   a confidence badge for open matches, and the ambiguous/conflict review section — the "candidates
+   side by side with the evidence that distinguishes them" the roadmap asked for. */
+
+.confidence-col { width: 9em; }
+.confidence {
+  display: inline-block; padding: 0.1em 0.5em; border-radius: 3px;
+  font-size: 0.78em; font-weight: 700; letter-spacing: 0.02em;
+}
+.confidence-high { background: var(--good-bg); color: var(--good); }
+.confidence-low { background: var(--surface-alt); color: var(--warn); }
+
+/* The WD-vs-iNat ancestor comparison — same visual language as the CLI reports' tree-pair table
+   (report/htmlShared.js), ported rather than shared: web/ has no build step and cannot import
+   lib/utils.js's Node-only dependencies, the same reason web/js/enrich.js duplicates rather than
+   imports its Commons-category caching. */
+.tree-pair { border-collapse: collapse; font-size: 0.8em; line-height: 1.5; }
+.tree-pair td { padding: 0.05em 0.5em; vertical-align: top; border: 0; }
+.tp-rank { color: var(--faint); white-space: nowrap; padding-right: 0.6em; }
+.tp-wd, .tp-inat { min-width: 8em; }
+.tree-match td { color: var(--good); }
+.tree-mismatch td { color: var(--iucn-cr); }
+/* Same colours, for referring to them in prose (the review section's legend) rather than a table
+   cell — .tree-match/.tree-mismatch above are scoped to their td children on purpose. */
+.legend-match { color: var(--good); font-weight: 600; }
+.legend-mismatch { color: var(--iucn-cr); font-weight: 600; }
+.absent { color: var(--disabled); }
+.no-tree { color: var(--faint); font-size: 0.85em; }
+
+#review { margin-top: 2.5em; }
+#review h2 { font-size: 1.05em; margin-bottom: 0.2em; }
+.review-group {
+  margin: 0 0 1.2em; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden;
+}
+.review-head {
+  display: flex; flex-wrap: wrap; gap: 0.6em; align-items: baseline;
+  padding: 0.5em 0.9em; background: var(--surface); font-size: 0.9em;
+}
+.review-head .wd-col a { font-family: monospace; }
+.review-taxon { font-style: italic; }
+.review-type {
+  margin-left: auto; font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.review-conflict { color: var(--warn); }
+.review-candidates { display: flex; flex-direction: column; }
+.review-candidate {
+  display: grid; gap: 0.6em; align-items: start; padding: 0.6em 0.9em;
+  border-top: 1px solid var(--hairline);
+  grid-template-columns: 8em 1fr 20em auto;
+}
+.review-candidate.picked { opacity: 0.4; }
+.review-candidate .inat-col { font-family: monospace; font-size: 0.85em; }
+.review-candidate .qs {
+  font-family: monospace; font-size: 0.78em; white-space: pre-wrap; margin: 0;
+  background: var(--surface-soft); padding: 0.4em 0.6em; border: 1px solid var(--card-edge);
+  border-radius: 4px; cursor: pointer; line-height: 1.5;
+}
+.review-candidate .qs:hover { background: var(--good-bg); border-color: var(--good); }
+.pick-btn, .review-candidate .skip-btn {
+  font-size: 0.8em; padding: 0.3em 0.6em; cursor: pointer; height: fit-content;
+  border: 1px solid var(--edge); background: var(--surface); color: var(--ink); border-radius: 4px;
+}
+.pick-btn { border-color: var(--good); background: var(--good-bg); }
+.review-msg { font-size: 0.8em; margin-top: 0.3em; }
+.review-msg.ok { color: var(--ok); }
+.review-msg.warn { color: var(--warn); }
+
+@media (max-width: 48em) {
+  .review-candidate { grid-template-columns: 1fr; }
 }

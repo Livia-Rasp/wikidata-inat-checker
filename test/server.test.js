@@ -51,7 +51,7 @@ test('a finding row carries exactly the documented fields', async (t) => {
     // The response schema strips anything not listed in it, so this is what stops a future
     // migration — or a typo in the schema — silently dropping a column the app renders.
     assert.deepEqual(Object.keys(row).sort(),
-        ['id', 'inatTaxonId', 'iucn', 'kind', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+        ['id', 'inatTaxonId', 'iucn', 'kind', 'payload', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
     assert.equal(row.qid, 'Q1');
     assert.equal(row.kind, 'image');
     assert.equal(row.status, 'open');
@@ -70,6 +70,19 @@ test('nullable columns survive serialisation as null, not as empty strings', asy
     assert.equal(row.taxonName, null);
     assert.equal(row.iucn, null);
     assert.equal(row.wikitext, null);
+});
+
+test('a link finding\'s payload (evidence, autoEligible) reaches the client', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q1', inatId: '41970', taxonName: 'Taxon Q1' });
+    store.recordFinding({
+        qid: 'Q1', kind: 'link', status: 'open',
+        payload: { inatId: '41970', rank: 'species', evidence: { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'order'] }, autoEligible: true },
+    });
+
+    const row = (await app.inject('/api/findings?kind=link')).json().taxa[0];
+    assert.equal(row.payload.autoEligible, true);
+    assert.deepEqual(row.payload.evidence.matchedRanks, ['family', 'genus', 'order']);
 });
 
 test('kind and status select a different worklist', async (t) => {
@@ -245,6 +258,44 @@ test('skipping settles a finding and clears its pick', async (t) => {
     assert.equal(res.json().status, 'skipped');
     assert.deepEqual(store.p18Picks(), {});
     assert.ok(store.skipQids('image').has('Q1'), 'and discovery will not offer it again');
+});
+
+test('POST /findings/:id/pick flips an ambiguous finding to open with the chosen candidate', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', taxonName: 'Grania' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'link', status: 'ambiguous',
+        payload: { candidates: [
+            { inatId: '111', rank: 'genus', evidence: { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'order'] }, score: null, scoredBy: null },
+        ] },
+    });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const res = await post(app, `/api/findings/${id}/pick`, { inatId: '111' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().picked, true);
+    assert.deepEqual((await app.inject('/api/findings?kind=link&status=open')).json().taxa.map(r => r.qid), ['Q9']);
+});
+
+test('POST /findings/:id/pick on an unknown id is a 404', async (t) => {
+    const { app } = makeApp(t);
+    const res = await post(app, '/api/findings/999999/pick', { inatId: '111' });
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.json().code, 'not_found');
+});
+
+test('POST /findings/:id/pick refuses a candidate that was never offered', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', taxonName: 'Grania' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'link', status: 'ambiguous',
+        payload: { candidates: [{ inatId: '111', rank: 'genus', evidence: { matches: 0, mismatches: 0, matchedRanks: [] }, score: null, scoredBy: null }] },
+    });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const res = await post(app, `/api/findings/${id}/pick`, { inatId: '999' });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().code, 'unknown_candidate');
 });
 
 test('an unknown finding id is a 404, not a silent success', async (t) => {

@@ -65,17 +65,16 @@ export default async function searchRoutes(app, opts) {
         }
     }
 
-    /** One backlog index per index handle. Rebuilt only if the handle appears, i.e. after someone
-     *  builds the taxa index without restarting the server. */
-    let backlog = null;
+    /** One backlog index per (kind, index handle) — each kind's rows are a different scan, and the
+     *  index is rebuilt only if the handle changes, i.e. after someone builds the taxa index
+     *  without restarting the server. */
+    const backlogByKind = new Map();
     let backlogTaxaDb;
-    function backlogIndex() {
+    function backlogIndex(kind) {
         const taxaDb = taxaIndexOrNull();
-        if (!backlog || backlogTaxaDb !== taxaDb) {
-            backlog = createBacklogIndex({ store, taxaDb });
-            backlogTaxaDb = taxaDb;
-        }
-        return { backlog, taxaDb };
+        if (backlogTaxaDb !== taxaDb) { backlogByKind.clear(); backlogTaxaDb = taxaDb; }
+        if (!backlogByKind.has(kind)) backlogByKind.set(kind, createBacklogIndex({ store, taxaDb, kind }));
+        return { backlog: backlogByKind.get(kind), taxaDb };
     }
 
     app.get('/search', {
@@ -84,6 +83,7 @@ export default async function searchRoutes(app, opts) {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
+                    kind: { type: 'string', enum: ['image', 'name', 'link'], default: 'image' },
                     taxon: { type: 'string', pattern: TAXON_PATTERN },
                     iucn: { type: 'string', enum: Object.keys(IUCN_STATUS_QIDS) },
                     limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: 500 },
@@ -140,8 +140,8 @@ export default async function searchRoutes(app, opts) {
             },
         },
     }, async (req, reply) => {
-        const { taxon, iucn, limit, offset } = /** @type {any} */ (req.query);
-        const { backlog: index, taxaDb } = backlogIndex();
+        const { kind, taxon, iucn, limit, offset } = /** @type {any} */ (req.query);
+        const { backlog: index, taxaDb } = backlogIndex(kind);
 
         let taxonId = null;
         let resolved = null;

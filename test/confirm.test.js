@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { confirmFindings } from '../lib/confirm.js';
+import { confirmFindings, confirmLinkFindings, confirmByKind } from '../lib/confirm.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -181,4 +181,97 @@ test('an upstream failure changes nothing at all', async () => {
     const row = db.prepare("SELECT status, verified_at FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
     assert.equal(row.verified_at, null, 'a confirm that never reached Wikidata decided nothing');
+});
+
+// ---- confirmLinkFindings: a single P3151 statement, no sitelink pairing, no pick bookkeeping ----
+
+/** Seeds an open link finding and returns its id. */
+function seedOpenLink(store, qid, inatId = `inat-${qid}`) {
+    store.upsertTaxon({ qid, inatId, taxonName: `Taxon ${qid}` });
+    store.recordFinding({
+        qid, kind: 'link', status: 'open',
+        payload: { inatId, rank: 'species', evidence: { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'order'] }, autoEligible: true },
+    });
+    return store.listFindings({ kind: 'link' }).find(f => f.qid === qid).id;
+}
+
+/** A fake wbgetentities keyed by QID → P3151 value (or 'missing'). */
+function fakeLinkApi(spec, calls = []) {
+    return async (qids) => {
+        calls.push(qids);
+        const entities = {};
+        for (const qid of qids) {
+            const v = spec[qid];
+            if (v === 'missing' || v === undefined) { entities[qid] = { id: qid, missing: '' }; continue; }
+            entities[qid] = { id: qid, claims: v === null ? {} : { P3151: [{ mainsnak: { datavalue: { value: v } } }] } };
+        }
+        return { entities, success: 1 };
+    };
+}
+
+test('a link finding confirms once its own P3151 is live', async () => {
+    const { db, store } = makeStore();
+    const id = seedOpenLink(store, 'Q1', '41970');
+
+    const [res] = await confirmLinkFindings(store, [id], { fetchFn: fakeLinkApi({ Q1: '41970' }) });
+
+    assert.equal(res.confirmed, true);
+    assert.equal(res.status, 'done');
+    const row = db.prepare("SELECT status, resolution FROM findings WHERE qid='Q1'").get();
+    assert.equal(JSON.parse(row.resolution).inatId, '41970');
+});
+
+test('a link finding with no live P3151 fails to confirm, distinguishably', async () => {
+    const { store } = makeStore();
+    const id = seedOpenLink(store, 'Q1', '41970');
+    const [res] = await confirmLinkFindings(store, [id], { fetchFn: fakeLinkApi({ Q1: null }) });
+
+    assert.equal(res.confirmed, false);
+    assert.equal(res.reason, 'missing_p3151');
+    assert.equal(res.status, 'open');
+});
+
+test('a deleted or merged link item becomes gone', async () => {
+    const { db, store } = makeStore();
+    const id = seedOpenLink(store, 'Q1');
+    await confirmLinkFindings(store, [id], { fetchFn: fakeLinkApi({ Q1: 'missing' }) });
+    assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'gone');
+});
+
+test('confirmLinkFindings on an unknown id says so directly, not just through confirmByKind', async () => {
+    const { store } = makeStore();
+    const calls = [];
+    const [res] = await confirmLinkFindings(store, [999_999], { fetchFn: fakeLinkApi({}, calls) });
+    assert.equal(res.reason, 'not_found');
+    assert.equal(res.confirmed, false);
+    assert.equal(calls.length, 0, 'and it never bothered Wikidata');
+});
+
+// ---- confirmByKind: a bulk confirm can span kinds ----
+
+test('confirmByKind dispatches each id to its own kind\'s predicate, in the order requested', async () => {
+    const { store } = makeStore();
+    const imgId = seedOpen(store, 'Q1');
+    const linkId = seedOpenLink(store, 'Q2', '41970');
+
+    const results = await confirmByKind(store, [linkId, imgId], {
+        fetchFn: async (qids) => {
+            const entities = {};
+            for (const qid of qids) {
+                entities[qid] = qid === 'Q1'
+                    ? { id: qid, claims: { P18: [{ mainsnak: { datavalue: { value: 'Q1.jpg', type: 'string' } } }] }, sitelinks: { commonswiki: { title: 'Category:Taxon Q1' } } }
+                    : { id: qid, claims: { P3151: [{ mainsnak: { datavalue: { value: '41970' } } }] } };
+            }
+            return { entities, success: 1 };
+        },
+    });
+
+    assert.deepEqual(results.map(r => r.id), [linkId, imgId], 'results come back in the order requested');
+    assert.ok(results.every(r => r.confirmed === true));
+});
+
+test('confirmByKind still reports an unknown id without touching the store', async () => {
+    const { store } = makeStore();
+    const [res] = await confirmByKind(store, [999_999], { fetchFn: fakeLinkApi({}) });
+    assert.equal(res.reason, 'not_found');
 });

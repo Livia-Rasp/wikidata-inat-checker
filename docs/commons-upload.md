@@ -45,6 +45,19 @@ Then open <http://localhost:8080/>:
 
    ![The area picker: a map with a marker and radius circle, and a preview table of species missing a Wikidata image nearby](screenshots/area.jpg)
 
+1d. **Links** (`links.html`) — the same worklist shape as the main view, but for Wikidata taxa
+   with a name and no iNaturalist link (P3151): Confirm checks live Wikidata for the P3151
+   statement, and the QuickStatements panel collects the open matches whose taxonomy agrees
+   confidently enough to trust unattended (the same bar `checkLinks.js --auto` uses). Below the
+   worklist, a **Needs review** section handles what a name match alone can't: an **ambiguous**
+   match (one Wikidata item, several same-named iNat taxa) shows every candidate's taxonomy next
+   to Wikidata's, colour-coded, with **Pick this one** recording the choice; a **conflict** (the
+   matched iNat id is already claimed by a different Wikidata item) shows the same comparison with
+   only **Skip**, since resolving one is a judgement call outside the app. See
+   [links.md](links.md) for the checker this page is a worklist over.
+
+   ![The links review section: an ambiguous Wikidata genus name next to two candidate iNat taxa, their taxonomy compared rank by rank](screenshots/links.png)
+
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
@@ -194,19 +207,31 @@ never confirm.
 
 ## How it fits together
 
-- `checkImages.js` records findings in `data/findings.db`; the server serves them as
-  `GET /api/findings` — the only link between the core tools and the app.
-- The app is four pages sharing one persistent nav (`web/js/shell.js`), which carries a
+- `checkImages.js` and `checkLinks.js` record findings in `data/findings.db`, `kind='image'` and
+  `kind='link'` respectively; the server serves them as `GET /api/findings?kind=…` — the only link
+  between the core tools and the app.
+- The app is five pages sharing one persistent nav (`web/js/shell.js`), which carries a
   per-workflow open count and a dark/light toggle:
-  - **`index.html`**, the worklist.
+  - **`index.html`**, the image worklist.
+  - **`links.html`**, the link worklist plus the ambiguous/conflict review section (`POST
+    /findings/:id/pick` for ambiguous, `Skip` for conflict — see [links.md](links.md)).
   - **`taxon.html`**, one taxon's photos.
   - **`search.html`**, the backlog search: which clade a finding is in, what a clade holds, and a
-    scoped discovery started from a button (`GET /api/search`, `POST /api/discover`).
+    scoped discovery started from a button (`GET /api/search?kind=…`, `POST /api/discover`, both
+    kind-aware — `?kind=link` from `links.html`'s search link searches the link backlog the same
+    way the default searches images).
   - **`area.html`**, a vendored Leaflet map (`web/vendor/leaflet/`) over the same discovery
     pipeline, scoped by `{lat, lng, radius}` instead of a clade, plus its own free preview
-    (`GET /api/discover/area`, read-only, no findings recorded).
+    (`GET /api/discover/area`, read-only, no findings recorded). Image-only — links has no area
+    scope.
 
-  Both table pages render their rows through the same `web/js/rows.js`.
+  All three table pages (`index.html`, `links.html`, `search.html`) render their rows through the
+  same `web/js/rows.js`, which dispatches by the finding's `kind`.
+- **Discovery is one job runner, shared by kind.** `POST /discover` takes an optional `tool`
+  (`'images'` default, or `'links'`), dispatched in the forked child to `lib/discover.js` or
+  `lib/discoverLinks.js`; only one discovery run — of either kind — can be in flight at a time.
+  The scheduled top-up (`TOPUP_ENABLED`) tries each kind once a day, in that order, sharing the
+  same scope config and the same slot.
 - The `web/` app has **no build step**, just plain HTML/JS/CSS. It reads the open backlog from
   `GET /api/findings`. From the browser it queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service

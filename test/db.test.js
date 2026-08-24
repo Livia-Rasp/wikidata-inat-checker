@@ -123,12 +123,13 @@ test('an upload with no resolvable taxon is still recorded', () => {
     assert.deepEqual(store.p18Picks(), {}, 'and it can never become a pick');
 });
 
-test('getFinding translates an id, and says nothing for an unknown one', () => {
+test('getFinding translates an id, carries the raw payload, and says nothing for an unknown one', () => {
     const { store } = makeStore();
-    seed(store, 'Q1', 'open');
+    seed(store, 'Q1', 'open', { wikitext: 'draft' });
     const id = store.openFindings('image')[0].id;
 
-    assert.deepEqual(store.getFinding(id), { id, qid: 'Q1', kind: 'image', status: 'open' });
+    assert.deepEqual(store.getFinding(id),
+        { id, qid: 'Q1', kind: 'image', status: 'open', payload: { wikitext: 'draft' } });
     // The trap: markVerified silently updates zero rows, so without this an unknown id would
     // look like a successful confirm.
     assert.equal(store.getFinding(999_999), undefined);
@@ -182,6 +183,23 @@ test('skipQids treats negative statuses as skips, not just open', () => {
     // The re-discovery trap: skipping only `open` would resurface everything else on the next
     // top-up, including taxa deliberately passed over.
     assert.deepEqual(skip, new Set(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']));
+});
+
+test('skipQids treats link-only statuses (ambiguous, conflict) as settled and no_match as negative', () => {
+    const { db, store } = makeStore();
+    store.upsertTaxon({ qid: 'Q1', taxonName: 'Ambigua' });
+    store.recordFinding({ qid: 'Q1', kind: 'link', status: 'ambiguous', payload: { wdChain: [], candidates: [] } });
+    store.upsertTaxon({ qid: 'Q2', inatId: '1', taxonName: 'Conflictus' });
+    store.recordFinding({ qid: 'Q2', kind: 'link', status: 'conflict', payload: {} });
+    store.upsertTaxon({ qid: 'Q3', taxonName: 'Nonexistentia' });
+    store.recordFinding({ qid: 'Q3', kind: 'link', status: 'no_match' });
+
+    assert.deepEqual(store.skipQids('link'), new Set(['Q1', 'Q2', 'Q3']));
+
+    backdate(db, 'Q3', 91);
+    assert.ok(!store.skipQids('link').has('Q3'), 'a stale no_match is a candidate again');
+    assert.ok(store.skipQids('link').has('Q1'), 'ambiguous never expires');
+    assert.ok(store.skipQids('link').has('Q2'), 'conflict never expires');
 });
 
 test('a negative finding expires once it is older than the recheck window', () => {
@@ -240,6 +258,7 @@ test('openFindings returns only open rows, shaped for the report', () => {
         taxonName: 'Taxon Q1',
         iucn: 'VU',
         wikitext: '{{Species|Panthera onca|}}',
+        payload: { wikitext: '{{Species|Panthera onca|}}' },
     });
     assert.equal(typeof rows[0].id, 'number', 'the row carries the finding id the API addresses');
 });
