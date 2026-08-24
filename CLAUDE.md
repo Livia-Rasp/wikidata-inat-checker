@@ -27,11 +27,13 @@ npm run web                                 # Fastify: serves web/ + the API, lo
 DISCOVER_ENABLED=1 npm run web              # …and allow discovery from the app (loopback only)
 TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web   # …and a daily scheduled top-up (see threat-model.md)
 npm test                                    # unit suite (node --test over test/*.test.js)
+npm run test:coverage                       # …with the CI coverage floor enforced (a ratchet)
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
+npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
 
 docker compose up --build                   # the server in a container, http://localhost:8080
                                             # bind-mounts ./data; server only — no checkers, and
-                                            # discovery cannot start there (see threat-model.md)
+                                            # discovery cannot start there (see container.md)
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -67,6 +69,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
+| Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 
 ## Source layout
 
@@ -87,7 +90,10 @@ Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — 
   `index.html` (worklist), `taxon.html` (one taxon's photos), `search.html` (backlog search).
 - **`test/`** — `node:test` unit suite. No network, sub-second. Add cases when touching the
   pure logic it covers.
-- **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images.
+- **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images and
+  `record.mjs` the demo GIF; `cdp.mjs` holds what both need (CDP client, throwaway DB copy,
+  server and browser startup). The recording's confirm step runs against live Wikidata and is
+  chosen so it genuinely succeeds — see [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ## Generated artifacts
 

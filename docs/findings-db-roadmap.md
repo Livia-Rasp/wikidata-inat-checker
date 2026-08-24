@@ -671,9 +671,10 @@ it onto the home server, and keeping the database safe once it lives there.
   deliberately — it publishes the image that just passed rather than a rebuild presumed identical.
   Runs on a GitHub-hosted runner, never a self-hosted one: a persistent Docker-socket-privileged CI
   agent is a real liability on a box meant to run production services.
-  **One manual step remains and is not automatable:** GHCR packages are private by default even
-  from a public repository, so the package's visibility has to be switched to public once, by hand,
-  in its settings. Until then `docker pull` needs authentication.
+  **One manual step was needed and is not automatable:** GHCR packages are private by default even
+  from a public repository, so the package's visibility had to be switched to public once, by hand,
+  in its settings. **Done on 2026-08-23**; `docker pull` now works unauthenticated, verified with
+  `docker manifest inspect` against a logged-out client.
 - **Redeploy.** Still here: `nicholas-fedor/watchtower` on the host polling GHCR. The pipeline
   shape to copy is `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo.
 - **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting

@@ -17,6 +17,26 @@ never write to the real backlog.
 | `search.png` | `web/search.html` — clade search, scoped to Orchidaceae |
 | `area.jpg` | `web/area.html` — the map picker, scoped to 15km around Munich |
 | `gallery.jpg` | `web/taxon.html` — one taxon's iNaturalist photos |
+| `demo.gif` | the worklist → gallery → QuickStatements → confirm loop, from `npm run record` |
+
+## The recording
+
+```sh
+npm run record
+```
+
+`tools/record.mjs` shares its plumbing with the screenshots through `tools/cdp.mjs`: the same CDP
+client, the same throwaway database copy, the same pinned dark theme. It additionally needs
+**ffmpeg**, which encodes the captured frames through a generated 256-colour palette.
+
+**The confirm at the end is real.** Before recording anything, the script asks live Wikidata which
+of the open findings already carries both halves of this app's edit, the image (P18) and the
+Commons-category sitelink. It drives the demo with that taxon, so the confirm succeeds because it
+genuinely should. Nothing is stubbed. If no such taxon exists in the backlog the script stops and
+says so, rather than recording a confirm that fails.
+
+That also means the subject changes over time, as taxa get fixed upstream. That is fine. The point
+being demonstrated is the loop, not the species.
 
 `area.jpg` needs live network access to OpenStreetMap's tile servers at capture time — the map
 itself is vendored (`web/vendor/leaflet/`), but the tiles it draws are always fetched fresh, the

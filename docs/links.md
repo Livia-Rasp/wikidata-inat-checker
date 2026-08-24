@@ -5,7 +5,13 @@ Finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches 
 ## How it works
 
 1. On first run, downloads the iNaturalist open-data taxa dump (~189 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~236 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer (also auto-rebuilt once if the schema needs migration).
-2. Queries Wikidata *by iNaturalist name*: for each name in the local index it asks Wikidata — in bounded `VALUES` POST batches — for taxon items carrying that name (P225) with no P3151. This inverts the old approach (which scanned Wikidata's ~3 M no-P3151 taxa and discarded the non-matches); WDQS cannot scan that full set, whereas batched name lookups are fast and reliable. Every candidate returned is therefore already a name match. The local index's name list comes back in incidental alphabetical order (an artifact of `SELECT DISTINCT`, not a real ordering guarantee), so it's shuffled with a seeded, reproducible PRNG before `--limit` caps the number of collected candidates (real matches) — otherwise the entire budget would be spent on early-alphabet names before the scan ever reached the rest. Override the seed with `--seed <n>` (default `42`); the cache lets re-runs reach further into the name list regardless. (With `--iucn <code>` it instead runs one direct query filtered by P141 — that no-P3151 set is small enough for WDQS to answer in seconds, so the batched name scan, and its shuffle, is skipped.)
+2. Queries Wikidata *by iNaturalist name*. For each name in the local index it asks Wikidata, in bounded `VALUES` POST batches, for taxon items carrying that name (P225) with no P3151. Every candidate returned is therefore already a name match.
+
+   This inverts the old approach, which scanned Wikidata's ~3 M no-P3151 taxa and discarded the non-matches. WDQS cannot scan that full set. Batched name lookups are fast and reliable.
+
+   The local index's name list comes back in incidental alphabetical order, an artifact of `SELECT DISTINCT` rather than a real ordering guarantee. It is shuffled before `--limit` caps the number of collected candidates. Without the shuffle the entire budget would go on early-alphabet names before the scan ever reached the rest. The PRNG is seeded and reproducible; override it with `--seed <n>` (default `42`). The cache lets re-runs reach further into the name list regardless.
+
+   `--iucn <code>` instead runs one direct query filtered by P141. That no-P3151 set is small enough for WDQS to answer in seconds, so the batched name scan and its shuffle are skipped.
 3. Classifies each candidate name against the SQLite index (no API calls). Names matching exactly one active iNat taxon are clean matches. Names matching two or more are flagged as ambiguous for human review.
 4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
 5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
@@ -39,7 +45,7 @@ npm run linkStats                          # stats mode: survey ALL taxa, print 
 | QuickStatements | Click to copy. Adds P3151 with the iNat taxon ID. |
 | Taxonomy (WD · iNat) | The two ancestor chains side by side: the Wikidata one (kingdom → genus, from P171 links, rank labels shown for the known ranks) against the iNat one (from the local taxa database — no extra API call, rank labels on every entry). |
 
-The paired trees let you verify at a glance that a matched pair actually refers to the same organism — mismatched families or genera are immediately visible without opening additional tabs.
+The paired trees let you check at a glance that a matched pair really refers to the same organism. Mismatched families or genera are visible immediately, without opening more tabs.
 
 An aggregate field above the table accumulates QuickStatements from all checked rows for batch copying.
 
@@ -96,18 +102,18 @@ NE              |      22 |       3 |       0 |        19
 TOTAL           |2,965,213| 455,470 |   2,622 | 2,507,121
 ```
 
-**Match** = exactly one active iNat taxon found — ready to import via the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name — needs human review in `output/links-ambiguous.html`. **No match** = Wikidata name not present in the iNat database (derived from the total). No files are written and the cache is not modified.
+**Match** = exactly one active iNat taxon found. Ready to import through the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name, so it needs human review in `output/links-ambiguous.html`. **No match** = the Wikidata name is not present in the iNat database. No files are written and the cache is not modified.
 
-Totals come from CirrusSearch and matches from WDQS, two backends that index independently. Match/ambig are exact; because no-match is derived (`total − match − ambig`), any few-item indexing lag between the backends lands in the no-match figure.
+Totals come from CirrusSearch and matches from WDQS, two backends that index independently. Match and ambig are exact. No-match is derived (`total − match − ambig`), so any few-item indexing lag between the backends lands in that figure.
 
 ## Auto mode (`--auto`)
 
-Pass `--auto` to additionally write `output/links-auto.qs` — a plain-text QuickStatements file
+Pass `--auto` to additionally write `output/links-auto.qs`, a plain-text QuickStatements file
 containing only matches that pass a programmatic certainty filter:
 
-- **Zero mismatches** — no labeled rank (genus, family, order, class, …) conflicts between the WD and iNat taxonomy trees
-- **≥3 rank agreements** — at least three labeled ranks match by name
-- **Family or order among the matches** — prevents three obscure intermediate ranks (e.g. subfamily/tribe/subtribe) from coincidentally agreeing
+- **Zero mismatches.** No labeled rank (genus, family, order, class, …) conflicts between the WD and iNat taxonomy trees
+- **≥3 rank agreements.** At least three labeled ranks match by name
+- **Family or order among the matches.** This stops three obscure intermediate ranks, say subfamily, tribe and subtribe, from coincidentally agreeing
 
 Matches that fail these criteria still appear in `output/links.html` for manual review.
 
@@ -119,36 +125,41 @@ Q12345	P3151	"67890"
 
 ## Ambiguous-only mode (`--ambiguous-only`)
 
-Pass `--ambiguous-only` to skip everything `output/links.html` needs — the P3151 cross-check
-against clean matches, the ancestor-chain fetch for every one of them (one Wikidata SPARQL batch
-per 100 matches, up to 2 batches in flight at once, which at a `--limit` in the tens of thousands
-is by far the slowest and most WDQS-load-sensitive part of a run), and the conflict bookkeeping —
-and go straight to writing
-`output/links-ambiguous.html` from the much smaller ambiguous set. Useful whenever `links.html`
-isn't wanted at all, e.g. sourcing a gold-labeling sample of ambiguous cases for an external
-project: cuts a large-`--limit` run from well over an hour down to single-digit minutes, and
-avoids most of the exposure to WDQS's intermittent truncated/slow-response instability, since
-that scales with the number of ancestor-chain batches fetched.
+Pass `--ambiguous-only` to skip everything `output/links.html` needs and go straight to writing
+`output/links-ambiguous.html` from the much smaller ambiguous set. Three things get skipped: the
+P3151 cross-check against clean matches, the ancestor-chain fetch for every one of them, and the
+conflict bookkeeping.
+
+The ancestor-chain fetch is the expensive one. It sends one Wikidata SPARQL batch per 100 matches,
+up to 2 batches in flight, and at a `--limit` in the tens of thousands it is by far the slowest and
+most WDQS-load-sensitive part of a run.
+
+Use this whenever `links.html` is not wanted at all, such as sourcing a gold-labeling sample of
+ambiguous cases for another project. It cuts a large-`--limit` run from well over an hour to
+single-digit minutes. It also avoids most of the exposure to WDQS's intermittent truncated and
+slow responses, since that exposure scales with the number of ancestor-chain batches fetched.
 
 ## Fixed: the Wikidata tree used to silently drop real ranks
 
 **Historical note, fixed 2026-08-22.** `fetchWdAncestorChains` (`lib/utils.js`) rebuilds the
 linear ancestor chain client-side by walking `directParent → parent → parent → ...`. Wikidata's
-taxonomic graph is not a strict tree — an ancestor can carry more than one normal/preferred-rank
-`wdt:P171` statement (alternate or duplicate classification), and `wdt:P171` returns all of them.
-The old code kept a single `parent` per ancestor, and whichever SPARQL row arrived last for that
-ancestor silently overwrote the others — the walk could then derail onto a dead end outside the
-item's own ancestor closure, quietly dropping every subsequent rank with no error. It reproduced
-on `Q5049369` ("Cassidulina") and `Q2474088` ("Caninae"), both missing everything above Class.
+taxonomic graph is not a strict tree. An ancestor can carry more than one normal or preferred-rank
+`wdt:P171` statement, an alternate or duplicate classification, and `wdt:P171` returns all of them.
 
-The fix collects every candidate parent per ancestor instead of overwriting, and the walk prefers
-whichever candidate is itself a known ancestor of the item — the one that keeps following the
-item's own closure rather than wandering onto a parallel classification that dead-ends outside
-what `P171+` returned. Both QIDs above now reconstruct their full chain, Kingdom to genus/order.
-This does not fully resolve every possible fork in Wikidata's graph — where *several* candidate
-parents are each genuinely part of the item's ancestor closure, the choice among them is still a
-deterministic but not necessarily "the" canonical pick — but it eliminates the nondeterministic
-overwrite and the dead-end truncation, which was the concrete defect.
+The old code kept a single `parent` per ancestor, so whichever SPARQL row arrived last silently
+overwrote the others. The walk could then derail onto a dead end outside the item's own ancestor
+closure, dropping every subsequent rank with no error. It reproduced on `Q5049369` ("Cassidulina")
+and `Q2474088` ("Caninae"), both missing everything above Class.
+
+The fix collects every candidate parent per ancestor instead of overwriting. The walk then prefers
+whichever candidate is itself a known ancestor of the item, which keeps it following the item's own
+closure rather than wandering onto a parallel classification that dead-ends. Both QIDs above now
+reconstruct their full chain, Kingdom to genus or order.
+
+This does not resolve every possible fork in Wikidata's graph. Where *several* candidate parents
+are each genuinely part of the item's ancestor closure, the choice among them is deterministic but
+not necessarily the canonical one. What it does eliminate is the nondeterministic overwrite and the
+dead-end truncation, which was the concrete defect.
 
 ## Typical workflow
 

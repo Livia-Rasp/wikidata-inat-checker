@@ -43,7 +43,8 @@ arrive later behind OAuth.
   `ALLOW_REMOTE_WRITES` is set. Refused rather than warned about: a warning in a log nobody reads is
   not a decision, and this API is unauthenticated. Setting that variable *is* the decision, made
   explicitly and visibly.
-- **In a container that decision is already made for you, and narrowed on purpose.** A container is
+- **In a container that decision is already made for you, and narrowed on purpose.** (How to run
+  it, and what the published port costs you, is in [container.md](container.md).) A container is
   reached from outside its own network namespace, so `compose.yaml` must set `HOST=0.0.0.0` and
   therefore `ALLOW_REMOTE_WRITES=1`. What keeps that from being an exposure is the published port:
   it is bound to **the host's loopback** (`127.0.0.1:8080:8080`), so the app is reachable from the

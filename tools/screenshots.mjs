@@ -7,18 +7,19 @@
 // it is one command so there is no excuse not to.
 //
 // It drives headless Chromium over the DevTools Protocol directly. No Puppeteer, no Playwright —
-// the repo has no dev dependencies and this is not worth breaking that for; Node's global
-// WebSocket is all a CDP client needs. What it does need is a local Chromium or Chrome.
+// the repo has no dev dependencies and this is not worth breaking that for. What it does need is
+// a local Chromium or Chrome. The CDP client, the browser and server startup, and the database
+// copy live in tools/cdp.mjs, shared with `npm run record`.
 //
 // The findings database is **copied** before the server sees it (`VACUUM INTO`), so a capture run
 // can never write to the real backlog — the app has write endpoints, and a stray click during a
 // capture must not cost you a skip you meant to keep.
-import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { findingsDbPath } from '../lib/paths.js';
+import {
+    sleep, die, findChrome, waitFor, copyFindingsDb, startServer, startBrowser, makeWorkspace,
+} from './cdp.mjs';
 
 const SOURCE_DB = findingsDbPath();
 const OUT_DIR = 'docs/screenshots';
@@ -98,132 +99,25 @@ const TARGETS = [
     },
 ];
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function die(msg) {
-    console.error(`\n  ${msg}\n`);
-    process.exit(1);
-}
-
-/** The first Chromium-family binary on PATH. */
-async function findChrome() {
-    for (const bin of ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable']) {
-        const ok = await new Promise((res) => {
-            const p = spawn(bin, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
-            p.on('error', () => res(null));
-            let out = '';
-            p.stdout?.on('data', (d) => (out += d));
-            p.on('exit', (code) => res(code === 0 ? out.trim() : null));
-        });
-        if (ok) return { bin, version: ok };
-    }
-    return null;
-}
-
-/** Minimal CDP client: request/response over one WebSocket, events ignored. */
-async function connect(wsUrl) {
-    const ws = new WebSocket(wsUrl);
-    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-    let seq = 0;
-    const pending = new Map();
-    ws.onmessage = (e) => {
-        const msg = JSON.parse(/** @type {string} */ (e.data));
-        const waiter = pending.get(msg.id);
-        if (!waiter) return; // an event, not a reply
-        pending.delete(msg.id);
-        msg.error ? waiter.rej(new Error(msg.error.message)) : waiter.res(msg.result);
-    };
-    const send = (method, params = {}) => new Promise((res, rej) => {
-        const id = ++seq;
-        pending.set(id, { res, rej });
-        ws.send(JSON.stringify({ id, method, params }));
-    });
-    return { send, close: () => ws.close() };
-}
-
-/** Poll an expression in the page until it is true, or give up. */
-async function waitFor(cdp, expression, what, timeoutMs = 30_000) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        const r = await cdp.send('Runtime.evaluate', { expression, returnByValue: true });
-        if (r.result?.value === true) return;
-        await sleep(250);
-    }
-    die(`Timed out waiting for ${what}. The page loaded but never reached the state worth capturing.`);
-}
-
 async function main() {
     const chrome = await findChrome();
     if (!chrome) die('No Chromium or Chrome found on PATH. Install one, or run the capture elsewhere.');
     console.log(`  ✓ ${chrome.version}`);
 
-    if (!existsSync(SOURCE_DB)) {
-        die(`No findings database at ${SOURCE_DB}.\n  ` +
-            `Run a checker first — e.g. npm run images -- --limit 200 --iucn EN — so there is a\n  ` +
-            `backlog to photograph. Screenshots of an empty worklist document nothing.`);
-    }
-
-    const work = mkdtempSync(join(tmpdir(), 'winc-shots-'));
+    const { dir: work, owned } = makeWorkspace('winc-shots-');
     const dbCopy = join(work, 'shots.db');
-    let server, browser, cdp;
 
-    const cleanup = () => {
-        try { cdp?.close(); } catch { /* already gone */ }
-        browser?.kill();
-        server?.kill();
-        try { rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ }
-    };
-    process.on('exit', cleanup);
-    process.on('SIGINT', () => { cleanup(); process.exit(130); });
+    const open = copyFindingsDb(SOURCE_DB, dbCopy);
+    console.log(`  ✓ ${open} open findings (working on a copy, not ${SOURCE_DB})`);
 
-    // Copy rather than open: the server this starts can write, and the real backlog is the one
-    // artifact in this repo that cannot be regenerated.
-    {
-        const db = new DatabaseSync(SOURCE_DB, { readOnly: true });
-        db.exec(`VACUUM INTO '${dbCopy.replace(/'/g, "''")}'`);
-        const open = db.prepare(`SELECT count(*) n FROM findings WHERE status = 'open'`).get();
-        db.close();
-        if (!open || Number(open.n) === 0) die('The findings database has no open findings to show.');
-        console.log(`  ✓ ${open.n} open findings (working on a copy, not ${SOURCE_DB})`);
-    }
-
-    // DISCOVER_ENABLED so the search page shows its "Find more" control — it is part of the page,
-    // and a screenshot without it documents a page nobody runs.
-    server = spawn(process.execPath, ['server/index.js'], {
-        env: { ...process.env, FINDINGS_DB: dbCopy, PORT: String(PORT), DISCOVER_ENABLED: '1', LOG_LEVEL: 'warn' },
-        stdio: ['ignore', 'ignore', 'inherit'],
-    });
-    for (let i = 0; ; i++) {
-        try { await fetch(`${ORIGIN}/api/findings?limit=1`); break; } catch { /* not up yet */ }
-        if (i > 60) die(`Server did not come up on ${ORIGIN}.`);
-        await sleep(250);
-    }
+    owned.server = await startServer(dbCopy, PORT, ORIGIN);
     console.log(`  ✓ server on :${PORT}`);
 
-    const profile = join(work, 'profile');
-    browser = spawn(chrome.bin, [
-        '--headless=new', '--no-sandbox', '--hide-scrollbars', '--force-device-scale-factor=1',
-        '--remote-debugging-port=9333', `--user-data-dir=${profile}`, 'about:blank',
-    ], { stdio: 'ignore' });
-
-    let target;
-    for (let i = 0; ; i++) {
-        try { target = await (await fetch('http://127.0.0.1:9333/json/new?about:blank', { method: 'PUT' })).json(); break; }
-        catch { /* not up yet */ }
-        if (i > 60) die('Chromium did not expose a debugging port.');
-        await sleep(250);
-    }
-
-    cdp = await connect(target.webSocketDebuggerUrl);
-    await cdp.send('Page.enable');
-    await cdp.send('Runtime.enable');
-    // Pinned rather than left to the headless browser's own ambient default (which is what decided
-    // it, unrequested, the first time this ran) — otherwise a future regeneration on a different
-    // machine or Chromium version could silently flip every screenshot's theme with no real UI
-    // change behind it. Dark is the deliberate choice for these docs, made when slice 6 added the
-    // toggle; a fresh profile has no localStorage theme tag, so web/js/shell.js falls back to
-    // prefers-color-scheme, which this forces.
-    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+    // Dark is the deliberate choice for these docs, made when slice 6 added the theme toggle, and
+    // startBrowser pins it so a regeneration elsewhere cannot silently flip every screenshot.
+    const { browser, cdp } = await startBrowser(chrome.bin, join(work, 'profile'), 9333);
+    owned.browser = browser;
+    owned.cdp = cdp;
 
     mkdirSync(OUT_DIR, { recursive: true });
     for (const t of TARGETS) {
