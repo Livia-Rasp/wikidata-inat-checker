@@ -58,6 +58,20 @@ const TARGETS = [
         crop: `document.querySelectorAll('#tbody tr')[1].getBoundingClientRect().bottom`,
     },
     {
+        file: 'links.png',
+        url: `${ORIGIN}/links.html`,
+        // Waits for the review section to finish loading (its own async fetch, separate from the
+        // worklist table) rather than requiring a review group specifically — the backlog's
+        // ambiguous/conflict count is whatever it genuinely is at capture time, and a future
+        // regeneration with none pending must still finish rather than time out.
+        ready: `document.querySelectorAll('#tbody tr').length > 3 && document.getElementById('review-list').innerHTML.length > 0`,
+        // The review section sits below however many worklist rows the real backlog has (the
+        // worklist itself already looks like worklist.png's, so it isn't worth repeating at length
+        // here) — `top` skips straight to it rather than capturing every row above.
+        top: `document.getElementById('review').getBoundingClientRect().top`,
+        crop: `document.getElementById('review').getBoundingClientRect().bottom`,
+    },
+    {
         file: 'search.png',
         url: `${ORIGIN}/search.html?taxon=${encodeURIComponent(SEARCH_TAXON)}`,
         ready: `!!document.querySelector('.rail') && document.querySelectorAll('#tbody tr').length > 1`,
@@ -130,15 +144,24 @@ async function main() {
         await waitFor(cdp, t.ready, t.file, t.timeoutMs);
         await sleep(400); // let layout and web fonts settle before the shutter
 
-        const measured = await cdp.send('Runtime.evaluate', {
-            expression: `Math.ceil(${t.crop})`, returnByValue: true,
-        });
-        const height = Math.min(Number(measured.result?.value) || 800, 2400);
+        // `top` lets a target start its clip below the page's actual top (links.png skips the
+        // worklist rows sitting above the review section it exists to document) rather than
+        // always capturing from y=0.
+        const [measuredTop, measuredBottom] = await Promise.all([
+            t.top ? cdp.send('Runtime.evaluate', { expression: `Math.floor(${t.top})`, returnByValue: true }) : null,
+            cdp.send('Runtime.evaluate', { expression: `Math.ceil(${t.crop})`, returnByValue: true }),
+        ]);
+        const top = Math.max(0, Number(measuredTop?.result?.value) || 0);
+        const bottom = Number(measuredBottom.result?.value) || 800;
+        const height = Math.min(bottom - top, 3000);
 
         const shot = await cdp.send('Page.captureScreenshot', {
             format: t.format || 'png',
             ...(t.quality ? { quality: t.quality } : {}),
-            clip: { x: 0, y: 0, width: WIDTH, height, scale: t.scale || SCALE },
+            // Beyond the emulated viewport whenever `top` pushes the clip past it (2400px) — without
+            // this, content below the viewport's own height is never laid out for capture at all.
+            captureBeyondViewport: true,
+            clip: { x: 0, y: top, width: WIDTH, height, scale: t.scale || SCALE },
         });
         const out = join(OUT_DIR, t.file);
         writeFileSync(out, Buffer.from(shot.data, 'base64'));
