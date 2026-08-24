@@ -7,6 +7,10 @@
 import { openFindingsDb } from '../lib/db.js';
 import { openTaxaDb, TaxaIndexUnavailable } from '../lib/getInatTaxaDb.js';
 import { discover, DiscoveryError } from '../lib/discover.js';
+import { discoverLinks } from '../lib/discoverLinks.js';
+
+/** config.tool picks which pipeline runs; 'images' stays the default for backward compatibility. */
+const RUNNERS = { images: discover, links: discoverLinks };
 
 // The only thing that stops this outliving a parent that was killed outright: the IPC channel
 // closes when the parent dies, however it dies.
@@ -31,13 +35,14 @@ function makeReporter() {
 
 process.once('message', async (msg) => {
     if (!msg || msg.type !== 'start') return;
-    const { scope, limit, recheckAfter, dbFile, triggeredBy } = msg.config;
+    const { tool = 'images', scope, limit, recheckAfter, dbFile, triggeredBy } = msg.config;
+    const run = RUNNERS[tool];
 
     let store;
     try {
         const taxaDb = openTaxaDb();
         store = openFindingsDb(dbFile);
-        const result = await discover({
+        const result = await run({
             store, taxaDb, scope, limit, recheckAfter, triggeredBy,
             onProgress: makeReporter(),
             signal: controller.signal,

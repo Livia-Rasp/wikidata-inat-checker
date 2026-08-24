@@ -89,6 +89,31 @@ test('a run starts and answers 202 with its status', async (t) => {
     assert.equal(jobs.calls[0].start.limit, 25);
 });
 
+test('a links run passes tool through to the runner, and defaults to images without it', async (t) => {
+    const { app, jobs } = makeApp(t);
+    await post(app, '/api/discover', { tool: 'links', iucn: 'VU' });
+    assert.equal(jobs.calls[0].start.tool, 'links');
+
+    const { app: app2, jobs: jobs2 } = makeApp(t);
+    await post(app2, '/api/discover', {});
+    assert.equal(jobs2.calls[0].start.tool, 'images');
+});
+
+test('links discovery rejects an area scope — it has no area-scope equivalent', async (t) => {
+    const { app, jobs } = makeApp(t);
+    const res = await post(app, '/api/discover', { tool: 'links', lat: 48, lng: 11, radius: 5 });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().code, 'unsupported_scope_combination');
+    assert.deepEqual(jobs.calls, []);
+});
+
+test('an unknown tool is rejected by the schema', async (t) => {
+    const { app, jobs } = makeApp(t);
+    assert.equal((await post(app, '/api/discover', { tool: 'names' })).statusCode, 400);
+    assert.deepEqual(jobs.calls, []);
+});
+
 test('a second run is refused while one is going', async (t) => {
     const { app } = makeApp(t);
     await post(app, '/api/discover', {});
@@ -283,6 +308,19 @@ test('status says which run kind produced the last result', async (t) => {
     store.finishRun(id, { scanned: 1, found: 1 });
 
     assert.equal((await app.inject('/api/discover/status')).json().lastRun.triggeredBy, 'schedule');
+});
+
+test('status?tool=links reports the links run history separately from images', async (t) => {
+    const { app, store } = makeApp(t);
+    const imgId = store.startRun('images', {}, 'manual');
+    store.finishRun(imgId, { scanned: 1, found: 1 });
+    const linkId = store.startRun('links', {}, 'manual');
+    store.finishRun(linkId, { scanned: 5, found: 3 });
+
+    const images = (await app.inject('/api/discover/status')).json();
+    assert.equal(images.lastRun.found, 1);
+    const links = (await app.inject('/api/discover/status?tool=links')).json();
+    assert.equal(links.lastRun.found, 3);
 });
 
 test('status has no topup block when scheduling is off', async (t) => {
