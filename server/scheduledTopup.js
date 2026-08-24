@@ -14,6 +14,15 @@
  * calls for: a single noisy hour must not flip the eligible set tick to tick. */
 const QUIET_HOURS_CACHE_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * One on/off switch and one scope (taxon/iucn) drives a once-a-day attempt for each tool in turn
+ * — decided with Livia rather than separate per-tool config. Each tool tracks its own daily-once
+ * gate independently (its own `runs.tool` history), but only one job can ever be running, so a
+ * tick starts at most one: the first tool that is both eligible and hasn't run today, in this
+ * fixed order.
+ */
+const TOOLS = ['images', 'links'];
+
 /** @param {number} ms */
 function utcDate(ms) {
     return new Date(ms).toISOString().slice(0, 10);
@@ -96,23 +105,29 @@ export function createScheduledTopup({
     function tick() {
         const nowMs = now();
         refreshQuietHoursIfStale(nowMs);
-        const lastScheduledRun = store.latestRun('images', { triggeredBy: 'schedule' });
-        const decision = evaluateTopup({
-            jobsState: jobs.status().state, lastScheduledRun, quiet, config, nowMs,
-        });
+        // jobsState does not change within a tick — nothing here starts a second job — so it's
+        // read once and shared by every tool's decision.
+        const jobsState = jobs.status().state;
+        for (const tool of TOOLS) {
+            const lastScheduledRun = store.latestRun(tool, { triggeredBy: 'schedule' });
+            const decision = evaluateTopup({ jobsState, lastScheduledRun, quiet, config, nowMs });
 
-        if (decision.action === 'skip') {
-            log.info({ ...decision, hour: utcHour(nowMs) }, 'scheduled top-up check');
-            return;
+            if (decision.action === 'skip') {
+                log.info({ tool, ...decision, hour: utcHour(nowMs) }, 'scheduled top-up check');
+                continue;
+            }
+            log.info({ tool, ...decision, hour: utcHour(nowMs), quietHours: quiet.hours },
+                'scheduled top-up starting');
+            jobs.start({
+                tool,
+                scope: { taxon: config.taxon, iucn: config.iucn },
+                limit: config.limit,
+                recheckAfter: config.recheckAfter,
+                dbFile: config.dbFile,
+                triggeredBy: 'schedule',
+            });
+            return; // one job per tick, regardless of how many tools were eligible
         }
-        log.info({ ...decision, hour: utcHour(nowMs), quietHours: quiet.hours }, 'scheduled top-up starting');
-        jobs.start({
-            scope: { taxon: config.taxon, iucn: config.iucn },
-            limit: config.limit,
-            recheckAfter: config.recheckAfter,
-            dbFile: config.dbFile,
-            triggeredBy: 'schedule',
-        });
     }
 
     return {
@@ -129,15 +144,16 @@ export function createScheduledTopup({
         },
         /**
          * The only visibility into "why hasn't it run" this unattended feature gets — there is no
-         * alerting anywhere else in this project.
+         * alerting anywhere else in this project. `ranToday` is per tool: each has its own
+         * daily-once gate, so "images ran, links hasn't yet" is a real, visible state.
          */
         getStatus() {
-            const lastScheduledRun = store.latestRun('images', { triggeredBy: 'schedule' });
             return {
                 quietHours: quiet.hours,
                 sampleDays: quiet.sampleDays,
-                ranToday: ranToday(lastScheduledRun, now()),
                 deadlineHour: config.dailyDeadlineHour,
+                ranToday: Object.fromEntries(TOOLS.map((tool) => [tool,
+                    ranToday(store.latestRun(tool, { triggeredBy: 'schedule' }), now())])),
             };
         },
     };

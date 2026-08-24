@@ -84,13 +84,20 @@ function fakeJobs(state = 'idle') {
     return { status: () => ({ state }), start: (config) => started.push(config), started };
 }
 
-/** @param {{lastScheduledRun?: object|null, quiet?: object, openCount?: number}} [opts] */
+/**
+ * `lastScheduledRun` may be a single value (applied to every tool alike) or a function of the
+ * tool name, for tests that need images and links to have run on different days.
+ * @param {{lastScheduledRun?: object|null|((tool: string) => object|null), quiet?: object, openCount?: number}} [opts]
+ */
 function fakeStore(opts = {}) {
     const { lastScheduledRun = null, quiet = TRUSTED_QUIET, openCount = 1_000_000 } = opts;
     const quietCalls = [];
     const pruneCalls = [];
     return {
-        latestRun: (_tool, filter) => (filter?.triggeredBy === 'schedule' ? lastScheduledRun : null),
+        latestRun: (tool, filter) => {
+            if (filter?.triggeredBy !== 'schedule') return null;
+            return typeof lastScheduledRun === 'function' ? lastScheduledRun(tool) : lastScheduledRun;
+        },
         quietHoursOfDay: (q) => { quietCalls.push(q); return quiet; },
         pruneRequestLog: (days) => { pruneCalls.push(days); return 0; },
         countFindings: () => openCount, // never consulted, but present in case something regresses
@@ -136,6 +143,38 @@ test('a tick during a quiet hour starts a run with triggeredBy: schedule', () =>
     assert.equal(jobs.started.length, 1);
     assert.equal(jobs.started[0].triggeredBy, 'schedule');
     assert.equal(jobs.started[0].dbFile, ':memory:');
+    assert.equal(jobs.started[0].tool, 'images', 'images is tried first');
+});
+
+test('once images has run today, the same tick tries links next', () => {
+    const store = fakeStore({
+        lastScheduledRun: (tool) => tool === 'images'
+            ? { startedAt: '2026-08-22T01:00:00.000Z' } : null,
+    });
+    const jobs = fakeJobs();
+    const timer = fakeTimer();
+    const topup = createScheduledTopup({
+        store, jobs, config: CONFIG, now: () => T3,
+        setIntervalFn: timer.setIntervalFn, clearIntervalFn: timer.clearIntervalFn,
+    });
+    topup.start();
+    timer.fire();
+
+    assert.equal(jobs.started.length, 1);
+    assert.equal(jobs.started[0].tool, 'links', 'images already ran today, so links gets the slot');
+});
+
+test('once every tool has run today, a tick starts nothing', () => {
+    const store = fakeStore({ lastScheduledRun: () => ({ startedAt: '2026-08-22T01:00:00.000Z' }) });
+    const jobs = fakeJobs();
+    const timer = fakeTimer();
+    const topup = createScheduledTopup({
+        store, jobs, config: CONFIG, now: () => T3,
+        setIntervalFn: timer.setIntervalFn, clearIntervalFn: timer.clearIntervalFn,
+    });
+    topup.start();
+    timer.fire();
+    assert.equal(jobs.started.length, 0);
 });
 
 test('a tick skips while a run is already going', () => {
@@ -228,10 +267,23 @@ test('getStatus reports the cached quiet hours and today-ness for an unattended 
     });
 
     assert.deepEqual(topup.getStatus(), {
-        quietHours: [], sampleDays: 0, ranToday: true, deadlineHour: 23,
+        quietHours: [], sampleDays: 0, deadlineHour: 23,
+        ranToday: { images: true, links: true },
     }, 'before the first tick, the cache is empty but ranToday still reads the store live');
 
     topup.start();
     timer.fire();
     assert.deepEqual(topup.getStatus().quietHours, TRUSTED_QUIET.hours, 'now populated');
+});
+
+test('getStatus reports each tool\'s ranToday independently', () => {
+    const store = fakeStore({
+        lastScheduledRun: (tool) => tool === 'images'
+            ? { startedAt: '2026-08-22T01:00:00.000Z' } : null,
+    });
+    const topup = createScheduledTopup({
+        store, jobs: fakeJobs(), config: CONFIG, now: () => T3,
+        setIntervalFn: fakeTimer().setIntervalFn, clearIntervalFn: fakeTimer().clearIntervalFn,
+    });
+    assert.deepEqual(topup.getStatus().ranToday, { images: true, links: false });
 });
