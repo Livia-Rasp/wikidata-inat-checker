@@ -8,6 +8,7 @@
 
 const INAT_OBS = (id) =>
     `https://www.inaturalist.org/observations?taxon_id=${id}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`;
+const INAT_TAXON = (id) => `https://www.inaturalist.org/taxa/${id}`;
 
 export function escapeHtml(s) {
     return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -36,11 +37,12 @@ export const REASONS = {
     missing_p18: 'No image on Wikidata yet — has the QuickStatements batch run?',
     missing_sitelink: 'Image is live, but the Commons category sitelink is still missing.',
     missing_p18_and_sitelink: 'Neither statement is live yet.',
+    missing_p3151: 'No P3151 statement on Wikidata yet — has the QuickStatements line run?',
     gone: 'This Wikidata item has been deleted or merged away.',
     not_found: 'This finding is no longer in the backlog — reload.',
 };
 
-export function rowHtml(t) {
+function imageRowHtml(t) {
     const inatCell = t.inatTaxonId
         ? `<a href="${escapeHtml(INAT_OBS(t.inatTaxonId))}" target="_blank">${escapeHtml(t.inatTaxonId)}</a>`
         : '—';
@@ -70,6 +72,44 @@ export function rowHtml(t) {
         <span class="row-msg"></span>
       </td>
     </tr>`;
+}
+
+/** Same shell as imageRowHtml (id/data attrs, confirm/skip, a `.draft` copy cell), different
+ *  columns — a link finding proposes one P3151 statement, not an image + Commons category, so
+ *  there is no photos/gallery cell and the confidence badge replaces the Commons-category link. */
+function linkRowHtml(t) {
+    const inatId = t.inatTaxonId;
+    const inatCell = inatId
+        ? `<a href="${escapeHtml(INAT_TAXON(inatId))}" target="_blank">${escapeHtml(inatId)}</a>`
+        : '—';
+    const auto = t.payload?.autoEligible === true;
+    const confidence = `<span class="confidence ${auto ? 'confidence-high' : 'confidence-low'}">`
+        + `${auto ? 'high confidence' : 'check taxonomy'}</span>`;
+    const qs = inatId ? `${t.qid}\tP3151\t"${inatId}"` : '';
+
+    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
+      <td class="check-col">
+        <button class="confirm-btn" title="Check live Wikidata for the P3151 statement">Confirm</button>
+        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+      </td>
+      <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
+      <td class="iucn-col">${iucnBadge(t.iucn)}</td>
+      <td class="inat-col">${inatCell}</td>
+      <td class="confidence-col">${confidence}</td>
+      <td class="draft-col">
+        <pre class="draft">${escapeHtml(qs)}</pre>
+        <span class="hint">Copied!</span>
+        <span class="row-msg"></span>
+      </td>
+    </tr>`;
+}
+
+const RENDERERS = { image: imageRowHtml, link: linkRowHtml };
+
+/** Dispatched by t.kind — the table itself (paging, confirm/skip delegation, applyResult) is one
+ *  shared shell; only the per-kind markup differs. */
+export function rowHtml(t) {
+    return (RENDERERS[t.kind] ?? imageRowHtml)(t);
 }
 
 // ---- copy helper (browser-side reimplementation of htmlShared.js) ----

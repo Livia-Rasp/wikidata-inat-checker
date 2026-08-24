@@ -15,7 +15,35 @@ import { createTopup, describe } from './topup.js';
 import { createPager, PAGE_SIZE } from './pager.js';
 import { mountShell } from './shell.js';
 
-mountShell('images');
+/** Which backlog this page instance searches — set once at boot from ?kind=, never changes while
+ *  the page is open. 'image' is the default so a bare search.html (or an old bookmark) keeps
+ *  working exactly as it always has. */
+const KIND = new URLSearchParams(location.search).get('kind') === 'link' ? 'link' : 'image';
+const TOOL = KIND === 'link' ? 'links' : 'images';
+
+const THEAD_HTML = {
+    image: `<tr>
+        <th class="check-col"></th>
+        <th>Wikidata item</th>
+        <th class="iucn-col">IUCN</th>
+        <th>iNat taxon</th>
+        <th>Commons category</th>
+        <th>Photos</th>
+        <th>Draft Wikitext (click to copy)</th>
+      </tr>`,
+    link: `<tr>
+        <th class="check-col"></th>
+        <th>Wikidata item</th>
+        <th class="iucn-col">IUCN</th>
+        <th>iNat taxon</th>
+        <th>Confidence</th>
+        <th>QuickStatements (click to copy)</th>
+      </tr>`,
+};
+
+mountShell(KIND === 'link' ? 'link' : 'images');
+document.getElementById('thead').innerHTML = THEAD_HTML[KIND];
+document.getElementById('back-link').href = KIND === 'link' ? 'links.html' : 'index.html';
 
 const $ = (id) => document.getElementById(id);
 
@@ -69,6 +97,9 @@ function writeForm({ taxon, iucn }) {
 
 function queryString({ taxon, iucn, offset }) {
     const p = new URLSearchParams();
+    // Carried on every URL this page writes, or a reload of a links search silently becomes an
+    // images one — KIND is fixed for the life of the page, but the address bar has to say so too.
+    if (KIND !== 'image') p.set('kind', KIND);
     if (taxon) p.set('taxon', taxon);
     if (iucn) p.set('iucn', iucn);
     // Named for the API parameter it is, so a URL from the address bar and a URL from the app mean
@@ -84,7 +115,7 @@ function queryString({ taxon, iucn, offset }) {
  * page just stops updating with a 400 nobody looks at.
  */
 function apiQuery({ taxon, iucn, offset }) {
-    const p = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset ?? 0) });
+    const p = new URLSearchParams({ kind: KIND, limit: String(PAGE_SIZE), offset: String(offset ?? 0) });
     if (taxon) p.set('taxon', taxon);
     if (iucn) p.set('iucn', iucn);
     return p.toString();
@@ -243,6 +274,7 @@ function renderOffer(total, resolved) {
 let lastResult = { total: 0, resolved: null };
 
 const topup = createTopup({
+    tool: TOOL,
     onStatus: (s, running) => {
         // The status poll and the first search race on load, and the offer cannot be drawn
         // honestly until this is known — so a change in it redraws the offer rather than waiting

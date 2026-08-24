@@ -56,6 +56,10 @@ export const findingSchema = {
         taxonName: { type: ['string', 'null'] },
         iucn: { type: ['string', 'null'] },
         wikitext: { type: ['string', 'null'] },
+        // The raw kind-specific payload (evidence, autoEligible, candidates, …) — wikitext above
+        // is kept as its own field for existing callers; this is how a per-kind row renderer reads
+        // everything else without each kind growing its own projected field on the row contract.
+        payload: { type: ['object', 'null'], additionalProperties: true },
     },
 };
 

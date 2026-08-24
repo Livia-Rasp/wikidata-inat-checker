@@ -12,7 +12,7 @@
   <p>
     Which taxa already on the worklist are in a clade, or carry a Red List status. Searching is
     instant and asks nothing of iNaturalist or Wikidata — fetching more does, and only ever when
-    you say so. <a class="page-link" href="index.html">← Back to the worklist</a>
+    you say so. <a id="back-link" class="page-link" href="index.html">← Back to the worklist</a>
   </p>
 
   <section class="finder" role="search" aria-label="Search the backlog by taxon">
@@ -60,17 +60,8 @@
 
   <div class="table-scroll">
     <table>
-      <thead>
-        <tr>
-          <th class="check-col"></th>
-          <th>Wikidata item</th>
-          <th class="iucn-col">IUCN</th>
-          <th>iNat taxon</th>
-          <th>Commons category</th>
-          <th>Photos</th>
-          <th>Draft Wikitext (click to copy)</th>
-        </tr>
-      </thead>
+      <!-- Filled by search.js: the columns differ per kind (images vs. links). -->
+      <thead id="thead"></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>

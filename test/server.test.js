@@ -51,7 +51,7 @@ test('a finding row carries exactly the documented fields', async (t) => {
     // The response schema strips anything not listed in it, so this is what stops a future
     // migration — or a typo in the schema — silently dropping a column the app renders.
     assert.deepEqual(Object.keys(row).sort(),
-        ['id', 'inatTaxonId', 'iucn', 'kind', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
+        ['id', 'inatTaxonId', 'iucn', 'kind', 'payload', 'qid', 'status', 'taxonName', 'wdUri', 'wikitext']);
     assert.equal(row.qid, 'Q1');
     assert.equal(row.kind, 'image');
     assert.equal(row.status, 'open');
@@ -70,6 +70,19 @@ test('nullable columns survive serialisation as null, not as empty strings', asy
     assert.equal(row.taxonName, null);
     assert.equal(row.iucn, null);
     assert.equal(row.wikitext, null);
+});
+
+test('a link finding\'s payload (evidence, autoEligible) reaches the client', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q1', inatId: '41970', taxonName: 'Taxon Q1' });
+    store.recordFinding({
+        qid: 'Q1', kind: 'link', status: 'open',
+        payload: { inatId: '41970', rank: 'species', evidence: { matches: 3, mismatches: 0, matchedRanks: ['family', 'genus', 'order'] }, autoEligible: true },
+    });
+
+    const row = (await app.inject('/api/findings?kind=link')).json().taxa[0];
+    assert.equal(row.payload.autoEligible, true);
+    assert.deepEqual(row.payload.evidence.matchedRanks, ['family', 'genus', 'order']);
 });
 
 test('kind and status select a different worklist', async (t) => {

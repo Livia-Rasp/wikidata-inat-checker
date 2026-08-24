@@ -33,14 +33,15 @@ export function describe(s) {
  *   onStatus: (s: object, running: boolean) => void,
  *   onSettled?: (s: object) => void,
  *   intervalMs?: number,
+ *   tool?: 'images'|'links',
  * }} opts
  */
-export function createTopup({ onStatus, onSettled = () => {}, intervalMs = 2000 }) {
+export function createTopup({ onStatus, onSettled = () => {}, intervalMs = 2000, tool = 'images' }) {
     let poller = null;
 
     async function poll() {
         try {
-            const s = await getJson('api/discover/status');
+            const s = await getJson(`api/discover/status?tool=${tool}`);
             const running = s.state === 'running';
             onStatus(s, running);
             if (!running && poller) {
@@ -67,7 +68,7 @@ export function createTopup({ onStatus, onSettled = () => {}, intervalMs = 2000 
 
         /** @param {{taxon?: string, iucn?: string, lat?: number, lng?: number, radius?: number, limit?: number}} scope */
         async start(scope) {
-            const body = { limit: scope.limit ?? 200 };
+            const body = { tool, limit: scope.limit ?? 200 };
             if (scope.taxon) body.taxon = scope.taxon;
             if (scope.iucn) body.iucn = scope.iucn;
             if (scope.lat != null) { body.lat = scope.lat; body.lng = scope.lng; body.radius = scope.radius; }
