@@ -185,6 +185,23 @@ test('skipQids treats negative statuses as skips, not just open', () => {
     assert.deepEqual(skip, new Set(['Q1', 'Q2', 'Q3', 'Q4', 'Q5']));
 });
 
+test('skipQids treats link-only statuses (ambiguous, conflict) as settled and no_match as negative', () => {
+    const { db, store } = makeStore();
+    store.upsertTaxon({ qid: 'Q1', taxonName: 'Ambigua' });
+    store.recordFinding({ qid: 'Q1', kind: 'link', status: 'ambiguous', payload: { wdChain: [], candidates: [] } });
+    store.upsertTaxon({ qid: 'Q2', inatId: '1', taxonName: 'Conflictus' });
+    store.recordFinding({ qid: 'Q2', kind: 'link', status: 'conflict', payload: {} });
+    store.upsertTaxon({ qid: 'Q3', taxonName: 'Nonexistentia' });
+    store.recordFinding({ qid: 'Q3', kind: 'link', status: 'no_match' });
+
+    assert.deepEqual(store.skipQids('link'), new Set(['Q1', 'Q2', 'Q3']));
+
+    backdate(db, 'Q3', 91);
+    assert.ok(!store.skipQids('link').has('Q3'), 'a stale no_match is a candidate again');
+    assert.ok(store.skipQids('link').has('Q1'), 'ambiguous never expires');
+    assert.ok(store.skipQids('link').has('Q2'), 'conflict never expires');
+});
+
 test('a negative finding expires once it is older than the recheck window', () => {
     const { db, store } = makeStore();
     seed(store, 'Q1', 'no_photos');
