@@ -277,6 +277,13 @@ test('POST /findings/:id/pick flips an ambiguous finding to open with the chosen
     assert.deepEqual((await app.inject('/api/findings?kind=link&status=open')).json().taxa.map(r => r.qid), ['Q9']);
 });
 
+test('POST /findings/:id/pick on an unknown id is a 404', async (t) => {
+    const { app } = makeApp(t);
+    const res = await post(app, '/api/findings/999999/pick', { inatId: '111' });
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.json().code, 'not_found');
+});
+
 test('POST /findings/:id/pick refuses a candidate that was never offered', async (t) => {
     const { app, store } = makeApp(t);
     store.upsertTaxon({ qid: 'Q9', taxonName: 'Grania' });

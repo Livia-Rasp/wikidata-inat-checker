@@ -238,6 +238,15 @@ test('a deleted or merged link item becomes gone', async () => {
     assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'gone');
 });
 
+test('confirmLinkFindings on an unknown id says so directly, not just through confirmByKind', async () => {
+    const { store } = makeStore();
+    const calls = [];
+    const [res] = await confirmLinkFindings(store, [999_999], { fetchFn: fakeLinkApi({}, calls) });
+    assert.equal(res.reason, 'not_found');
+    assert.equal(res.confirmed, false);
+    assert.equal(calls.length, 0, 'and it never bothered Wikidata');
+});
+
 // ---- confirmByKind: a bulk confirm can span kinds ----
 
 test('confirmByKind dispatches each id to its own kind\'s predicate, in the order requested', async () => {

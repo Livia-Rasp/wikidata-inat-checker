@@ -76,6 +76,34 @@ test('an unknown id says so instead of looking like a success', () => {
     assert.equal(result.reason, 'not_found');
 });
 
+test('picking a candidate with no stored evidence falls back to a zeroed summary', () => {
+    const { db, store } = makeStore();
+    store.upsertTaxon({ qid: 'Q1', taxonName: 'Grania' });
+    store.recordFinding({
+        qid: 'Q1', kind: 'link', status: 'ambiguous',
+        payload: { candidates: [{ inatId: '111', rank: 'genus' }] }, // no evidence field at all
+    });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const result = pickCandidate(store, id, '111');
+
+    assert.equal(result.picked, true);
+    const payload = JSON.parse(db.prepare("SELECT payload FROM findings WHERE qid='Q1'").get().payload);
+    assert.deepEqual(payload.evidence, { matches: 0, mismatches: 0, matchedRanks: [] });
+    assert.equal(payload.autoEligible, false);
+});
+
+test('an ambiguous finding recorded with no payload at all refuses every pick', () => {
+    const { store } = makeStore();
+    store.upsertTaxon({ qid: 'Q1', taxonName: 'Grania' });
+    store.recordFinding({ qid: 'Q1', kind: 'link', status: 'ambiguous' }); // payload omitted → NULL
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+
+    const result = pickCandidate(store, id, '111');
+    assert.equal(result.picked, false);
+    assert.equal(result.reason, 'unknown_candidate');
+});
+
 test('picking on a non-ambiguous finding is refused', () => {
     const { store } = makeStore();
     store.upsertTaxon({ qid: 'Q2', inatId: '41970' });

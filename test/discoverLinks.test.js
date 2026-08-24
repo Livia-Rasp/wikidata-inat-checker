@@ -216,6 +216,23 @@ test('discovery skips a qid already settled as open, done or skipped', async () 
     assert.equal(result.scanned, 0);
 });
 
+test('a mid-run failure is recorded on the run row and rethrown', async () => {
+    const { db, store } = makeStore();
+    const taxaDb = makeTaxaDb();
+    const boom = new Error('SPARQL exploded');
+    await assert.rejects(
+        () => discoverLinks({
+            store, taxaDb,
+            candidateSource: candidates([{ qid: 'Q1', taxonName: 'Panthera onca' }]),
+            sparqlFn: async () => { throw boom; },
+        }),
+        (err) => err === boom);
+
+    const run = db.prepare('SELECT state, error FROM runs ORDER BY id DESC LIMIT 1').get();
+    assert.equal(run.state, 'failed');
+    assert.equal(run.error, 'run_failed');
+});
+
 test('--ambiguous-only records ambiguous and no_match findings but skips the cross-check', async () => {
     const { store } = makeStore();
     const taxaDb = makeTaxaDb();
