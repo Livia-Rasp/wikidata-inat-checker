@@ -42,6 +42,15 @@ test('picking a listed candidate re-records the finding as open, evidence and au
     assert.equal(payload.autoEligible, true, 'family+genus+order agreeing clears the --auto bar');
 });
 
+test('picking updates the taxa row\'s inat_id, which ambiguous discovery never had a chance to set', () => {
+    const { db, store } = makeStore();
+    const id = seedAmbiguous(store);
+    pickCandidate(store, id, '111');
+    const taxon = db.prepare("SELECT inat_id, rank FROM taxa WHERE qid = 'Q1'").get();
+    assert.equal(taxon.inat_id, '111', 'the worklist row and its QuickStatements line read this column');
+    assert.equal(taxon.rank, 'genus');
+});
+
 test('picking the weaker candidate is not auto-eligible', () => {
     const { store } = makeStore();
     const id = seedAmbiguous(store);
