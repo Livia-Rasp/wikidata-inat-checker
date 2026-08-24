@@ -5,7 +5,7 @@
 // the ones later slices add.
 import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
-import { confirmFindings } from '../../lib/confirm.js';
+import { confirmByKind } from '../../lib/confirm.js';
 import writeGuard from '../writeGuard.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
@@ -148,7 +148,7 @@ export default async function findingsRoutes(app, opts) {
     /** Answers 503 rather than 500 when Wikidata is the thing that failed, leaving rows untouched. */
     const confirm = async (ids, reply) => {
         try {
-            return { results: await confirmFindings(store, ids, { fetchFn: opts.fetchFn }) };
+            return { results: await confirmByKind(store, ids, { fetchFn: opts.fetchFn }) };
         } catch (err) {
             // A confirm that could not reach Wikidata has decided nothing. Saying so is the
             // difference between "try again" and "this server is broken".
