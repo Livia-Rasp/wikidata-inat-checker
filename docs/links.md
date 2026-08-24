@@ -1,123 +1,174 @@
 # iNat links checker
 
-Finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches them against iNaturalist's full taxonomy, and produces QuickStatements to add the missing link.
+Finds Wikidata taxon items with no iNaturalist taxon ID (P3151) at all, matches them against
+iNaturalist's full taxonomy, and records what it finds.
+
+> The findings this records are also the worklist of the assisted **iNat → Commons upload app**
+> (`npm run web`), which reads them live from `GET /api/findings?kind=link` and offers a review UI
+> for ambiguous and conflicting matches. See [commons-upload.md](commons-upload.md).
 
 ## How it works
 
-1. On first run, downloads the iNaturalist open-data taxa dump (~189 MB, 1.4 M active taxa) from the iNat S3 bucket and builds a local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~236 MB). The download is refreshed automatically every 30 days; the index is rebuilt whenever the download is newer (also auto-rebuilt once if the schema needs migration).
-2. Queries Wikidata *by iNaturalist name*. For each name in the local index it asks Wikidata, in bounded `VALUES` POST batches, for taxon items carrying that name (P225) with no P3151. Every candidate returned is therefore already a name match.
+1. On first run, downloads the iNaturalist open-data taxa dump (~189 MB, 1.4 M active taxa) and
+   builds the local SQLite index at `~/.cache/wikidata-inat-checker/taxa.db` (~236 MB, shared with
+   the images and names checkers). The download is refreshed automatically every 30 days; the
+   index is rebuilt whenever the download is newer.
+2. Queries Wikidata *by iNaturalist name*. For each name in the local index it asks Wikidata, in
+   bounded `VALUES` POST batches, for taxon items carrying that name (P225) with no P3151. Every
+   candidate returned is therefore already a name match. This inverts scanning Wikidata's ~3 M
+   no-P3151 taxa directly, which WDQS cannot do.
 
-   This inverts the old approach, which scanned Wikidata's ~3 M no-P3151 taxa and discarded the non-matches. WDQS cannot scan that full set. Batched name lookups are fast and reliable.
+   The local index's name list comes back in incidental alphabetical order. It is shuffled before
+   `--limit` caps the number of collected candidates, or the whole budget would go on
+   early-alphabet names. The PRNG is seeded and reproducible; override it with `--seed <n>`
+   (default `42`).
 
-   The local index's name list comes back in incidental alphabetical order, an artifact of `SELECT DISTINCT` rather than a real ordering guarantee. It is shuffled before `--limit` caps the number of collected candidates. Without the shuffle the entire budget would go on early-alphabet names before the scan ever reached the rest. The PRNG is seeded and reproducible; override it with `--seed <n>` (default `42`). The cache lets re-runs reach further into the name list regardless.
+   `--iucn <code>` instead runs one direct query filtered by P141 — that no-P3151 set is small
+   enough for WDQS to answer in seconds, so the batched name scan and its shuffle are skipped.
+3. Classifies each candidate name against the SQLite index (no API calls). A name matching exactly
+   one active iNat taxon is a clean candidate. A name matching two or more becomes `ambiguous`. A
+   name matching none becomes `no_match` — a negative result with a shelf life (see
+   [Statuses](#statuses)), not a verdict.
+4. For clean candidates, checks whether the matched iNat ID is already linked to a *different*
+   Wikidata item — a `conflict` — then filters out conflicts where the two Wikidata items are
+   already known homonyms (linked by P13177).
+5. Fetches the full taxonomic ancestor chain for each remaining candidate — from the SQLite index
+   (iNat side, using the stored `ancestry` field, no API call) and from Wikidata via a `wdt:P171+`
+   SPARQL query — and compares them rank by rank.
 
-   `--iucn <code>` instead runs one direct query filtered by P141. That no-P3151 set is small enough for WDQS to answer in seconds, so the batched name scan and its shuffle are skipped.
-3. Classifies each candidate name against the SQLite index (no API calls). Names matching exactly one active iNat taxon are clean matches. Names matching two or more are flagged as ambiguous for human review.
-4. Checks whether any found iNat ID is already linked to a *different* Wikidata item — potential mismatch.
-5. Filters out apparent conflicts where the two Wikidata items are known homonyms (linked by P13177).
-6. Fetches the full taxonomic ancestor chain for each clean match and each ambiguous case — from the SQLite index (iNat side, using the stored `ancestry` field, no API call) and from Wikidata via a `wdt:P171+` SPARQL query (Wikidata side).
-7. Exports `output/links.html` — QuickStatements to add P3151 for clean matches plus taxonomy trees for verification, and a conflict table for cases needing manual investigation.
-8. Exports `output/links-ambiguous.html` — one row group per ambiguous WD item, with the Wikidata tree on the left and each iNat candidate (tree + QS copy button) on the right for side-by-side comparison.
-9. Writes `output/inat-links-conflicts.json` — machine-readable bookkeeping of all conflicts found, for raising with the Wikidata community if needed.
+## Statuses
 
-After the initial download and index build (~20 seconds), name lookups and iNat tree fetches are instant (local SQLite only). The Wikidata tree SPARQL adds a few seconds for large result sets. Results are cached locally in `cache/cache-links.json` so re-runs skip taxa already processed. Delete the file to force a full re-scan.
+Findings are recorded in the **findings database** at `data/findings.db`, `kind='link'`. That is
+what makes the backlog survive: every outcome is stored, so re-runs skip taxa already dealt with,
+and both the app and `output/links.html` show the whole accumulated backlog rather than just the
+latest run's. Six statuses:
+
+| Status | Meaning | Payload |
+|---|---|---|
+| `open` | Exactly one same-named iNat taxon, not claimed elsewhere — a proposed P3151 statement | `inatId`, `rank`, `evidence` (rank-agreement summary), `autoEligible` |
+| `ambiguous` | Two or more same-named iNat taxa — needs a human pick | `wdChain`, `candidates[]` (each with `inatId`, `rank`, `evidence`, its own `inatChain`, and reserved `score`/`scoredBy` — see [Beyond this checker](#beyond-this-checker-a-confidence-model)) |
+| `conflict` | The matched iNat id is already claimed by a *different* Wikidata item, with no known P13177 link between them | `inatId`, `rank`, `evidence`, `wdChain`, `inatChain`, `existingWdItem`, `existingTaxonName` |
+| `no_match` | The taxon name isn't in the local iNat index at all | none — expires after `--recheck-after` days (default 90), like `no_photos`/`no_draft` for images |
+| `done` | Live Wikidata now carries the proposed P3151 (set by [Confirm](#confirm)) | `resolution` records what was confirmed |
+| `skipped` / `gone` | User skip, or the Wikidata item was merged/deleted (set by [Verify](#verify)) | |
+
+`ambiguous` and `conflict` are *settled* the same way `open`/`done`/`skipped` are: discovery never
+re-processes them. Only `no_match` expires and becomes a candidate again.
+
+`evidence` is `{matches, mismatches, matchedRanks}` — the rank-by-rank agreement count, not the
+full ancestor chains. `open` findings only ever carry this summary; `ambiguous` and `conflict`
+findings also carry the full `wdChain`/`inatChain` arrays, because the app's review UI renders a
+side-by-side comparison table for them (the summary alone isn't enough to *show* the evidence, only
+to score it). `autoEligible` is the `--auto` bar below, computed once at discovery time.
+
+## Pick
+
+`POST /findings/:id/pick` (body `{inatId}`) is how a human resolves an `ambiguous` finding in the
+app: it re-records the finding as `open` with the chosen candidate's `inatId`/`rank`/`evidence`,
+recomputing `autoEligible`. Refused (400) if `inatId` isn't one of the finding's own candidates.
+There is no equivalent for `conflict` — resolving one is an off-platform judgement (adding a P13177
+statement, or fixing a name on one side), so a conflict row only offers Skip.
+
+## Verify
+
+`npm run verify -- --kind link` reconciles the open backlog against live Wikidata — see
+[images.md#verification](images.md#verification) for the general shape (Action API, never SPARQL,
+same reasons). For links the predicate is P3151 presence alone, and `conflict` findings are
+re-verified too: if the competing Wikidata item's P3151 claim on the disputed iNat id has since
+gone or moved, the conflict re-opens as a fresh `open` candidacy rather than staying stuck.
+
+## Confirm
+
+Unlike images (which pairs P18 with a Commons-category sitelink), a link finding proposes exactly
+one statement, so confirming needs no pairing: `done` iff live P3151 equals the proposed `inatId`.
+`POST /findings/:id/confirm` and the bulk `POST /findings/confirm` both dispatch by the finding's
+own kind automatically, so a batch mixing image and link ids confirms correctly either way.
 
 ## Usage
 
 ```sh
 npm run links                              # default: 200 taxa
-npm run links -- --limit 1000             # custom limit — fast even for large numbers
-npm run links -- --limit 1000 --iucn EN   # limit + IUCN status filter
-npm run links -- --limit 1000 --auto      # also write output/links-auto.qs (certain matches only)
-npm run links -- --limit 1000 --ambiguous-only  # only output/links-ambiguous.html — see below
-npm run links -- --limit 1000 --seed 7          # different shuffle of the name scan order
+npm run links -- --limit 1000              # custom limit — fast even for large numbers
+npm run links -- --limit 1000 --iucn EN    # limit + IUCN status filter
+npm run links -- --limit 1000 --auto       # also write output/links-auto.qs (certain matches only)
+npm run links -- --limit 1000 --ambiguous-only  # only ambiguous/no_match — see below
+npm run links -- --limit 1000 --seed 7     # different shuffle of the name scan order
 npm run linkStats                          # stats mode: survey ALL taxa, print IUCN breakdown (no HTML output)
 ```
+
+`checkLinks.js` is a thin CLI wrapper over `lib/discoverLinks.js`, the same shape
+`checkImages.js` has over `lib/discover.js` — the server runs the same discovery pipeline for
+on-demand and scheduled top-up (see [commons-upload.md](commons-upload.md) and
+[threat-model.md](threat-model.md)).
+
+After a run, three files are (re)generated from the **whole DB backlog**, not just this run's
+findings:
+
+| File | From | Description |
+|---|---|---|
+| `output/links.html` | `open` + `conflict` findings | QuickStatements for clean matches plus taxonomy trees for verification, and a conflict table |
+| `output/links-ambiguous.html` | `ambiguous` findings | One row group per ambiguous WD item, WD tree against each iNat candidate's tree, side by side |
+| `output/inat-links-conflicts.json` | `conflict` findings | Machine-readable bookkeeping, for raising with the Wikidata community if needed |
+
+**These two HTML reports are kept deliberately compatible with the sibling
+[`xgboost-inat-wikidata-match`](https://github.com/Livia-Rasp/xgboost-inat-wikidata-match) repo**,
+whose `build_gold_labeling_kit.py` scrapes `output/links-ambiguous.html`'s exact row structure
+(`id="row-{qid}"`, `td.wd-col`, `td.taxon-col`, `class="candidate-row"`) to build its gold-labelling
+sample. Changing that markup shape without checking that script still parses it would silently
+break another project's reproducibility. See [Beyond this checker](#beyond-this-checker-a-confidence-model).
 
 ## output/links.html columns
 
 | Column | Description |
 |---|---|
-| ✓ | Checkbox to mark a row as done (localStorage-persisted). |
+| ✓ | Checkbox to mark a row as done (localStorage-persisted — the app's Confirm button is the real done-state; see [Statuses](#statuses)). |
 | Wikidata item | Link to the Wikidata entity. |
 | Taxon name | Scientific name (P225). |
 | iNat taxon | Link to the iNaturalist taxon page. |
 | QuickStatements | Click to copy. Adds P3151 with the iNat taxon ID. |
-| Taxonomy (WD · iNat) | The two ancestor chains side by side: the Wikidata one (kingdom → genus, from P171 links, rank labels shown for the known ranks) against the iNat one (from the local taxa database — no extra API call, rank labels on every entry). |
+| Taxonomy (WD · iNat) | The two ancestor chains side by side, rank labels shown for the known ranks — green where names agree, red where they conflict. |
 
-The paired trees let you check at a glance that a matched pair really refers to the same organism. Mismatched families or genera are visible immediately, without opening more tabs.
-
-An aggregate field above the table accumulates QuickStatements from all checked rows for batch copying.
-
-The conflict table below (shown only when conflicts exist) lists iNat IDs found by name-search that are already linked to a different Wikidata item. These need manual investigation before importing.
+The conflict table below (shown only when conflicts exist) lists iNat IDs found by name-search
+that are already linked to a different Wikidata item. These need manual investigation.
 
 ## output/links-ambiguous.html layout
 
-Each row group represents one Wikidata item whose scientific name matches multiple iNat taxa. The columns with rowspan (✓, Wikidata item, Taxon name) appear once per group; the remaining three repeat for each candidate:
-
-| Column | Description |
-|---|---|
-| ✓ | Checkbox to mark the group resolved (localStorage-persisted). |
-| Wikidata item | Link to the Wikidata entity. |
-| Taxon name | Scientific name (P225). |
-| iNat candidate | Link to the iNat taxon page, plus its rank (species, genus, …). |
-| Taxonomy (WD · iNat) | The item's Wikidata chain against *this candidate's* iNat chain, ranks aligned side by side — green where the names match, red where they conflict. |
-| QuickStatements | Click to copy `{qid} P3151 "{inatId}"` for this specific candidate. |
-
-The Wikidata chain repeats in every candidate's Taxonomy cell, so each row is a self-contained comparison: read down the column to see which candidate (if any) refers to the same organism.
+Each row group represents one Wikidata item whose scientific name matches multiple iNat taxa. The
+columns with rowspan (✓, Wikidata item, Taxon name) appear once per group; the remaining three
+repeat for each candidate — see [images.md](images.md) for the general column pattern this and
+`output/links.html` share, and the app's `/links` page for the same comparison rendered live.
 
 ## Stats mode
 
-`npm run linkStats` reports, per IUCN status, how many Wikidata taxa without P3151 have a name that matches the iNat index. It works in two phases:
+`npm run linkStats` reports, per IUCN status, how many Wikidata taxa without P3151 have a name
+that matches the iNat index. It reads no database and writes nothing — a live survey, not a
+backlog operation:
 
-1. **Exact totals** per IUCN status come from Wikidata's CirrusSearch backend (instant). WDQS/Blazegraph times out merely *counting* the ~3 M no-P3151 set, so it cannot be used here.
-2. **Match / Ambig** are found by querying Wikidata *by* every iNat name in bounded `VALUES` POST batches (~20 min for the full ~1.4 M-name index, and it always runs to completion). Every Wikidata taxon name either is an iNat name (→ match or ambiguous) or isn't (→ no match), so **No match is derived** as `total − match − ambig`.
+1. **Exact totals** per IUCN status come from Wikidata's CirrusSearch backend (instant). WDQS/
+   Blazegraph times out merely *counting* the ~3 M no-P3151 set.
+2. **Match / Ambig** are found by querying Wikidata *by* every iNat name in bounded `VALUES` POST
+   batches (~20 min for the full ~1.4 M-name index). **No match is derived** as `total − match −
+   ambig`.
 
-```
-Loading iNat taxa DB…
-1,401,759 distinct iNat names loaded.
-
-Fetching exact totals (CirrusSearch)…
-  CR               1,043
-  ...
-
-Classifying matches (querying Wikidata by iNat name)…
-  1,401,759 / 1,401,759 names queried
-
-IUCN stats — Wikidata taxa without P3151
-=========================================================
-Status          |   Total |   Match |   Ambig |  No match
------------------+---------+---------+---------+-----------
-CR              |   1,043 |      37 |       0 |     1,006
-EN              |   3,783 |   1,364 |       0 |     2,419
-VU              |   1,950 |     317 |       1 |     1,632
-NT              |   1,182 |     177 |       0 |     1,005
-LC              |  14,010 |   8,579 |       4 |     5,427
-DD              |   4,519 |   1,748 |       3 |     2,768
-EX              |      24 |       2 |       0 |        22
-EW              |       1 |       0 |       0 |         1
-NE              |      22 |       3 |       0 |        19
-(no IUCN status)|2,938,679| 443,243 |   2,614 | 2,492,822
------------------+---------+---------+---------+-----------
-TOTAL           |2,965,213| 455,470 |   2,622 | 2,507,121
-```
-
-**Match** = exactly one active iNat taxon found. Ready to import through the normal `npm run links` workflow. **Ambig** = two or more iNat taxa share the name, so it needs human review in `output/links-ambiguous.html`. **No match** = the Wikidata name is not present in the iNat database. No files are written and the cache is not modified.
-
-Totals come from CirrusSearch and matches from WDQS, two backends that index independently. Match and ambig are exact. No-match is derived (`total − match − ambig`), so any few-item indexing lag between the backends lands in that figure.
+**Match** = exactly one active iNat taxon found — a candidate the normal `npm run links` workflow
+would record as `open`. **Ambig** = two or more iNat taxa share the name — `ambiguous`. **No
+match** = the Wikidata name is not present in the iNat database — `no_match` if discovered.
 
 ## Auto mode (`--auto`)
 
-Pass `--auto` to additionally write `output/links-auto.qs`, a plain-text QuickStatements file
-containing only matches that pass a programmatic certainty filter:
+Pass `--auto` to additionally write `output/links-auto.qs` from the DB backlog's `open` findings
+whose `autoEligible` is true — a plain-text QuickStatements file for a programmatic certainty bar,
+computed once at discovery time and stored on the finding:
 
-- **Zero mismatches.** No labeled rank (genus, family, order, class, …) conflicts between the WD and iNat taxonomy trees
+- **Zero mismatches.** No labeled rank (genus, family, order, class, …) conflicts between the WD
+  and iNat taxonomy trees
 - **≥3 rank agreements.** At least three labeled ranks match by name
-- **Family or order among the matches.** This stops three obscure intermediate ranks, say subfamily, tribe and subtribe, from coincidentally agreeing
+- **Family or order among the matches.** This stops three obscure intermediate ranks, say
+  subfamily, tribe and subtribe, from coincidentally agreeing
 
-Matches that fail these criteria still appear in `output/links.html` for manual review.
-
-`output/links-auto.qs` format — one statement per line, ready to paste into [QuickStatements](https://quickstatements.toolforge.org/):
+Findings that fail this bar stay `open` and appear in `output/links.html` (and the app) for manual
+review, with a "check taxonomy" badge instead of "high confidence". The app's own QuickStatements
+panel on `/links` reads the same `autoEligible` flag.
 
 ```
 Q12345	P3151	"67890"
@@ -125,47 +176,80 @@ Q12345	P3151	"67890"
 
 ## Ambiguous-only mode (`--ambiguous-only`)
 
-Pass `--ambiguous-only` to skip everything `output/links.html` needs and go straight to writing
-`output/links-ambiguous.html` from the much smaller ambiguous set. Three things get skipped: the
-P3151 cross-check against clean matches, the ancestor-chain fetch for every one of them, and the
-conflict bookkeeping.
+Pass `--ambiguous-only` to skip the P3151 cross-check, the conflict bookkeeping and the
+ancestor-chain fetch for clean matches, and go straight to classifying and recording `ambiguous`
+(and `no_match`) candidates — the much cheaper half of a run. `no_match` findings cost nothing
+extra either way (no network call), so they are always recorded regardless of this flag.
 
-The ancestor-chain fetch is the expensive one. It sends one Wikidata SPARQL batch per 100 matches,
-up to 2 batches in flight, and at a `--limit` in the tens of thousands it is by far the slowest and
-most WDQS-load-sensitive part of a run.
+The ancestor-chain fetch for clean matches is the expensive part skipped here: one SPARQL batch
+per 100 matches, up to 2 in flight, and at a `--limit` in the tens of thousands it dominates a run.
 
-Use this whenever `links.html` is not wanted at all, such as sourcing a gold-labeling sample of
-ambiguous cases for another project. It cuts a large-`--limit` run from well over an hour to
-single-digit minutes. It also avoids most of the exposure to WDQS's intermittent truncated and
-slow responses, since that exposure scales with the number of ancestor-chain batches fetched.
+**This is how the sibling `xgboost-inat-wikidata-match` repo sources its gold-labelling sample** —
+see [Beyond this checker](#beyond-this-checker-a-confidence-model). It cuts a large-`--limit` run
+from well over an hour to single-digit minutes, and avoids most of the exposure to WDQS's
+intermittent truncated and slow responses.
 
 ## Fixed: the Wikidata tree used to silently drop real ranks
 
 **Historical note, fixed 2026-08-22.** `fetchWdAncestorChains` (`lib/utils.js`) rebuilds the
 linear ancestor chain client-side by walking `directParent → parent → parent → ...`. Wikidata's
-taxonomic graph is not a strict tree. An ancestor can carry more than one normal or preferred-rank
-`wdt:P171` statement, an alternate or duplicate classification, and `wdt:P171` returns all of them.
+taxonomic graph is not a strict tree: an ancestor can carry more than one `wdt:P171` statement, and
+the old code kept a single `parent` per ancestor, so whichever SPARQL row arrived last silently
+overwrote the others — the walk could derail onto a dead end outside the item's own ancestor
+closure, dropping every subsequent rank with no error. Reproduced on `Q5049369` and `Q2474088`,
+both missing everything above Class.
 
-The old code kept a single `parent` per ancestor, so whichever SPARQL row arrived last silently
-overwrote the others. The walk could then derail onto a dead end outside the item's own ancestor
-closure, dropping every subsequent rank with no error. It reproduced on `Q5049369` ("Cassidulina")
-and `Q2474088` ("Caninae"), both missing everything above Class.
+The fix collects every candidate parent per ancestor instead of overwriting, and the walk prefers
+whichever candidate is itself a known ancestor of the item. This does not resolve every possible
+fork in Wikidata's graph — where several candidate parents are each genuinely part of the item's
+closure, the choice among them is deterministic but not necessarily canonical — but it eliminates
+the nondeterministic overwrite and the dead-end truncation, which was the concrete defect.
 
-The fix collects every candidate parent per ancestor instead of overwriting. The walk then prefers
-whichever candidate is itself a known ancestor of the item, which keeps it following the item's own
-closure rather than wandering onto a parallel classification that dead-ends. Both QIDs above now
-reconstruct their full chain, Kingdom to genus or order.
+## Beyond this checker: a confidence model
 
-This does not resolve every possible fork in Wikidata's graph. Where *several* candidate parents
-are each genuinely part of the item's ancestor closure, the choice among them is deterministic but
-not necessarily the canonical one. What it does eliminate is the nondeterministic overwrite and the
-dead-end truncation, which was the concrete defect.
+**Not built. To do, tracked for a future slice.** A separate repo,
+[`xgboost-inat-wikidata-match`](https://github.com/Livia-Rasp/xgboost-inat-wikidata-match), trains
+an XGBoost classifier that ranks ambiguous iNat candidates by confidence — 98.7% top-1 accuracy on
+a hand-labelled gold set, against 20.9% for exact-name matching alone. Its own `docs/future-work.md`
+names "close the loop back into the Node tool" as the next step, currently blocked on threshold
+work: at the precision bar this task needs, the model ranks well but doesn't yet decide, so the
+honest output today is a ranking a human still reviews, not an auto-accept.
+
+The findings-DB migration was deliberately shaped to make that integration easier when it happens,
+without needing a schema change:
+
+- Every `ambiguous` candidate already carries reserved `score` and `scoredBy` fields, currently
+  always `null` — a scoring pass would fill them in and record which model version produced them.
+- The full `wdChain`/`inatChain` evidence a model would want as features is already on the finding
+  (see [Statuses](#statuses)), reachable via `GET /api/findings?kind=link&status=ambiguous`
+  instead of scraping HTML.
+- `output/links-ambiguous.html` keeps being generated in the exact shape
+  `build_gold_labeling_kit.py` already parses, so the gold-labelling workflow that trains the model
+  is unaffected either way.
+
+What integrating it would still need, roughly: a scoring pass (Node, calling into the Python
+model, or a small service) that reads open `ambiguous` findings and writes `score`/`scoredBy` back
+via a new endpoint or a direct DB write; a decision in the app for what a score changes about the
+review UI (a sort order, a threshold-based auto-suggestion, nothing that writes P3151 without a
+human, given the model's own stated precision ceiling). None of this is scheduled yet.
 
 ## Typical workflow
 
-1. Run `npm run links -- --limit 1000` to generate `output/links.html` and `output/links-ambiguous.html` (first run downloads the taxa database; subsequent runs are fast).
-2. Open `output/links.html` in a browser. Compare the WD tree and iNat tree columns for each match to confirm the taxon placement is consistent. Check rows you want to import, copy the aggregate field, and paste into [QuickStatements](https://quickstatements.toolforge.org/).
-3. Open `output/links-ambiguous.html`. For each group, compare the WD tree against the iNat candidate trees to identify the correct match (if any), then click its QuickStatements cell to copy.
-4. If a conflict table is present in `output/links.html`, review `output/inat-links-conflicts.json` and investigate each case before acting.
+**The app is the worklist. `output/links.html` is the fallback view**, matching images' pattern
+(see [images.md#typical-workflow](images.md#typical-workflow)). Run `npm run links` to fill the
+backlog, then `npm run web` and work through `/links` there — confirm, skip, or resolve an
+ambiguous/conflict row in the review section.
 
-**With `--auto`:** paste `output/links-auto.qs` directly into QuickStatements for the certain matches, then use `output/links.html` for the remainder.
+Working from the reports directly:
+
+1. Run `npm run links -- --limit 1000`.
+2. Open `output/links.html`. Compare the WD tree and iNat tree columns for each match, check rows
+   you want to import, copy the aggregate field, and paste into
+   [QuickStatements](https://quickstatements.toolforge.org/).
+3. Open `output/links-ambiguous.html`. For each group, compare the WD tree against the iNat
+   candidate trees, then click the right candidate's QuickStatements cell to copy.
+4. If a conflict table is present, review `output/inat-links-conflicts.json` and investigate each
+   case before acting.
+
+**With `--auto`:** paste `output/links-auto.qs` directly into QuickStatements for the certain
+matches, then use `output/links.html` for the remainder.

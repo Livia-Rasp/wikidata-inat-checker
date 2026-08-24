@@ -67,7 +67,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location; also a discovery scope in the app (`/area`) | [area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, search and area pages | [commons-upload.md](docs/commons-upload.md) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 | Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 
@@ -101,8 +101,9 @@ All gitignored and created on first write; `lib/paths.js` centralises the paths.
 disposable, one is not:
 
 - **`output/`** — the HTML/QS deliverables. Safe to delete; a re-run regenerates them.
-- **`cache/`** — cross-run caches (`cache-names.json`, `cache-links.json`,
-  `cache-commons-cats.json`). Safe to delete; re-runs then re-scan from scratch.
+- **`cache/`** — cross-run caches (`cache-names.json`, `cache-commons-cats.json`). Safe to delete;
+  re-runs then re-scan from scratch. Images and links keep no cache file — both moved to
+  `data/findings.db`.
 - **`data/findings.db` — NOT safe to delete.** The accumulated backlog and everything worked
   through, which nothing can reconstruct. See [images.md](docs/images.md).
 
@@ -139,12 +140,11 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–5, 5b, 5c and 5d are done; 6–9 and 10 remain, and
-  OAuth is deliberately outside the plan. Four known gaps are
-  written up there rather than fixed: **`skipped` is global**, the **ambiguous-match views** need
-  a real interface, a **CLI run killed outright stays `running`** (only the server reconciles), and
-  the **scheduled top-up retries every interval rather than once a day** when the taxa index is
-  missing (no run row is ever opened for that failure, so the daily-once gate can't see it).
-  **Read it before changing anything about caching, persistence, or the web app.**
+  restructure around `data/findings.db`. Slices 0–7 are done; 8–10 remain, and OAuth is
+  deliberately outside the plan. Three known gaps are written up there rather than fixed:
+  **`skipped` is global**, a **CLI run killed outright stays `running`** (only the server
+  reconciles), and the **scheduled top-up retries every interval rather than once a day** when the
+  taxa index is missing (no run row is ever opened for that failure, so the daily-once gate can't
+  see it). **Read it before changing anything about caching, persistence, or the web app.**
 - [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
   Wikidata recipes, the reference for building further Commons-upload tools.

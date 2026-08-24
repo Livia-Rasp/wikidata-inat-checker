@@ -46,9 +46,20 @@ checkNames.js
        └─ report/generateNamesHTML.js: writes output/names.html (QuickStatements + aggregate field)
 ```
 
-### iNat links checker (`checkLinks.js`)
+### iNat links checker (`checkLinks.js`, `lib/discoverLinks.js`)
+
+Migrated onto the findings database in slice 7, the same shape `checkImages.js`/`lib/discover.js`
+took in slice 1: `checkLinks.js` is argument parsing and report rendering; `discoverLinks({store,
+taxaDb, scope, limit, seed, ambiguousOnly, onProgress, signal})` is the work, and the server runs
+the identical function for on-demand and scheduled discovery. It is a **sibling** to
+`lib/discover.js`, not a generalisation of it — the two pipelines diverge past run bookkeeping
+(images batches iNat photo lookups and builds wikitext drafts; links does a SPARQL P3151
+cross-check, a P13177 homonym filter, and an ancestor-chain comparison), so `server/discoverChild.js`
+dispatches between them by `config.tool` (`'images'` default, `'links'`) rather than either
+function trying to serve both shapes.
+
 ```
-checkLinks.js
+discoverLinks()
   └─ lib/getInatTaxaDb.js: SQLite taxa index (~236 MB, built from iNat open-data S3 dump)
        → get(name) → {inatId, rank} | undefined   (undefined = not found or homonym)
        → getAll(name) → [{inatId, rank}]           (all active taxa sharing the name)
@@ -58,14 +69,40 @@ checkLinks.js
        → taxa with P225 = an iNat name but no P3151 (IUCN via OPTIONAL, JS-filtered)
        → with --iucn: utils.fetchWdLinksByIucn() runs one direct P141-filtered query instead
        → --limit caps collected candidates (real matches), not raw taxa scanned
-  └─ Ambiguous collection: names where get() is undefined but getAll() finds 2+ taxa
-  └─ SPARQL → Wikidata: found iNat IDs already on other items (conflict detection)
-  └─ SPARQL → Wikidata: P13177 (homonymous taxon) to filter false conflicts
+  └─ Classification: no local match → no_match; get() undefined + getAll() 2+ → ambiguous;
+       get() found → a single-match candidate, cross-checked next (skipped under --ambiguous-only)
+  └─ SPARQL → Wikidata: found iNat IDs already on other items → open (unclaimed) | conflict (claimed)
+  └─ SPARQL → Wikidata: P13177 (homonymous taxon) to filter false conflicts out of `conflict`
   └─ getInatTaxaDb.getAncestors(inatId): iNat ancestor chain from SQLite (no API call)
   └─ utils.fetchWdAncestorChains() (wdt:P171+, batches of 100, 2 concurrent): Wikidata ancestor chain
-  └─ report/generateLinksHTML.js: writes output/links.html + output/inat-links-conflicts.json
-  └─ report/generateAmbiguousHTML.js: writes output/links-ambiguous.html (one row per iNat candidate)
+  └─ utils.compareAncestorTrees(): rank-by-rank {matches, mismatches, matchedRanks} — the `evidence`
+       stored on every open/ambiguous/conflict finding, and isAutoEligible() over it decides
+       `open`'s `autoEligible` (the --auto bar: 0 mismatches, ≥3 matches, family or order present)
+  └─ lib/db.js {upsertTaxon(), recordFinding()}: every outcome persisted to data/findings.db, kind='link'
+       → open | ambiguous | conflict | no_match — see docs/links.md#statuses
+  └─ report/generateLinksHTML.js / generateAmbiguousHTML.js: render from the DB backlog
+       (open+conflict findings, and ambiguous findings, respectively — not this run's in-memory
+       results), re-fetching ancestor chains for display since the payload stores compareAncestorTrees'
+       summary, not the full chains, for `open` findings — `ambiguous`/`conflict` findings keep the
+       full chains on the payload instead, for the app's review UI to render without an extra fetch
 ```
+
+**`output/links-ambiguous.html`'s exact row markup is a cross-repo contract**, not just a report
+shape: the sibling `xgboost-inat-wikidata-match` repo's `build_gold_labeling_kit.py` scrapes it
+with BeautifulSoup (`id="row-{qid}"`, `td.wd-col`, `td.taxon-col`, `class="candidate-row"`) to
+build its gold-labelling sample. Changing that markup without checking that script still parses it
+would silently break another project's reproducibility — see
+[links.md#beyond-this-checker-a-confidence-model](links.md#beyond-this-checker-a-confidence-model).
+
+**Picking an ambiguous candidate (`lib/pick.js`).** `pickCandidate(store, id, inatId)` is how a
+human resolves an `ambiguous` finding in the app (`POST /findings/:id/pick`) — purely local, no
+Wikidata call, which is why it is its own file rather than folded into `confirm.js`. It re-records
+the finding as `open` via `recordFinding()`, not `markVerified()` (this is a fresh candidacy with a
+real payload, not a "still true" observation), and it must also call `upsertTaxon()` to write the
+picked `inatId`/`rank` onto the `taxa` row — ambiguous discovery never had a single id to write
+there, so without this the worklist row and its QuickStatements line kept reading the still-null
+`taxa.inat_id`. Found only by clicking through the review UI live; no unit test caught it, since
+every test asserted on the finding's payload, never on the taxa row a confirm/QS line actually reads.
 
 ### iNat links stats (`checkLinksStats.js`)
 ```
@@ -92,7 +129,7 @@ checkArea.js (args: --lat --lng --radius)
 All generated files go under three gitignored, auto-created top-level dirs, so nothing generated sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
 
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
-- **`cache/`** — `cache-names.json` and `cache-links.json` (per-checker "already scanned" sets) plus `cache-commons-cats.json` (Commons category existence). The image checker has none: it moved to `data/findings.db` in slice 1, and the names and links checkers follow in slices 7–8. Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
+- **`cache/`** — `cache-names.json` (the names checker's "already scanned" set) plus `cache-commons-cats.json` (Commons category existence). The image and links checkers have neither: images moved to `data/findings.db` in slice 1, links in slice 7 (its `cache-links.json` tombstone is gone — `skipQids('link', ...)` is the replacement), and names is the one still to migrate. Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
 - **`data/`** — `findings.db` only, and unlike the other two it is **not safe to delete**: it is the accumulated backlog and the record of what has been worked through, and nothing can reconstruct it. See [Findings database](#findings-database-libdbjs) below. `findingsDbPath()` is the single definition of where it lives, honouring `FINDINGS_DB` for every process that opens it — the checkers as well as the server, which is what lets a container mount the volume elsewhere and a test run point somewhere disposable.
 
 One thing deliberately lives elsewhere: the ~236 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`). **Only the CLI may build it** — `ensureTaxaDb()` downloads ~189 MB and rebuilds; `openTaxaDb()` is the server's counterpart and throws instead.
@@ -147,9 +184,9 @@ Rows carry `id` and `status` alongside the render fields, because the HTTP API a
 
 **Schema v2 adds `uploads`** — what has been uploaded to Commons, and which photo is a taxon's pending P18 pick. Both lived in `localStorage`, where no checker could see them and a cleared browser profile destroyed them; the pick was worse than that, being deleted the moment the QuickStatements were copied, so nothing recorded which file an edit was supposed to use. `dest_file` is the natural key (it is what the app computes for a photo and what Commons is asked to name the file), `qid` is nullable so an imported filename that does not parse back to a taxon is still kept, and a **partial unique index** (`ON uploads(qid) WHERE is_p18 = 1`) makes "at most one pick per taxon" a database guarantee rather than a convention. Nothing in this table is verified against Commons — the app only pre-fills the upload form, so every row is the user's own claim.
 
-**Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone` reserved for later slices. A taxon whose iNat batch *errored* gets no row at all, which is why each `inatBatches()` batch carries a `failed` set: recording an unanswered request as "no photos" would write the taxon off for the whole recheck window.
+**Statuses.** `open` (photos + a draft), `no_draft` (photos but no P225 or no family template — still fixable by hand, and previously discarded silently), `no_photos`, plus `done` / `skipped` / `fixed_upstream` / `gone`, shared across kinds. **`kind='link'` (slice 7) adds `ambiguous` and `conflict`** — see [docs/links.md#statuses](links.md#statuses) — both listed in `STICKY_STATUSES` alongside `open`/`done`/`skipped`, and `no_match` (link's negative-with-shelf-life status) in `NEGATIVE_STATUSES` alongside `no_photos`/`no_draft`. Both lists are shared across every kind, not per-kind constants — a status added for one kind is a status the whole schema now recognises, which is what `GET /api/findings?status=` validates against.
 
-**Negative results expire, settled ones do not.** `no_photos` / `no_draft` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded and missing P225s keep being filled in. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it.
+**Negative results expire, settled ones do not.** `no_photos` / `no_draft` / `no_match` carry `checked_at` and stop being trusted after `--recheck-after` days (default 90, `0` = recheck all), because CC-licensed photos keep being uploaded, missing P225s keep being filled in, and taxa keep being added to iNat. `skipQids()` encodes this: everything sticky always skipped, negatives skipped only while fresh. **The trap:** skipping only `open` would resurface every taxon deliberately passed over on the next top-up — `test/db.test.js` guards it, including the link-only statuses (added after `GET /api/findings?status=ambiguous` 400'd in practice, the day `STICKY_STATUSES`/`NEGATIVE_STATUSES` were extended but not before — a gap that existed for several commits before it surfaced).
 
 This is not a background sweep. There is no scheduler; expired rows simply become candidates again the next time discovery runs, under the same `--limit`.
 
@@ -170,12 +207,15 @@ the whole backlog.
 **Discovery** is `POST /api/discover`, `GET /api/discover/status` and
 `POST /api/discover/cancel` — see [Discovery](#discovery-libdiscoverjs-serverjobsjs) below.
 
-**Search** is `GET /api/search?taxon=&iucn=&limit=&offset=` and
+**Search** is `GET /api/search?kind=&taxon=&iucn=&limit=&offset=` and
 `GET /api/taxa/suggest?q=&limit=` — see [Searching the backlog](#searching-the-backlog-libbacklogindexjs).
 
 **Writes** are `POST /api/findings/:id/confirm`, `POST /api/findings/confirm` (bulk,
-`{ids}`), `POST /api/findings/:id/skip`, `POST /api/uploads` (record an upload or a P18 pick,
-read back by `GET /api/uploads`) and `POST /api/import` (the one-time `localStorage` importer).
+`{ids}`, dispatched per-id by kind — see [Confirming](#confirming-libconfirmjs--and-why-it-is-not-verification)),
+`POST /api/findings/:id/skip`, `POST /api/findings/:id/pick` (`{inatId}`, `kind='link'` +
+`status='ambiguous'` only — see the links-checker section above), `POST /api/uploads` (record an
+upload or a P18 pick, read back by `GET /api/uploads`) and `POST /api/import` (the one-time
+`localStorage` importer).
 All of them sit behind `server/writeGuard.js` and carry a tighter rate limit than reads, because a
 confirm spends Wikimedia's API budget and not just ours. `fetchFn` is threaded from `buildServer`
 down to `confirmFindings`, so the whole application can be driven over an in-memory database with
@@ -185,7 +225,7 @@ Everything about *why* the headers, limits and validation rules are what they ar
 CSP hosts that are easy to get wrong, and what the write guard defends against — is in
 [threat-model.md](threat-model.md).
 
-### Discovery (`lib/discover.js`, `server/jobs.js`)
+### Discovery (`lib/discover.js`, `lib/discoverLinks.js`, `server/jobs.js`)
 
 `discover({store, taxaDb, scope, limit, recheckAfter, onProgress, signal})` is the work; `checkImages.js`
 is argument parsing and HTML rendering around it. Four things about it are load-bearing:
@@ -224,6 +264,18 @@ only thing that stops it outliving a parent that was killed outright — verifie
 
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
+
+**One runner, dispatched by `config.tool`.** Slice 7 added `lib/discoverLinks.js` (a sibling to
+`lib/discover.js`, not a generalisation — see the links-checker section above) without adding a
+second job runner: `server/discoverChild.js` picks `discover` or `discoverLinks` from a
+`{images, links}` map keyed on `config.tool` (default `'images'`), and `server/jobs.js` itself
+needed no change at all — it only ever forks whatever `discoverChild.js` runs and reads IPC message
+shapes, never which pipeline produced them. The consequence, decided deliberately rather than
+discovered by accident: **only one discovery run, of either kind, can be in flight at a time** —
+the single-flight lock in `jobs.js` is global, not per-tool. `POST /discover`'s `tool` field and
+`GET /discover/status?tool=` both default to `'images'` for backward compatibility;
+`publicStatus()`'s "last run" lookup takes the same `tool` param, since `jobs.status()`'s *live*
+progress needs no such choice — only one tool's run can ever be live.
 
 ### Area as a scope (`lib/areaCandidates.js`, `GET /api/discover/area`)
 
@@ -286,6 +338,14 @@ Two things worth knowing before touching it:
   eligible set tick to tick. A day with too little `request_log` history (`sampleDays` below
   `TOPUP_QUIET_MIN_SAMPLE_DAYS`) is treated as "every hour eligible", not "wait" — a fresh
   deployment should not sit idle for a week waiting to earn the right to run.
+- **One shared config, tried per tool in a fixed order.** `tick()` loops `TOOLS = ['images',
+  'links']`; each has its own daily-once gate (`store.latestRun(tool, {triggeredBy:'schedule'})`
+  reads that tool's own history), but only one job can ever be running, so a tick starts at most
+  the first tool that is both eligible and hasn't run today — a skip for one tool falls through to
+  the next rather than ending the tick. `getStatus().ranToday` is therefore per tool
+  (`{images: bool, links: bool}`), not a single flag. There is deliberately no `TOPUP_LINKS_*`
+  config: one `TOPUP_ENABLED` switch and one taxon/iucn scope drives both — Livia's call, over
+  giving links its own independent schedule.
 
 The daily-once gate reads `runs.triggered_by = 'schedule'`, which means it has the same blind spot
 `discover()`'s own "a bad scope leaves no run behind" design has, one layer further out: a missing
@@ -299,6 +359,17 @@ rather than once a day. Written up in
 Which taxa *already on the worklist* are in a clade. The findings database knows each taxon's iNat
 id and nothing about the tree; the taxa index knows the tree and nothing about the backlog. This is
 the join, kept out of the route so it can be tested without HTTP.
+
+`createBacklogIndex({store, taxaDb, kind = 'image', status = 'open'})` took `kind` from the start
+(slice 5c), but `server/routes/search.js` didn't thread it through until slice 7: `GET /search`'s
+querystring gained a `kind` property, and the route's one memoised `backlogIndex()` became one
+memoised **per kind** (`Map<kind, index>`, invalidated together when the taxa-index handle changes)
+rather than a single closure variable — a link search and an image search now warm independent
+ancestor-caches instead of thrashing one shared one. `web/search.html`/`search.js` read `?kind=`
+once at boot (fixed for the page's life, unlike `taxon`/`iucn` which change per query) and carry it
+on every URL and API call they write, including into `POST /discover`'s `tool` field via
+`createTopup({tool})` — search's "Find more" is also links' only on-demand discovery entry point,
+there being no bespoke scope form on `links.html` itself.
 
 **It walks up, not down** — the one place this deliberately departs from the roadmap, which called
 for `descendantInatIds()` and a set intersection. Measured against the real index:
@@ -381,6 +452,14 @@ error state, because a QuickStatements batch can be queued and confirming too ea
 An *upstream* failure is different again: it answers 503 and touches nothing, so retrying is safe.
 `skip` is the escape hatch for a taxon that will never have a Commons category.
 
+**Links get their own predicate, not a generalisation of this one** (`confirmLinkFindings`): one
+statement (P3151), no sitelink pairing, no upload/pick bookkeeping — "what counts as complete"
+genuinely differs in shape here, not just which property is read. A bulk confirm's `ids` can span
+kinds (the app's QuickStatements panel confirms whatever was just pasted, regardless of which page
+built it), so `confirmByKind(store, ids, opts)` groups by each finding's own kind, runs each kind's
+predicate once, and reassembles results in the order requested. The route layer needed no change —
+it already just forwarded ids and returned results; only this dispatch layer knows kinds exist.
+
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 
 `verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
@@ -388,6 +467,18 @@ An *upstream* failure is different again: it answers 503 and touches nothing, so
 Requests use `redirects=no`. That is the load-bearing simplification: the API then reports a redirect exactly like a deleted entity, so since merged and deleted both resolve to `gone`, a single `entity.missing` check covers both and no requested-vs-returned id comparison is needed. An entity absent from the response entirely is also treated as `gone`, so a finding can never get stuck open because the API stopped mentioning its item.
 
 Results go through **`store.markVerified()`, never `recordFinding()`** — the latter overwrites `payload`, and with `payload` undefined it writes NULL, so reusing it here would wipe the stored draft wikitext of every finding the pass touched. `test/verify.test.js` guards exactly that.
+
+**`kind: 'link'` dispatches to `verifyLinkFindings`, a real fix not just an addition.** Before slice
+7, `verifyOpenFindings` called `readImageFacts` unconditionally regardless of `kind` — passing
+`kind: 'link'` would have silently applied the P18 predicate to a link finding. The dispatch
+narrows an existing bug rather than widening a new one. `readLinkFacts` reads P3151 alone (a link
+finding proposes one statement, no sitelink asymmetry to preserve), and the pass also re-verifies
+`conflict` findings, not just `open` ones — a conflict's fate depends on an item it doesn't own
+(whoever currently holds the disputed iNat id), so that item is fetched too, and a conflict whose
+competing claim has gone or moved re-opens **via `recordFinding()`**, not `markVerified()` — the
+same "re-check upserts in place" path negative-status expiry already uses, because this is a fresh
+candidacy, not a "still true" observation, and `resolved_at`/`resolution` are terminal-state
+columns that must not be stamped on a row that is, again, actionable.
 
 ### Batched entity fetches (`utils.fetchEntitiesBatched`)
 
@@ -524,11 +615,11 @@ Endpoint `https://www.wikidata.org/w/api.php?action=query&list=search&srnamespac
 
 ---
 
-## Taxonomy tree comparison and `--auto` certainty filter (`lib/utils.js`, `checkLinks.js`)
+## Taxonomy tree comparison and `--auto` certainty filter (`lib/utils.js`, `lib/discoverLinks.js`)
 
-`compareAncestorTrees(wdChain, inatChain)` aligns the WD and iNat ancestor chains by rank name (case-insensitive), counts agreements and disagreements among labeled ranks present in **both** chains, and returns `{ matches, mismatches, matchedRanks }`. Only the 9 ranks in `WD_RANK_LABELS` can be labeled on the WD side (genus, family, superfamily, subfamily, tribe, subtribe, order, subclass, class); iNat rank strings are used as-is. Ranks present in only one chain are ignored — they do not count as mismatches.
+`compareAncestorTrees(wdChain, inatChain)` aligns the WD and iNat ancestor chains by rank name (case-insensitive), counts agreements and disagreements among labeled ranks present in **both** chains, and returns `{ matches, mismatches, matchedRanks }`. Only the 9 ranks in `WD_RANK_LABELS` can be labeled on the WD side (genus, family, superfamily, subfamily, tribe, subtribe, order, subclass, class); iNat rank strings are used as-is. Ranks present in only one chain are ignored — they do not count as mismatches. This return shape is exactly what gets stored as a finding's `evidence` — see [docs/links.md#statuses](links.md#statuses).
 
-The `--auto` certainty filter requires: `mismatches === 0 && matches >= 3 && (matchedRanks.includes('family') || matchedRanks.includes('order'))`. The family-or-order anchor prevents three coincidentally agreeing intermediate ranks (e.g. subfamily/tribe/subtribe within a split family) from triggering auto-approval on an actually wrong match.
+The `--auto` certainty filter, `isAutoEligible(evidence)` in `lib/discoverLinks.js` (exported so `lib/verify.js` and `lib/pick.js` can recompute it after a conflict re-opens or a candidate is picked, without duplicating the formula), requires: `mismatches === 0 && matches >= 3 && (matchedRanks.includes('family') || matchedRanks.includes('order'))`. The family-or-order anchor prevents three coincidentally agreeing intermediate ranks (e.g. subfamily/tribe/subtribe within a split family) from triggering auto-approval on an actually wrong match. Computed once at discovery time and stored as `autoEligible` on the finding — the CLI's `--auto` export and the app's QuickStatements panel both just read the flag, rather than each recomputing it from a chain.
 
 **Known recurring disagreement — Noctuidae/Erebidae:** many moth genera were reclassified from Noctuidae to Erebidae; WD and iNat have not fully converged on this split. Affected genera produce a family-level mismatch for otherwise correct matches and correctly fail the auto-filter, appearing in `links.html` for human review.
 

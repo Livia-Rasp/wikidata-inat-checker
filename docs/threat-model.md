@@ -112,7 +112,10 @@ sends one on a write, so such a request is not a browser — curl, a script, a t
 browser-only attack. Refusing it would break every local tool and protect nothing.
 
 Confirm and skip carry a **tighter rate limit** than the read API, because a confirm spends
-Wikimedia's API budget and not just ours.
+Wikimedia's API budget and not just ours. `POST /api/findings/:id/pick` (slice 7 — resolving an
+ambiguous link finding) sits at the ordinary write-guard level, not privileged: it makes no
+outbound request at all, purely re-recording which of a finding's own already-known candidates was
+chosen, so it costs nothing an attacker could spend against the operator's API budget.
 
 ### Privileged routes — discovery
 
@@ -122,7 +125,12 @@ limits and iNaturalist blocks above 10,000 requests a day, so the thing being pr
 data — it is the **ability to keep using those APIs at all**.
 
 `POST /api/discover`, `/api/discover/cancel` and `GET /api/discover/area` are therefore marked
-`config: { privileged: true }`, which adds two requirements on top of the write guard:
+`config: { privileged: true }`, which adds two requirements on top of the write guard. Slice 7's
+`tool` field on `POST /discover` (`'images'` default, or `'links'`) picks which pipeline runs but
+changes neither requirement below — links discovery spends the same Wikidata/iNaturalist budget
+images discovery does, so it is exactly as privileged, and the two share the same single-flight
+job slot (see [dev.md](dev.md#discovery-libdiscoverjs-libdiscoverlinksjs-serverjobsjs)) rather than
+each getting independent gating:
 
 1. **A loopback peer address.** Not `Host` — that is client-controlled, and `curl -H 'Host: localhost'`
    forges it from anywhere. `req.socket.remoteAddress` cannot be forged by the caller, so it is what
@@ -164,6 +172,12 @@ behind a synthetic internal HTTP call would add a mechanism, not a defence.
 What *does* gate it is `TOPUP_ENABLED` (off by default) plus a hard requirement for
 `DISCOVER_ENABLED` too, checked at startup in `server/index.js` — a scheduled run spends the exact
 same Wikidata/iNaturalist budget an on-demand one does, so it needs the same consent.
+
+**One switch, one scope, tried against both kinds** since slice 7 — not a `TOPUP_LINKS_*` set of
+its own. `TOPUP_TAXON`/`TOPUP_IUCN` scope both an images tick and a links tick; each tracks its own
+daily-once gate independently (`runs.tool` distinguishes them), but the single job slot means a
+tick starts at most one of the two. Decided rather than defaulted: giving links independent
+schedule config was considered and rejected in favour of the simpler shared switch.
 
 **Verified against the real image, both ways.** Without the taxa index mounted, a scheduled tick
 starts, `openTaxaDb()` throws `taxa_index_unavailable` inside the forked child, and the container

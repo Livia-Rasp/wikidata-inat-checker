@@ -4,12 +4,13 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–6 are shipped — the findings database, the verification pass, the Fastify
+**Status:** slices 0–7 are shipped — the findings database, the verification pass, the Fastify
 backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
-backlog search, a container that runs, the app shell and area as a discovery scope. Remaining: 7–8
-(the links and names checkers onto the findings table), 9 (deploying that container, with backups)
-and 10 (making discovery reachable once it is deployed). Each slice ships as its own pull request,
-and each records below what turned out differently from the plan — that is the part worth reading.
+backlog search, a container that runs, the app shell, area as a discovery scope, and the links
+checker with a real ambiguous/conflict review UI. Remaining: 8 (the names checker onto the findings
+table), 9 (deploying that container, with backups) and 10 (making discovery reachable once it is
+deployed). Each slice ships as its own pull request, and each records below what turned out
+differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -648,12 +649,99 @@ throughout); the CSS tokenization pass confirmed pixel-identical in light mode b
 palette was added on top of it; every button's text confirmed legible in both themes after the
 dark-mode color-contrast fix; and all four screenshots regenerated and visually checked.
 
-### 7. Links checker → `kind=link` and a `/links` subpage
-Migrates `checkLinks.js` onto the findings table with P3151 as the verification predicate, keeping
-the `--auto` QuickStatements output. Simplest payload of the three, so it is the right one to prove
-the schema really is multi-kind before the more complex names data lands.
+### 7. Links checker → `kind=link`, and a real ambiguous/conflict review UI — **done**
+Migrated `checkLinks.js` onto the findings table with P3151 as the verification predicate, and
+folded in the roadmap's own ["Wanted: an interface for ambiguous matches"](#wanted-an-interface-for-ambiguous-matches)
+section — bringing links into the DB was the natural moment, since both problems it names
+(`links-ambiguous.html`'s hemihomonyms and `inat-links-conflicts.json`'s conflicts) are `kind=link`
+rows. `checkLinksStats.js` needed no change — confirmed to have no dependency on the findings DB at
+all (`fetchWdTaxaByNames`, `cirrusCount`, the taxa index only).
 
-`checkLinksStats.js` keeps working off the same tables.
+No schema migration — `findings(qid, kind, payload, status, ...)` was already fully kind-agnostic.
+Four new statuses instead: `open`, `ambiguous`, `conflict`, `no_match` (all detailed in
+[docs/links.md#statuses](links.md#statuses)). Discovery is `lib/discoverLinks.js`, a **sibling** to
+`lib/discover.js`, not a generalisation of it — the two pipelines diverge past run bookkeeping, so
+`server/discoverChild.js` dispatches between them by a new `tool` field rather than either function
+trying to serve both shapes. `lib/verify.js` and `lib/confirm.js` gained kind-specific predicates
+the same way (`readLinkFacts`/`verifyLinkFindings`, `confirmLinkFindings`/`confirmByKind`) —
+`verifyOpenFindings` previously called the image predicate unconditionally regardless of `kind`, a
+real bug-in-waiting the dispatch narrows rather than widens.
+
+Livia settled three design forks before implementation, all followed as specified: **one shared
+discovery job slot** (images and links can't run concurrently — simpler than a second child-process
+runner, and on-demand runs are short and human-triggered anyway); **one shared scheduled top-up
+switch and scope** (`TOPUP_ENABLED`/`TOPUP_TAXON`/`TOPUP_IUCN` drive both kinds, tried in a fixed
+order each tick, rather than a `TOPUP_LINKS_*` set of its own); and **`output/links-ambiguous.html`
+kept generating from the DB, in its exact row shape**, because the sibling
+`xgboost-inat-wikidata-match` repo's `build_gold_labeling_kit.py` scrapes it with BeautifulSoup for
+its gold-labelling sample — a real, working cross-repo dependency discovered while scoping this
+slice, not a hypothetical one. Verified directly: ran that script's actual parser against the
+DB-regenerated file and confirmed it still reads correctly.
+
+Seven things turned out differently from, or beyond, the plan:
+
+- **Ambiguous and conflict findings carry the full ancestor chains, not just the evidence
+  summary — a design reversed mid-slice.** The first pass stored only `compareAncestorTrees`'
+  `{matches, mismatches, matchedRanks}` on these findings, matching `open`'s lean payload. Building
+  the review UI's comparison table made the gap obvious: a summary can't render a side-by-side
+  tree. Fixed by keeping `wdChain` and each candidate's own `inatChain` in full — free at discovery
+  time (already computed, previously discarded), and it let the CLI report generator's ambiguous
+  and conflict rendering (though not yet simplified to use it) have a ready source for a future
+  cleanup. `open` stays lean; it never re-displays a tree.
+- **Picking an ambiguous candidate is a new primitive with no Wikidata call**, `lib/pick.js`,
+  `POST /findings/:id/pick` — deliberately not folded into confirm.js, the same reasoning that
+  keeps `discoverLinks.js` separate from `discover.js`. Re-records via `recordFinding()`, not
+  `markVerified()`, since this is a fresh candidacy, not an observation. The same reasoning made
+  conflict re-verification (a competing claim going stale) reuse `recordFinding()` too, rather than
+  inventing a second "reopen" primitive.
+- **A real bug found only by clicking through it, not by any unit test:** picking a candidate wrote
+  the chosen `inatId` into the finding's payload but never into `taxa.inat_id` — ambiguous
+  discovery had no single id to write there at discovery time, so it stayed `NULL`, and the
+  worklist row (and its QuickStatements line) read `"null"` after a pick. Every test had asserted
+  on the payload, none on the taxa row a rendered row actually reads from. Fixed, and a regression
+  test added against the taxa table specifically.
+- **A second real bug, also found only live:** `ambiguous`/`conflict`/`no_match` were designed into
+  `docs/links.md`'s statuses from the start but never actually added to `lib/db.js`'s
+  `STICKY_STATUSES`/`NEGATIVE_STATUSES` constants across several intervening commits —
+  `GET /api/findings?status=ambiguous` 400'd, and discovery would have kept re-processing
+  already-settled ambiguous/conflict candidates forever instead of skipping them. Neither the unit
+  suite nor manual API testing caught it; only loading the actual review page in Chrome did.
+- **A third, cosmetic but real: `#qs-text` (and native form controls generally) rendered with
+  light-mode UA chrome inside the dark theme**, because nothing in `styles.css` set `color-scheme`
+  — legible-on-paper CSS (the textarea's own `color` was correctly themed), illegible on an actual
+  screen. Fixed with `color-scheme` on all three theme blocks. Pre-existing on `index.html` too,
+  just never noticed there; caught here by having a person actually look at the rendered page.
+- **`GET /api/search` and `web/js/rows.js` became kind-aware**, the `?kind=`-aware search plumbing
+  and per-kind row renderer slice 6 explicitly deferred "with no caller yet" — this was that
+  caller. `search.html?kind=link` reuses the entire page (rail, composition, suggestions, the
+  "Find more" offer) with a swapped `<thead>` and row template; it is also links' only on-demand
+  discovery entry point, there being no bespoke scope form on `links.html` itself, matching how
+  images' own on-demand discovery lives on `search.html` and not `index.html`.
+- **The screenshot tooling needed a real capability it didn't have**: cropping a *window*
+  (`top`..`bottom`), not just `0`..`bottom`. `links.html`'s review section sits below however many
+  worklist rows the real backlog has, and a naive capture-from-top either showed 100 worklist rows
+  and never reached the review section, or (once genuinely windowed) needed
+  `captureBeyondViewport: true` to lay out and capture content below the emulated viewport at all.
+  Regenerated with real content: `node checkLinks.js --limit 200` was run for real against
+  production `data/findings.db` (Livia's go-ahead sought first, per standing "never verify against
+  production data unless told to"), giving `links.png` a genuine ambiguous case (*Grania*, an
+  annelid genus vs. a red algae genus sharing the name) rather than a fixture.
+
+**Not built, tracked as a to-do for a future slice:** wiring the sibling
+`xgboost-inat-wikidata-match` repo's confidence model into the ambiguous-review workflow. The
+findings-DB shape was deliberately made ready for it without a schema change — every ambiguous
+candidate already carries reserved `score`/`scoredBy` fields, currently always `null` — but the
+model itself isn't yet callable from here, and its own precision ceiling means it should inform a
+review, not skip one. See [docs/links.md#beyond-this-checker-a-confidence-model](links.md#beyond-this-checker-a-confidence-model).
+
+**Verified.** 357 unit tests. Live, from a scratch `FINDINGS_DB`: two runs of `checkLinks.js`
+accumulated (20 → 39 open) rather than destroying the backlog, matching slice 1's proof for
+images; a seeded ambiguous case and a seeded conflict case both rendered correctly through the new
+review component; Confirm against real Wikidata correctly resolved a link finding whose P3151
+already existed (Q140/*Panthera onca*, live). Against production data: `checkLinks.js --limit 200`
+recorded 199 open, 1 ambiguous, 0 conflicts; `worklist.png`/`search.png`/`area.jpg`/`gallery.jpg`
+regenerated and show the real Links nav-tile count; `links.png` regenerated showing the real
+ambiguous case.
 
 ### 8. Names checker → `kind=name` and a `/names` subpage
 Migrates `checkNames.js`. Verification is per-language: P1843 must not already carry a name in the
@@ -815,21 +903,20 @@ there is one server by construction.
 
 ## Wanted: an interface for ambiguous matches
 
-Raised 2026-08-16. Two different ambiguities, both currently under-served, and worth solving once:
+Raised 2026-08-16. Two different ambiguities, both then under-served:
 
 - **Ambiguous taxon names**, which slice 5c hit immediately: `Bulbophyllum` is a genus *and* a
   section, `Iris` is four taxa. The search page now offers the candidates as chips with their ranks,
   which is enough to pick when you know the group and not enough when you do not — it says nothing
   about where each sits or which has backlog behind it. Lineage per candidate, and a count, would
-  make it a decision rather than a guess.
-- **Ambiguous iNat↔Wikidata link matches**, which the links checker already produces and dumps into
-  `output/links-ambiguous.html` and `output/inat-links-conflicts.json` — files nothing in the app
-  reads. Slice 7 brings links into the findings database, and these are the rows a human has to
-  adjudicate, so they need a real view: the candidates side by side with the evidence that
-  distinguishes them (`compareAncestorTrees` already computes exactly that for `--auto`).
-
-The second is the substantial one and belongs in slice 7; the first is a smaller improvement to
-5c's existing prompt.
+  make it a decision rather than a guess. **Still open** — a smaller improvement to 5c's existing
+  prompt, not scheduled.
+- **Ambiguous iNat↔Wikidata link matches**, which the links checker already produced and dumped
+  into `output/links-ambiguous.html` and `output/inat-links-conflicts.json` — files nothing in the
+  app read. **Done in slice 7**: `/links`'s review section shows exactly this, candidates side by
+  side with the evidence that distinguishes them (`compareAncestorTrees`, same function `--auto`
+  already used), plus a `conflict` counterpart for the `inat-links-conflicts.json` half. See
+  [docs/links.md](links.md) and slice 7's write-up above.
 
 ## Beyond the plan: OAuth upload and direct editing
 
