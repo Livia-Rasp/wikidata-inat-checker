@@ -29,6 +29,7 @@ TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web   # …and a daily scheduled top-
 npm test                                    # unit suite (node --test over test/*.test.js)
 npm run test:coverage                       # …with the CI coverage floor enforced (a ratchet)
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
+npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
 
 docker compose up --build                   # the server in a container, http://localhost:8080
                                             # bind-mounts ./data; server only — no checkers, and
@@ -89,7 +90,10 @@ Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — 
   `index.html` (worklist), `taxon.html` (one taxon's photos), `search.html` (backlog search).
 - **`test/`** — `node:test` unit suite. No network, sub-second. Add cases when touching the
   pure logic it covers.
-- **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images.
+- **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images and
+  `record.mjs` the demo GIF; `cdp.mjs` holds what both need (CDP client, throwaway DB copy,
+  server and browser startup). The recording's confirm step runs against live Wikidata and is
+  chosen so it genuinely succeeds — see [docs/screenshots/README.md](docs/screenshots/README.md).
 
 ## Generated artifacts
 
