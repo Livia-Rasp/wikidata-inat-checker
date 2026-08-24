@@ -99,14 +99,8 @@ survives across runs and across tools.
 | Upload app | `npm run web` | the `web/` app at localhost:8080 | [docs/commons-upload.md](docs/commons-upload.md) |
 
 The image, names and links checkers take `--limit <n>` and `--iucn <code>` (`CR`, `EN`, `VU`, …).
-The image checker also takes `--taxon <name|iNat id>` to scope a run to one clade. The `--` after
-`npm run <tool>` is required so npm forwards the flags to the script.
-
-```sh
-npm run images -- --limit 500 --iucn CR   # 500 Critically Endangered taxa
-npm run images -- --taxon Orchidaceae     # orchids only (the taxon and its iNat descendants)
-npm run links  -- --limit 1000 --iucn EN  # 1000 Endangered taxa
-```
+The image checker also takes `--taxon <name|iNat id>` to scope a run to one clade, so
+`npm run images -- --taxon Orchidaceae` reaches orchids and their iNat descendants only.
 
 Reports land in `output/`, cross-run caches in `cache/`, and the accumulated backlog in
 `data/findings.db`. All three are gitignored and created on first run. Clearing `output/` and
@@ -115,20 +109,17 @@ through, and nothing can reconstruct it.
 
 ## The upload app
 
-Run the image checker at least once so the findings database has a backlog, then:
-
-```sh
-npm run web                     # http://localhost:8080
-DISCOVER_ENABLED=1 npm run web  # …and allow discovery from the app
-TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web  # …and a daily scheduled top-up
-```
-
 A [Fastify](https://fastify.dev) server (`server/`) serves the app and the findings API over the
 same database the checkers write. It binds `127.0.0.1` by default. Putting it on a network takes
-three deliberate settings, not one: `HOST`, `ALLOW_REMOTE_WRITES`, and `ALLOWED_HOSTS`. Without
-the third the write guard refuses every confirm under a hostname it does not recognise. The threat
-model, every header and every environment variable are in
-[docs/threat-model.md](docs/threat-model.md).
+three deliberate settings, not one: `HOST`, `ALLOW_REMOTE_WRITES` and `ALLOWED_HOSTS`. Without the
+third the write guard refuses every confirm under a hostname it does not recognise. Every header
+and environment variable is in [docs/threat-model.md](docs/threat-model.md).
+
+```sh
+npm run web                                      # http://localhost:8080
+DISCOVER_ENABLED=1 npm run web                   # …and allow discovery from the app
+TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web   # …and a daily scheduled top-up
+```
 
 Nothing is uploaded or edited automatically. The app hands you a pre-filled Commons upload form
 and a QuickStatements batch, and you submit both yourself.
@@ -157,7 +148,7 @@ work through a published port: [docs/container.md](docs/container.md).
 - **`server/`** — the Fastify app behind `npm run web`
 - **`web/`** — the browser upload app, plain HTML/JS/CSS, no build step
 - **`test/`** — unit tests on Node's built-in runner. No dev dependencies, no network
-- **`tools/`** — repo maintenance. `npm run screenshots` regenerates this README's images from the running app
+- **`tools/`** — repo maintenance. `npm run screenshots` and `npm run record` regenerate this README's images from the running app
 - **`output/`, `cache/`, `data/`** — generated artifacts, gitignored, created on first run
 
 ## Documentation
@@ -166,12 +157,12 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 
 | Document | What it covers |
 |---|---|
-| [dev.md](docs/dev.md) | The implementation reference. Module wiring, the SQLite taxa index, the findings store, discovery and search, the SPARQL and CirrusSearch patterns, Commons Taxonavigation rules. |
-| [threat-model.md](docs/threat-model.md) | What the server defends against, and why each header, limit and validation rule is set the way it is. Includes what is deliberately *not* done. An engineering design record, not a disclosure policy. |
-| [container.md](docs/container.md) | Running the server in Docker: the bind mount, uid ownership, the published image, and what does not work through a published port. |
-| [findings-db-roadmap.md](docs/findings-db-roadmap.md) | The plan of record for restructuring the checkers around a persistent database: the ordered slices, the schema, the decisions, and the ones that were reversed during the build. |
-| [commons-integration.md](docs/commons-integration.md) | App-agnostic recipes for Commons, iNaturalist and Wikidata: upload prefill, category discovery, reverse geocoding, author categories. Written to be reusable outside this project. |
-| [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) | The upload app: what it does, and the research and design record behind it. |
+| [dev.md](docs/dev.md) | The implementation reference: module wiring, the taxa index, the findings store, discovery, search, the SPARQL and CirrusSearch patterns. |
+| [threat-model.md](docs/threat-model.md) | What the server defends against and why, including what is deliberately *not* done. A design record, not a disclosure policy. |
+| [container.md](docs/container.md) | Running the server in Docker, and what does not work through a published port. |
+| [findings-db-roadmap.md](docs/findings-db-roadmap.md) | The plan of record for the persistent-database restructure: the slices, the schema, and the decisions that were reversed during the build. |
+| [commons-integration.md](docs/commons-integration.md) | App-agnostic Commons/iNat/Wikidata recipes, written to be reusable outside this project. |
+| [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) | The upload app: what it does, and the design record behind it. |
 
 ## License
 
