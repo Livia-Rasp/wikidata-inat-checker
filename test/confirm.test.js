@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { confirmFindings, confirmLinkFindings, confirmByKind } from '../lib/confirm.js';
+import { confirmFindings, confirmLinkFindings, confirmNameFindings, confirmByKind } from '../lib/confirm.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -247,26 +247,113 @@ test('confirmLinkFindings on an unknown id says so directly, not just through co
     assert.equal(calls.length, 0, 'and it never bothered Wikidata');
 });
 
+// ---- confirmNameFindings: several P1843 statements at once, no sitelink pairing, no picks ----
+
+/** Seeds an open name finding and returns its id. */
+function seedOpenName(store, qid, inatId, missing) {
+    store.upsertTaxon({ qid, inatId, taxonName: `Taxon ${qid}` });
+    store.recordFinding({ qid, kind: 'name', status: 'open', payload: { missing } });
+    return store.listFindings({ kind: 'name' }).find(f => f.qid === qid).id;
+}
+
+/** A raw P1843 monolingualtext claim, as simplify.claims/readNameFacts expect to receive it. */
+const p1843Claim = (locale, name) => ({
+    mainsnak: { datavalue: { value: { language: locale, text: name } } },
+});
+
+/** A fake wbgetentities keyed by QID → [{locale,name}] live on Wikidata, or 'missing'. */
+function fakeNameApi(spec, calls = []) {
+    return async (qids) => {
+        calls.push(qids);
+        const entities = {};
+        for (const qid of qids) {
+            const v = spec[qid];
+            if (v === 'missing' || v === undefined) { entities[qid] = { id: qid, missing: '' }; continue; }
+            entities[qid] = { id: qid, claims: { P1843: v.map(({ locale, name }) => p1843Claim(locale, name)) } };
+        }
+        return { entities, success: 1 };
+    };
+}
+
+test('a name finding confirms once every proposed language is live', async () => {
+    const { db, store } = makeStore();
+    const id = seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }]);
+
+    const [res] = await confirmNameFindings(store, [id], {
+        fetchFn: fakeNameApi({ Q1: [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }] }),
+    });
+
+    assert.equal(res.confirmed, true);
+    assert.equal(res.status, 'done');
+    const row = db.prepare("SELECT resolution FROM findings WHERE qid='Q1'").get();
+    assert.deepEqual(JSON.parse(row.resolution).locales, ['en', 'fr']);
+});
+
+test('a name finding with only some languages live stays open, payload trimmed', async () => {
+    const { db, store } = makeStore();
+    const id = seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }]);
+
+    const [res] = await confirmNameFindings(store, [id], { fetchFn: fakeNameApi({ Q1: [{ locale: 'en', name: 'Jaguar' }] }) });
+
+    assert.equal(res.confirmed, false);
+    assert.equal(res.reason, 'partially_confirmed');
+    assert.equal(res.status, 'open');
+    const row = db.prepare("SELECT status, payload FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'open');
+    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'fr', name: 'Jaguar' }]);
+});
+
+test('a name finding with no proposed language live fails to confirm, distinguishably', async () => {
+    const { store } = makeStore();
+    const id = seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+    const [res] = await confirmNameFindings(store, [id], { fetchFn: fakeNameApi({ Q1: [] }) });
+
+    assert.equal(res.confirmed, false);
+    assert.equal(res.reason, 'missing_names');
+    assert.equal(res.status, 'open');
+});
+
+test('a deleted or merged name-finding item becomes gone', async () => {
+    const { db, store } = makeStore();
+    const id = seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+    await confirmNameFindings(store, [id], { fetchFn: fakeNameApi({ Q1: 'missing' }) });
+    assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'gone');
+});
+
+test('confirmNameFindings on an unknown id says so directly, not just through confirmByKind', async () => {
+    const { store } = makeStore();
+    const calls = [];
+    const [res] = await confirmNameFindings(store, [999_999], { fetchFn: fakeNameApi({}, calls) });
+    assert.equal(res.reason, 'not_found');
+    assert.equal(res.confirmed, false);
+    assert.equal(calls.length, 0, 'and it never bothered Wikidata');
+});
+
 // ---- confirmByKind: a bulk confirm can span kinds ----
 
 test('confirmByKind dispatches each id to its own kind\'s predicate, in the order requested', async () => {
     const { store } = makeStore();
     const imgId = seedOpen(store, 'Q1');
     const linkId = seedOpenLink(store, 'Q2', '41970');
+    const nameId = seedOpenName(store, 'Q3', '99999', [{ locale: 'en', name: 'Blackbird' }]);
 
-    const results = await confirmByKind(store, [linkId, imgId], {
+    const results = await confirmByKind(store, [linkId, imgId, nameId], {
         fetchFn: async (qids) => {
             const entities = {};
             for (const qid of qids) {
-                entities[qid] = qid === 'Q1'
-                    ? { id: qid, claims: { P18: [{ mainsnak: { datavalue: { value: 'Q1.jpg', type: 'string' } } }] }, sitelinks: { commonswiki: { title: 'Category:Taxon Q1' } } }
-                    : { id: qid, claims: { P3151: [{ mainsnak: { datavalue: { value: '41970' } } }] } };
+                if (qid === 'Q1') {
+                    entities[qid] = { id: qid, claims: { P18: [{ mainsnak: { datavalue: { value: 'Q1.jpg', type: 'string' } } }] }, sitelinks: { commonswiki: { title: 'Category:Taxon Q1' } } };
+                } else if (qid === 'Q2') {
+                    entities[qid] = { id: qid, claims: { P3151: [{ mainsnak: { datavalue: { value: '41970' } } }] } };
+                } else {
+                    entities[qid] = { id: qid, claims: { P1843: [p1843Claim('en', 'Blackbird')] } };
+                }
             }
             return { entities, success: 1 };
         },
     });
 
-    assert.deepEqual(results.map(r => r.id), [linkId, imgId], 'results come back in the order requested');
+    assert.deepEqual(results.map(r => r.id), [linkId, imgId, nameId], 'results come back in the order requested');
     assert.ok(results.every(r => r.confirmed === true));
 });
 
