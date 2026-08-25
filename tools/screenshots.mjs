@@ -72,6 +72,17 @@ const TARGETS = [
         crop: `document.getElementById('review').getBoundingClientRect().bottom`,
     },
     {
+        file: 'names.png',
+        url: `${ORIGIN}/names.html`,
+        // No review section, unlike links.html — a name finding has no ambiguity to resolve, so
+        // the worklist table alone is the whole page, the same shape worklist.png captures. Only
+        // one row, unlike worklist.png's two: a name row's height varies with how many languages
+        // are missing (a taxon can carry 20+), so even a single row is routinely much taller than
+        // an images/links row — two would make an unusably tall capture.
+        ready: `document.querySelectorAll('#tbody tr').length > 3`,
+        crop: `document.querySelectorAll('#tbody tr')[0].getBoundingClientRect().bottom`,
+    },
+    {
         file: 'search.png',
         url: `${ORIGIN}/search.html?taxon=${encodeURIComponent(SEARCH_TAXON)}`,
         ready: `!!document.querySelector('.rail') && document.querySelectorAll('#tbody tr').length > 1`,
