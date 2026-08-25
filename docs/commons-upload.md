@@ -58,6 +58,16 @@ Then open <http://localhost:8080/>:
 
    ![The links review section: an ambiguous Wikidata genus name next to two candidate iNat taxa, their taxonomy compared rank by rank](screenshots/links.png)
 
+1e. **Names** (`names.html`) — the same worklist shape again, for Wikidata taxa missing one or
+   more iNaturalist vernacular names (P1843): Confirm checks live Wikidata for every proposed
+   language, resolving the finding once all are live and trimming it to whatever's still missing
+   if only some are. No review section — unlike links, a name candidate has no ambiguity to
+   resolve, so the QuickStatements panel simply batches every open finding's missing-name
+   statements automatically. See [names.md](names.md) for the checker this page is a worklist
+   over.
+
+   ![The names worklist: a taxon's row listing several missing vernacular-name languages alongside their sourced QuickStatements block](screenshots/names.png)
+
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
@@ -207,31 +217,33 @@ never confirm.
 
 ## How it fits together
 
-- `checkImages.js` and `checkLinks.js` record findings in `data/findings.db`, `kind='image'` and
-  `kind='link'` respectively; the server serves them as `GET /api/findings?kind=…` — the only link
-  between the core tools and the app.
-- The app is five pages sharing one persistent nav (`web/js/shell.js`), which carries a
+- `checkImages.js`, `checkLinks.js` and `checkNames.js` record findings in `data/findings.db`,
+  `kind='image'`, `kind='link'` and `kind='name'` respectively; the server serves them as
+  `GET /api/findings?kind=…` — the only link between the core tools and the app.
+- The app is six pages sharing one persistent nav (`web/js/shell.js`), which carries a
   per-workflow open count and a dark/light toggle:
   - **`index.html`**, the image worklist.
   - **`links.html`**, the link worklist plus the ambiguous/conflict review section (`POST
     /findings/:id/pick` for ambiguous, `Skip` for conflict — see [links.md](links.md)).
+  - **`names.html`**, the names worklist — no review section, since a name finding has no
+    ambiguity to resolve (see [names.md](names.md)).
   - **`taxon.html`**, one taxon's photos.
   - **`search.html`**, the backlog search: which clade a finding is in, what a clade holds, and a
     scoped discovery started from a button (`GET /api/search?kind=…`, `POST /api/discover`, both
-    kind-aware — `?kind=link` from `links.html`'s search link searches the link backlog the same
-    way the default searches images).
+    kind-aware — `?kind=link` from `links.html`'s search link, or `?kind=name` from `names.html`'s,
+    searches that backlog the same way the default searches images).
   - **`area.html`**, a vendored Leaflet map (`web/vendor/leaflet/`) over the same discovery
     pipeline, scoped by `{lat, lng, radius}` instead of a clade, plus its own free preview
-    (`GET /api/discover/area`, read-only, no findings recorded). Image-only — links has no area
-    scope.
+    (`GET /api/discover/area`, read-only, no findings recorded). Image-only — neither links nor
+    names has an area scope.
 
-  All three table pages (`index.html`, `links.html`, `search.html`) render their rows through the
-  same `web/js/rows.js`, which dispatches by the finding's `kind`.
+  All four table pages (`index.html`, `links.html`, `names.html`, `search.html`) render their
+  rows through the same `web/js/rows.js`, which dispatches by the finding's `kind`.
 - **Discovery is one job runner, shared by kind.** `POST /discover` takes an optional `tool`
-  (`'images'` default, or `'links'`), dispatched in the forked child to `lib/discover.js` or
-  `lib/discoverLinks.js`; only one discovery run — of either kind — can be in flight at a time.
-  The scheduled top-up (`TOPUP_ENABLED`) tries each kind once a day, in that order, sharing the
-  same scope config and the same slot.
+  (`'images'` default, `'links'`, `'names'`), dispatched in the forked child to `lib/discover.js`,
+  `lib/discoverLinks.js` or `lib/discoverNames.js`; only one discovery run — of any of the three
+  kinds — can be in flight at a time. The scheduled top-up (`TOPUP_ENABLED`) tries each kind once a
+  day, in that order, sharing the same scope config and the same slot.
 - The `web/` app has **no build step**, just plain HTML/JS/CSS. It reads the open backlog from
   `GET /api/findings`. From the browser it queries the iNaturalist API (photos, places, taxon
   ancestry), Commons (category existence, author categories), and the Wikidata Query Service

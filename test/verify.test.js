@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { verifyOpenFindings, readImageFacts, readLinkFacts } from '../lib/verify.js';
+import { verifyOpenFindings, readImageFacts, readLinkFacts, readNameFacts } from '../lib/verify.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -295,4 +295,121 @@ test('readImageFacts reports facts, not verdicts', () => {
             sitelinks: { commonswiki: { title: 'Category:Panthera leo' } },
         }),
         { missing: false, image: 'Lion.jpg', commonsCategory: 'Category:Panthera leo' });
+});
+
+// ---- kind='name' — a finding proposes several P1843 statements, re-checked independently ----
+
+function seedOpenName(store, qid, inatId, missing) {
+    store.upsertTaxon({ qid, inatId, taxonName: `Taxon ${qid}` });
+    store.recordFinding({ qid, kind: 'name', status: 'open', payload: { missing } });
+}
+
+/** A raw P1843 monolingualtext claim, as simplify.claims/readNameFacts expect to receive it. */
+const p1843Claim = (locale, name) => ({
+    mainsnak: { datavalue: { value: { language: locale, text: name } } },
+});
+
+/** A fake wbgetentities keyed by QID → [{locale,name}] live on Wikidata, or 'missing'. */
+function fakeNameApi(spec, calls = []) {
+    return async (qids) => {
+        calls.push(qids);
+        const entities = {};
+        for (const qid of qids) {
+            const v = spec[qid];
+            if (v === 'missing' || v === undefined) { entities[qid] = { id: qid, missing: '' }; continue; }
+            entities[qid] = { id: qid, claims: { P1843: v.map(({ locale, name }) => p1843Claim(locale, name)) } };
+        }
+        return { entities, success: 1 };
+    };
+}
+
+test('every proposed language now live resolves the finding as fixed_upstream', async () => {
+    const { db, store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }]);
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'name',
+        fetchFn: fakeNameApi({ Q1: [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }] }),
+    });
+
+    assert.deepEqual(res.fixedUpstream, ['Q1']);
+    const row = db.prepare("SELECT status, resolved_at, resolution FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'fixed_upstream');
+    assert.ok(row.resolved_at);
+    assert.deepEqual(JSON.parse(row.resolution).locales, ['en', 'fr']);
+});
+
+test('some proposed languages now live trims payload.missing and stays open', async () => {
+    const { db, store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }, { locale: 'fr', name: 'Jaguar' }]);
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'name', fetchFn: fakeNameApi({ Q1: [{ locale: 'en', name: 'Jaguar' }] }),
+    });
+
+    assert.equal(res.stillOpen, 1);
+    const row = db.prepare("SELECT status, resolved_at, payload FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'open');
+    assert.equal(row.resolved_at, null, 'a trimmed-but-open finding is not a resolved one');
+    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'fr', name: 'Jaguar' }]);
+});
+
+test('none of the proposed languages are live: stays open, payload untouched, just looked at', async () => {
+    const { db, store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+    const before = db.prepare("SELECT verified_at FROM findings WHERE qid='Q1'").get().verified_at;
+    assert.equal(before, null);
+
+    const res = await verifyOpenFindings(store, { kind: 'name', fetchFn: fakeNameApi({ Q1: [] }) });
+
+    assert.equal(res.stillOpen, 1);
+    const row = db.prepare("SELECT status, verified_at, payload FROM findings WHERE qid='Q1'").get();
+    assert.equal(row.status, 'open');
+    assert.ok(row.verified_at, 'verified_at moves');
+    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'en', name: 'Jaguar' }]);
+});
+
+test('--limit caps a name-verify pass, and onProgress is called as each is checked', async () => {
+    const { store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+    seedOpenName(store, 'Q2', '41971', [{ locale: 'en', name: 'Cougar' }]);
+    const progress = [];
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'name', limit: 1, fetchFn: fakeNameApi({ Q1: [], Q2: [] }),
+        onProgress: (done, total) => progress.push([done, total]),
+    });
+
+    assert.equal(res.verified, 1, 'only the first of the backlog was checked');
+    assert.deepEqual(progress, [[1, 1]]);
+});
+
+test('a merged or deleted name-finding item becomes gone', async () => {
+    const { db, store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+
+    const res = await verifyOpenFindings(store, { kind: 'name', fetchFn: fakeNameApi({ Q1: 'missing' }) });
+
+    assert.deepEqual(res.gone, ['Q1']);
+    assert.equal(db.prepare("SELECT status FROM findings WHERE qid='Q1'").get().status, 'gone');
+});
+
+test('a name comparison is case-insensitive, matching how the finding was recorded', async () => {
+    const { store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'name', fetchFn: fakeNameApi({ Q1: [{ locale: 'en', name: 'jaguar' }] }),
+    });
+
+    assert.deepEqual(res.fixedUpstream, ['Q1']);
+});
+
+test('readNameFacts reports facts, not verdicts', () => {
+    assert.deepEqual(readNameFacts(undefined), { missing: true, names: null });
+    assert.deepEqual(readNameFacts({ id: 'Q1', missing: '' }), { missing: true, names: null });
+    assert.deepEqual(readNameFacts({ id: 'Q1', claims: {} }), { missing: false, names: new Set() });
+    assert.deepEqual(
+        readNameFacts({ id: 'Q1', claims: { P1843: [p1843Claim('en', 'Jaguar'), p1843Claim('fr', 'Jaguar')] } }),
+        { missing: false, names: new Set(['en:jaguar', 'fr:jaguar']) });
 });

@@ -108,9 +108,24 @@ test('links discovery rejects an area scope — it has no area-scope equivalent'
     assert.deepEqual(jobs.calls, []);
 });
 
+test('a names run passes tool through to the runner', async (t) => {
+    const { app, jobs } = makeApp(t);
+    await post(app, '/api/discover', { tool: 'names', iucn: 'VU' });
+    assert.equal(jobs.calls[0].start.tool, 'names');
+});
+
+test('names discovery rejects an area scope — it has no area-scope equivalent', async (t) => {
+    const { app, jobs } = makeApp(t);
+    const res = await post(app, '/api/discover', { tool: 'names', lat: 48, lng: 11, radius: 5 });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().code, 'unsupported_scope_combination');
+    assert.deepEqual(jobs.calls, []);
+});
+
 test('an unknown tool is rejected by the schema', async (t) => {
     const { app, jobs } = makeApp(t);
-    assert.equal((await post(app, '/api/discover', { tool: 'names' })).statusCode, 400);
+    assert.equal((await post(app, '/api/discover', { tool: 'notatool' })).statusCode, 400);
     assert.deepEqual(jobs.calls, []);
 });
 
@@ -321,6 +336,17 @@ test('status?tool=links reports the links run history separately from images', a
     assert.equal(images.lastRun.found, 1);
     const links = (await app.inject('/api/discover/status?tool=links')).json();
     assert.equal(links.lastRun.found, 3);
+});
+
+test('status?tool=names reports the names run history separately from images and links', async (t) => {
+    const { app, store } = makeApp(t);
+    const imgId = store.startRun('images', {}, 'manual');
+    store.finishRun(imgId, { scanned: 1, found: 1 });
+    const nameId = store.startRun('names', {}, 'manual');
+    store.finishRun(nameId, { scanned: 7, found: 4 });
+
+    const names = (await app.inject('/api/discover/status?tool=names')).json();
+    assert.equal(names.lastRun.found, 4);
 });
 
 test('status has no topup block when scheduling is off', async (t) => {

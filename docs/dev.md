@@ -8,7 +8,7 @@ Its companion is [threat-model.md](threat-model.md) — the threat model for `se
 
 Each entry script wires shared modules together; all data flows in memory.
 
-Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `cache`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders and their shared `htmlShared`); the HTTP layer is in **`server/`**. The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
+Source is grouped by role: entry scripts (`check*.js`, `draftCategory.js`) sit at the repository root; shared core/domain logic is in **`lib/`** (`utils`, `getInatTaxaDb`, `getFromInat`, `getInatNames`, `generateWikitext`); output rendering is in **`report/`** (the `generate*HTML` builders and their shared `htmlShared`); the HTTP layer is in **`server/`**. The diagrams reference modules by their real paths; method-call notation like `utils.foo()` / `getInatTaxaDb.bar()` refers to `lib/utils` / `lib/getInatTaxaDb`.
 
 ### Image checker (`checkImages.js`)
 ```
@@ -29,21 +29,43 @@ checkImages.js
        (the web app needs no export — server/ reads the same database live)
 ```
 
-### Vernacular names checker (`checkNames.js`)
+### Vernacular names checker (`checkNames.js`, `lib/discoverNames.js`)
+
+Migrated onto the findings database in slice 8, the same shape `checkLinks.js`/
+`lib/discoverLinks.js` took in slice 7: `checkNames.js` is argument parsing and report rendering;
+`discoverNames({store, taxaDb, scope, limit, seed, showAll, onProgress, signal})` is the work, and
+the server runs the identical function for on-demand and scheduled discovery. It is a **sibling**
+to `lib/discover.js`/`lib/discoverLinks.js`, not a generalisation of either — unlike links, there is
+no "which iNat taxon" ambiguity to classify (every candidate already carries a confirmed `inatId`
+from a P3151-linked WD item), so recording happens in one pass after the batched Wikidata + iNat
+fetches, the same shape `discoverLinks.js` uses rather than `discover.js`'s per-batch recording
+(which exists only because images' per-taxon photo lookups are expensive and worth interrupting
+mid-run). `server/discoverChild.js` dispatches by `config.tool` (`'images'` default, `'links'`,
+`'names'`).
+
 ```
-checkNames.js
+discoverNames()
   └─ lib/getInatTaxaDb.js {allInatIds()}: all iNat taxon IDs (drives the Wikidata query)
        → shuffled (utils.shuffle(), seeded via --seed) before the --limit cutoff, same reason
-         as the image checker
+         as the image and links checkers
   └─ utils.fetchWdTaxaLinkedByInatIds() → Wikidata: query BY iNat ID in VALUES POST batches
        → taxa with P3151 = a local iNat ID, no absence filter (P1843 is filtered downstream,
          not at query time — --all decides whether taxa with *some* P1843 are still shown)
        → with --iucn: utils.fetchWdNamesByIucn() runs one direct P141-filtered query instead
-       → --limit caps collected candidates; cached ids skipped to reach new taxa
-       └─ lib/generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per item
-       └─ lib/getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
-       └─ diff: iNat names absent from Wikidata P1843 (case-insensitive, scientific name excluded)
+       → deduped by qid (taxa/findings/skipQids() are qid-keyed throughout), not inatId — a
+         deliberate change from the pre-migration checkNames.js's inatId-keyed dedupe
+       → lib/db.js {skipQids('name', ...)}: qids already settled, or negative but still inside
+         --recheck-after — the direct replacement for the old cache-names.json tombstone
+  └─ lib/generateWikitext.js (fetchEntities): Wikidata P225 + P1843 per candidate, one batch
+  └─ lib/getInatNames.js: iNat /v1/taxa?all_names=true → names per taxon
+  └─ diff: iNat names absent from Wikidata P1843 (case-insensitive; scientific name and bare
+       genus excluded — see "Genus-as-vernacular leak" below)
+  └─ lib/db.js {upsertTaxon(), recordFinding()}: every taxon with ≥1 missing name persisted to
+       data/findings.db, kind='name', payload {missing: [{locale, name}, ...]}
+  └─ lib/db.js {listFindings({kind:'name', status:'open'})}: the WHOLE open backlog, not just
+       this run — its row shape already matches generateNamesHTML's NameItem type exactly
        └─ report/generateNamesHTML.js: writes output/names.html (QuickStatements + aggregate field)
+       (the web app needs no export — server/ reads the same database live)
 ```
 
 ### iNat links checker (`checkLinks.js`, `lib/discoverLinks.js`)
@@ -55,8 +77,8 @@ the identical function for on-demand and scheduled discovery. It is a **sibling*
 `lib/discover.js`, not a generalisation of it — the two pipelines diverge past run bookkeeping
 (images batches iNat photo lookups and builds wikitext drafts; links does a SPARQL P3151
 cross-check, a P13177 homonym filter, and an ancestor-chain comparison), so `server/discoverChild.js`
-dispatches between them by `config.tool` (`'images'` default, `'links'`) rather than either
-function trying to serve both shapes.
+dispatches between them by `config.tool` (`'images'` default, `'links'`, `'names'`) rather than any
+one function trying to serve every shape.
 
 ```
 discoverLinks()
@@ -126,10 +148,10 @@ checkArea.js (args: --lat --lng --radius)
 
 ## Output, cache and data locations (`lib/paths.js`)
 
-All generated files go under three gitignored, auto-created top-level dirs, so nothing generated sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators, `lib/cache.js`'s `saveCache`, and `lib/utils.js`'s `saveCommonsCatCache`).
+All generated files go under three gitignored, auto-created top-level dirs, so nothing generated sits in the repo root. `lib/paths.js` centralises this: `outputPath(name)` → `output/<name>` (deliverables), `cachePath(name)` → `cache/<name>` (cross-run caches), `dataPath(name)` → `data/<name>` (the findings database), and `ensureParentDir(file)` `mkdir -p`s the parent right before a write (called by every writer — the generators and `lib/utils.js`'s `saveCommonsCatCache`).
 
 - **`output/`** — `drafts.html`, `names.html`, `links.html`, `links-ambiguous.html`, `links-auto.qs`, `inat-links-conflicts.json`, `area.html`. Report builders default their `outputFile` param to `outputPath(...)`, so a caller can still redirect a single report elsewhere.
-- **`cache/`** — `cache-names.json` (the names checker's "already scanned" set) plus `cache-commons-cats.json` (Commons category existence). The image and links checkers have neither: images moved to `data/findings.db` in slice 1, links in slice 7 (its `cache-links.json` tombstone is gone — `skipQids('link', ...)` is the replacement), and names is the one still to migrate. Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
+- **`cache/`** — `cache-commons-cats.json` (Commons category existence) only. The image, links and names checkers all keep no cache file of their own any more: images moved to `data/findings.db` in slice 1, links in slice 7 (its `cache-links.json` tombstone is gone — `skipQids('link', ...)` is the replacement), names in slice 8 (`cache-names.json` likewise gone, replaced by `skipQids('name', ...)`). Kept out of `output/` on purpose: clearing reports mustn't blow away the caches, or every re-run re-scans from scratch.
 - **`data/`** — `findings.db` only, and unlike the other two it is **not safe to delete**: it is the accumulated backlog and the record of what has been worked through, and nothing can reconstruct it. See [Findings database](#findings-database-libdbjs) below. `findingsDbPath()` is the single definition of where it lives, honouring `FINDINGS_DB` for every process that opens it — the checkers as well as the server, which is what lets a container mount the volume elsewhere and a test run point somewhere disposable.
 
 One thing deliberately lives elsewhere: the ~236 MB iNat taxa SQLite index (`~/.cache/wikidata-inat-checker/`, managed by `lib/getInatTaxaDb.js`). **Only the CLI may build it** — `ensureTaxaDb()` downloads ~189 MB and rebuilds; `openTaxaDb()` is the server's counterpart and throws instead.
@@ -267,15 +289,16 @@ a plausible target for it.
 
 **One runner, dispatched by `config.tool`.** Slice 7 added `lib/discoverLinks.js` (a sibling to
 `lib/discover.js`, not a generalisation — see the links-checker section above) without adding a
-second job runner: `server/discoverChild.js` picks `discover` or `discoverLinks` from a
-`{images, links}` map keyed on `config.tool` (default `'images'`), and `server/jobs.js` itself
-needed no change at all — it only ever forks whatever `discoverChild.js` runs and reads IPC message
-shapes, never which pipeline produced them. The consequence, decided deliberately rather than
-discovered by accident: **only one discovery run, of either kind, can be in flight at a time** —
-the single-flight lock in `jobs.js` is global, not per-tool. `POST /discover`'s `tool` field and
-`GET /discover/status?tool=` both default to `'images'` for backward compatibility;
-`publicStatus()`'s "last run" lookup takes the same `tool` param, since `jobs.status()`'s *live*
-progress needs no such choice — only one tool's run can ever be live.
+second job runner, and slice 8 added `lib/discoverNames.js` the same way: `server/discoverChild.js`
+picks `discover`, `discoverLinks` or `discoverNames` from a `{images, links, names}` map keyed on
+`config.tool` (default `'images'`), and `server/jobs.js` itself needed no change at all — it only
+ever forks whatever `discoverChild.js` runs and reads IPC message shapes, never which pipeline
+produced them. The consequence, decided deliberately rather than discovered by accident: **only one
+discovery run, of any kind, can be in flight at a time** — the single-flight lock in `jobs.js` is
+global, not per-tool. `POST /discover`'s `tool` field and `GET /discover/status?tool=` both default
+to `'images'` for backward compatibility; `publicStatus()`'s "last run" lookup takes the same `tool`
+param, since `jobs.status()`'s *live* progress needs no such choice — only one tool's run can ever
+be live.
 
 ### Area as a scope (`lib/areaCandidates.js`, `GET /api/discover/area`)
 
@@ -368,8 +391,11 @@ rather than a single closure variable — a link search and an image search now 
 ancestor-caches instead of thrashing one shared one. `web/search.html`/`search.js` read `?kind=`
 once at boot (fixed for the page's life, unlike `taxon`/`iucn` which change per query) and carry it
 on every URL and API call they write, including into `POST /discover`'s `tool` field via
-`createTopup({tool})` — search's "Find more" is also links' only on-demand discovery entry point,
-there being no bespoke scope form on `links.html` itself.
+`createTopup({tool})` — search's "Find more" is also links' and names' only on-demand discovery
+entry point, there being no bespoke scope form on `links.html` or `names.html` themselves. Slice 8
+added the third `kind`/`THEAD_HTML` value the same way — `search.js`'s `KIND` resolution had been a
+binary `=== 'link' ? 'link' : 'image'` check since slice 7, widened to a real three-way rather than
+grown into a nested ternary.
 
 **It walks up, not down** — the one place this deliberately departs from the roadmap, which called
 for `descendantInatIds()` and a set intersection. Measured against the real index:
@@ -460,6 +486,16 @@ built it), so `confirmByKind(store, ids, opts)` groups by each finding's own kin
 predicate once, and reassembles results in the order requested. The route layer needed no change —
 it already just forwarded ids and returned results; only this dispatch layer knows kinds exist.
 
+**Names get a third predicate, `confirmNameFindings`, and this one genuinely differs in shape from
+both siblings**: a name finding proposes *several* P1843 statements at once (one per missing
+locale), not one. Each locale is re-checked independently against live Wikidata — all-live is
+`done`; some-live trims `payload.missing` to what's still absent via `recordFinding()` (a fresh,
+smaller candidacy, exactly the "re-check upserts in place" path a link conflict's reopening already
+uses) and the finding **stays `open`**; none-live is the usual no-op. `confirmResultSchema`
+(`server/routes/findings.js`) has no wildcard properties — Fastify's serializer silently drops
+anything not declared there — so the partial-vs-none distinction lives only in the existing
+`reason` string (`partially_confirmed` / `missing_names`), not a new response field.
+
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 
 `verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
@@ -480,6 +516,17 @@ same "re-check upserts in place" path negative-status expiry already uses, becau
 candidacy, not a "still true" observation, and `resolved_at`/`resolution` are terminal-state
 columns that must not be stamped on a row that is, again, actionable.
 
+**`kind: 'name'` dispatches to `verifyNameFindings`.** `readNameFacts` returns the *whole* live
+P1843 set (as `"locale:name"` keys, case-folded), not one value — a name finding proposes several
+statements, so each of `payload.missing`'s entries is tested against that set independently. Every
+proposed locale live → `fixed_upstream`. Some live → the same `recordFinding()`-not-`markVerified()`
+re-open path link's conflict-reverification established, trimming `missing` to what's still absent
+and leaving the finding `open`. None live → `markVerified()` with no status change, same as every
+other kind's "looked, still actionable" case. `VerifyResult`'s existing `{verified, fixedUpstream,
+gone, stillOpen}` shape has no field distinguishing "trimmed but still open" from "unchanged, still
+open" — both land in `stillOpen`, a deliberate simplification rather than growing the typedef for
+one kind.
+
 ### Batched entity fetches (`utils.fetchEntitiesBatched`)
 
 One helper owns the `wbgetentities` ceiling of **50 ids per request** and the Wikimedia guidance of **≤3 concurrent requests** (the three call sites it replaced each used 4), plus retry via the shared `fetchWithRetry`. `sitefilter` and `languages` are parameters rather than constants because callers want different things — the ancestor walk needs `specieswiki`, verification needs `commonswiki`, place labels need `props=labels&languages=en` — and a single widened filter would make every batch carry payload most callers never read.
@@ -490,9 +537,9 @@ A well-formed but deleted or merged id returns per-entity `{id, missing: ''}`, s
 
 iNaturalist returns Chinese names under `zh-CN` and `zh-TW`. These are normalised to `zh-hans` and `zh-hant` respectively before comparison with Wikidata, because Wikidata uses lowercase script subtags for these languages.
 
-## Genus-as-vernacular leak (`checkNames.js`)
+## Genus-as-vernacular leak (`lib/discoverNames.js`)
 
-iNaturalist sometimes stores the genus name itself as a vernacular name for a species in certain locales (e.g. `de:"Olyra"` for *Olyra longicaudata*). These pass through the scientific-name exclusion filter — which only strips the full binomial — unless explicitly checked. `checkNames.js` filters them by comparing each candidate name against the first word of the scientific name (`sciName.split(' ')[0]`).
+iNaturalist sometimes stores the genus name itself as a vernacular name for a species in certain locales (e.g. `de:"Olyra"` for *Olyra longicaudata*). These pass through the scientific-name exclusion filter — which only strips the full binomial — unless explicitly checked. `discoverNames.js` filters them by comparing each candidate name against the first word of the scientific name (`sciName.split(' ')[0]`).
 
 ## Taxonavigation ancestor traversal (`lib/generateWikitext.js`)
 

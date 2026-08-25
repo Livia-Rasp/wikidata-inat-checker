@@ -33,7 +33,7 @@ export function describe(s) {
  *   onStatus: (s: object, running: boolean) => void,
  *   onSettled?: (s: object) => void,
  *   intervalMs?: number,
- *   tool?: 'images'|'links',
+ *   tool?: 'images'|'links'|'names',
  * }} opts
  */
 export function createTopup({ onStatus, onSettled = () => {}, intervalMs = 2000, tool = 'images' }) {

@@ -8,9 +8,10 @@ import { openFindingsDb } from '../lib/db.js';
 import { openTaxaDb, TaxaIndexUnavailable } from '../lib/getInatTaxaDb.js';
 import { discover, DiscoveryError } from '../lib/discover.js';
 import { discoverLinks } from '../lib/discoverLinks.js';
+import { discoverNames } from '../lib/discoverNames.js';
 
 /** config.tool picks which pipeline runs; 'images' stays the default for backward compatibility. */
-const RUNNERS = { images: discover, links: discoverLinks };
+const RUNNERS = { images: discover, links: discoverLinks, names: discoverNames };
 
 // The only thing that stops this outliving a parent that was killed outright: the IPC channel
 // closes when the parent dies, however it dies.

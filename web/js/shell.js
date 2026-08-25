@@ -9,16 +9,16 @@ import { getJson } from './api.js';
 const THEME_KEY = 'winc-theme';
 
 /**
- * href: null means the workflow has no page yet — disabled placeholders (links, names) render as
- * a <span>, not a link, and become real the moment their slice lands, with no shell rewrite. kind
- * drives the per-workflow open count; area has none (it is a discovery *scope* on the image kind,
- * not a kind of its own — a count here would either duplicate the images tally or invent a concept
- * the schema does not have).
+ * href: null means the workflow has no page yet — a disabled placeholder renders as a <span>, not
+ * a link, and becomes real the moment its slice lands, with no shell rewrite (links in slice 7,
+ * names in slice 8). kind drives the per-workflow open count; area has none (it is a discovery
+ * *scope* on the image kind, not a kind of its own — a count here would either duplicate the
+ * images tally or invent a concept the schema does not have).
  */
 const NAV = [
     { id: 'images', label: 'Images', href: 'index.html', kind: 'image', enabled: true },
     { id: 'link', label: 'Links', href: 'links.html', kind: 'link', enabled: true },
-    { id: 'name', label: 'Names', href: null, kind: 'name', enabled: false, caption: 'Not yet migrated' },
+    { id: 'name', label: 'Names', href: 'names.html', kind: 'name', enabled: true },
     { id: 'area', label: 'Area', href: 'area.html', kind: null, enabled: true, caption: 'Find species missing photos near a place' },
 ];
 

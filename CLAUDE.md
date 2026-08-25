@@ -101,8 +101,8 @@ All gitignored and created on first write; `lib/paths.js` centralises the paths.
 disposable, one is not:
 
 - **`output/`** — the HTML/QS deliverables. Safe to delete; a re-run regenerates them.
-- **`cache/`** — cross-run caches (`cache-names.json`, `cache-commons-cats.json`). Safe to delete;
-  re-runs then re-scan from scratch. Images and links keep no cache file — both moved to
+- **`cache/`** — cross-run caches (`cache-commons-cats.json`). Safe to delete; re-runs then
+  re-scan from scratch. Images, links and names keep no cache file — all three moved to
   `data/findings.db`.
 - **`data/findings.db` — NOT safe to delete.** The accumulated backlog and everything worked
   through, which nothing can reconstruct. See [images.md](docs/images.md).
@@ -140,7 +140,7 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–7 are done; 8–10 remain, and OAuth is
+  restructure around `data/findings.db`. Slices 0–8 are done; 9–10 remain, and OAuth is
   deliberately outside the plan. Three known gaps are written up there rather than fixed:
   **`skipped` is global**, a **CLI run killed outright stays `running`** (only the server
   reconciles), and the **scheduled top-up retries every interval rather than once a day** when the

@@ -38,6 +38,8 @@ export const REASONS = {
     missing_sitelink: 'Image is live, but the Commons category sitelink is still missing.',
     missing_p18_and_sitelink: 'Neither statement is live yet.',
     missing_p3151: 'No P3151 statement on Wikidata yet — has the QuickStatements line run?',
+    missing_names: 'None of the proposed names are live on Wikidata yet — has the QuickStatements batch run?',
+    partially_confirmed: 'Some of the proposed names are now live; the rest are still missing — reload to see which.',
     gone: 'This Wikidata item has been deleted or merged away.',
     not_found: 'This finding is no longer in the backlog — reload.',
 };
@@ -104,7 +106,50 @@ function linkRowHtml(t) {
     </tr>`;
 }
 
-const RENDERERS = { image: imageRowHtml, link: linkRowHtml };
+/** Ported from report/generateNamesHTML.js's buildQuickStatements — web/ has no build step and
+ *  cannot import lib/'s Node-only code, the same reason links.js reimplements its own tree
+ *  rendering instead of importing report/htmlShared.js's. Exported so names.js's QuickStatements
+ *  panel can build the same multi-line, sourced block without a second copy of the format. */
+export function buildNameQuickStatements(qid, inatId, missing) {
+    const wdDate = `+${new Date().toISOString().slice(0, 10)}T00:00:00Z/11`;
+    const ref = `\tS248\tQ16958215\tS854\t"https://www.inaturalist.org/taxa/${inatId}"\tS813\t${wdDate}`;
+    return missing.map(({ locale, name }) => `${qid}\tP1843\t${locale}:"${name}"${ref}`).join('\n');
+}
+
+/** Same shell as imageRowHtml/linkRowHtml, different columns — a name finding proposes several
+ *  P1843 statements at once (one per missing locale), so there is no confidence badge (every
+ *  candidate already has a confirmed inatId, no ambiguity to flag) and the draft cell carries the
+ *  full multi-line, sourced QuickStatements block rather than a one-liner. */
+function nameRowHtml(t) {
+    const inatId = t.inatTaxonId;
+    const inatCell = inatId
+        ? `<a href="${escapeHtml(INAT_TAXON(inatId))}" target="_blank">${escapeHtml(inatId)}</a>`
+        : '—';
+    const missing = t.payload?.missing ?? [];
+    const namesHtml = missing.map(({ locale, name }) =>
+        `<span class="name-entry"><span class="locale">${escapeHtml(locale)}</span> ${escapeHtml(name)}</span>`
+    ).join('');
+    const qs = inatId ? buildNameQuickStatements(t.qid, inatId, missing) : '';
+
+    return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
+      <td class="check-col">
+        <button class="confirm-btn" title="Check live Wikidata for these names">Confirm</button>
+        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+      </td>
+      <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
+      <td class="iucn-col">${iucnBadge(t.iucn)}</td>
+      <td class="taxon-col">${escapeHtml(t.taxonName || '—')}</td>
+      <td class="inat-col">${inatCell}</td>
+      <td class="names-col">${namesHtml}</td>
+      <td class="draft-col">
+        <pre class="draft">${escapeHtml(qs)}</pre>
+        <span class="hint">Copied!</span>
+        <span class="row-msg"></span>
+      </td>
+    </tr>`;
+}
+
+const RENDERERS = { image: imageRowHtml, link: linkRowHtml, name: nameRowHtml };
 
 /** Dispatched by t.kind — the table itself (paging, confirm/skip delegation, applyResult) is one
  *  shared shell; only the per-kind markup differs. */
