@@ -53,11 +53,9 @@ const p1843 = (pairs) => pairs.map(({ locale, name }) => ({
 function makeEntitiesStub(fixtures) {
     return async (qids) => Object.fromEntries(qids.map((qid) => {
         const f = fixtures[qid];
-        // formatversion=2 (fetchEntitiesBatched's own fixed param) returns `missing` as a real
-        // boolean, unlike the legacy empty-string marker other test fakes in this repo use for a
-        // `!== undefined` check — discoverNames.js tests `entity.missing` for truthiness instead,
-        // so the fixture must match what the real API actually sends here.
-        if (!f || f === 'missing') return [qid, { missing: true }];
+        // The real API marks a merged/deleted entity with `missing: ''` (confirmed live against
+        // wbgetentities) — falsy, so discoverNames.js must test `!== undefined`, not truthiness.
+        if (!f || f === 'missing') return [qid, { missing: '' }];
         return [qid, { claims: { P225: p225(f.taxonName), ...(f.names ? { P1843: p1843(f.names) } : {}) } }];
     }));
 }
