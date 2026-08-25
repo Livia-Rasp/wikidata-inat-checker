@@ -108,8 +108,9 @@ function linkRowHtml(t) {
 
 /** Ported from report/generateNamesHTML.js's buildQuickStatements — web/ has no build step and
  *  cannot import lib/'s Node-only code, the same reason links.js reimplements its own tree
- *  rendering instead of importing report/htmlShared.js's. */
-function buildNameQuickStatements(qid, inatId, missing) {
+ *  rendering instead of importing report/htmlShared.js's. Exported so names.js's QuickStatements
+ *  panel can build the same multi-line, sourced block without a second copy of the format. */
+export function buildNameQuickStatements(qid, inatId, missing) {
     const wdDate = `+${new Date().toISOString().slice(0, 10)}T00:00:00Z/11`;
     const ref = `\tS248\tQ16958215\tS854\t"https://www.inaturalist.org/taxa/${inatId}"\tS813\t${wdDate}`;
     return missing.map(({ locale, name }) => `${qid}\tP1843\t${locale}:"${name}"${ref}`).join('\n');
