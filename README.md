@@ -92,7 +92,7 @@ survives across runs and across tools.
 |---|---|---|---|
 | Image checker | `npm run images` | `data/findings.db`, `output/drafts.html` | [docs/images.md](docs/images.md) |
 | Verification | `npm run verify` | prunes the backlog, re-renders reports | [docs/images.md](docs/images.md#verification) |
-| Vernacular names | `npm run names` | `output/names.html` | [docs/names.md](docs/names.md) |
+| Vernacular names | `npm run names` | `data/findings.db`, `output/names.html` | [docs/names.md](docs/names.md) |
 | iNat links | `npm run links` | `data/findings.db`, `output/links.html`, `output/links-ambiguous.html` | [docs/links.md](docs/links.md) |
 | Area checker | `npm run area -- --lat <lat> --lng <lng> --radius <km>` | `output/area.html`, and the shared backlog | [docs/area.md](docs/area.md) |
 | Category draft | `npm run draft -- <QID> [<QID> …]` | draft printed to stdout | [docs/images.md](docs/images.md#generating-a-single-category-draft) |
@@ -124,9 +124,10 @@ TOPUP_ENABLED=1 DISCOVER_ENABLED=1 npm run web   # …and a daily scheduled top-
 Nothing is uploaded or edited automatically. The app hands you a pre-filled Commons upload form
 and a QuickStatements batch, and you submit both yourself.
 
-Five pages, sharing one nav: the **worklist**, a **links worklist** (with an ambiguous/conflict
-review section), one taxon's **photo gallery**, a **backlog search** scoped to any clade, and an
-**area picker** that finds image-less taxa near a point on a map. What each page does, and the
+Six pages, sharing one nav: the **worklist**, a **links worklist** (with an ambiguous/conflict
+review section), a **names worklist**, one taxon's **photo gallery**, a **backlog search** scoped
+to any clade, and an **area picker** that finds image-less taxa near a point on a map. What each
+page does, and the
 full confirm loop, is in [docs/commons-upload.md](docs/commons-upload.md).
 
 ## Running it in a container

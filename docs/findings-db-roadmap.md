@@ -4,13 +4,13 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–7 are shipped — the findings database, the verification pass, the Fastify
+**Status:** slices 0–8 are shipped — the findings database, the verification pass, the Fastify
 backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
-backlog search, a container that runs, the app shell, area as a discovery scope, and the links
-checker with a real ambiguous/conflict review UI. Remaining: 8 (the names checker onto the findings
-table), 9 (deploying that container, with backups) and 10 (making discovery reachable once it is
-deployed). Each slice ships as its own pull request, and each records below what turned out
-differently from the plan — that is the part worth reading.
+backlog search, a container that runs, the app shell, area as a discovery scope, the links checker
+with a real ambiguous/conflict review UI, and the names checker onto the findings table. Remaining:
+9 (deploying that container, with backups) and 10 (making discovery reachable once it is deployed).
+Each slice ships as its own pull request, and each records below what turned out differently from
+the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -743,9 +743,92 @@ recorded 199 open, 1 ambiguous, 0 conflicts; `worklist.png`/`search.png`/`area.j
 regenerated and show the real Links nav-tile count; `links.png` regenerated showing the real
 ambiguous case.
 
-### 8. Names checker → `kind=name` and a `/names` subpage
-Migrates `checkNames.js`. Verification is per-language: P1843 must not already carry a name in the
-language the finding proposes.
+### 8. Names checker → `kind=name` and a `/names` subpage — **done**
+Migrated `checkNames.js` onto the findings table, the same shape slice 7 gave links: `checkNames.js`
+is now a thin CLI wrapper over `lib/discoverNames.js`, which the server runs identically for
+on-demand and scheduled discovery. Unlike link's `ambiguous`/`conflict`/`no_match`, names needed
+**no new statuses at all** — `open`/`done`/`skipped`/`fixed_upstream`/`gone` (already in
+`STICKY_STATUSES`) cover every transition, because a name candidate has no "which iNat taxon"
+ambiguity to resolve: every candidate already carries a confirmed `inatId` from a P3151-linked WD
+item, so the only open question is which languages are missing. **No schema migration was needed
+either** — `kind` was already free-text and `payload` already opaque JSON, exactly as it was for
+link in slice 7.
+
+Livia settled the design before implementation, once the roadmap's own two-sentence stub turned out
+to leave the real shape undecided:
+
+- **One row per taxon, not per (taxon, language).** A name finding proposes several P1843
+  statements at once (`payload.missing: [{locale, name}, ...]`), and verify/confirm each re-check
+  every proposed pair independently against live Wikidata — full resolution retires the finding,
+  partial resolution trims `missing` to what's still absent and keeps it `open`. The alternative
+  (one row per language) would have needed the first schema migration since v1 for no real benefit,
+  and multiplied row count for every multilingual taxon.
+- **Full discovery parity with links, in this same slice** — `server/discoverChild.js`'s `RUNNERS`,
+  `server/routes/discover.js`'s two `tool` enums, and `server/scheduledTopup.js`'s `TOOLS` array all
+  gained a `names` entry, so the app's "Find more" and the daily top-up cover names from day one
+  rather than as a later follow-up.
+- **The QuickStatements panel batches every open finding automatically**, unlike links' panel,
+  which filters to an `--auto`-eligible subset. A name candidate has no confidence axis to gate on
+  — the taxon match is already certain, only the language list varies — so there is nothing to
+  filter on. The old static `output/names.html`'s per-row opt-in checkbox (a real safeguard against
+  a single wrong iNat translation) was considered and not carried into the app; per-row
+  copy-on-click stays available as the manual fallback.
+
+Six things turned out differently from, or beyond, the plan:
+
+- **A real, confirmed bug in code ported verbatim from the pre-migration `checkNames.js`.**
+  `if (entity.missing) continue;` tests truthiness, but a real `wbgetentities` response marks a
+  merged/deleted entity with `missing: ''` — an empty string, falsy — confirmed live against the
+  actual API, not assumed. The check therefore never fired: a candidate merged or deleted between
+  SPARQL collection and the entity fetch would silently fall through the diff and get recorded as a
+  finding for a QID that no longer exists. Caught only because `lib/verify.js`'s own
+  `readNameFacts`/`readImageFacts`/`readLinkFacts` already used the correct `!== undefined` pattern
+  and `dev.md`'s own note on `fetchEntitiesBatched` already documented the `missing: ''` shape —
+  writing the docs surfaced the inconsistency. Harmless in the pre-migration report (a bogus row in
+  a disposable HTML file nobody audited row-by-row); consequential once findings persist. Fixed
+  before this slice closed, not left for a later one.
+- **`confirmByKind`'s dispatch had a live gap this slice closed, not just added a branch to.**
+  Before slice 8, any `kind` other than `'link'` fell through to the P18+sitelink image predicate —
+  harmless until now because no third kind existed, but a `kind='name'` id passed through it would
+  have silently run the wrong predicate. The three-way dispatch fixes a real bug, the same shape
+  slice 7's dispatch fix for link did over the unconditional image predicate in `verifyOpenFindings`.
+- **Deduped by `qid`, not `inatId`** — a deliberate behaviour change from the pre-migration
+  `checkNames.js`, which deduped candidates by iNat id purely because that was the identity its
+  by-inatId enumeration order happened to offer. `taxa`/`findings`/`skipQids()` are qid-keyed
+  throughout the database, so `discoverNames.js` dedupes the same way `discoverLinks.js` does.
+- **`test/discoverRoutes.test.js`'s own "unknown tool" test would have started silently passing for
+  the wrong reason.** It used `tool: 'names'` as its example of a schema-rejected value — true right
+  up until this slice added `'names'` to the enum, at which point the test would keep passing
+  (a genuinely unknown string still gets rejected) while no longer testing what its name claims.
+  Caught and rewritten before merge, with names-parallel siblings added for the two things the test
+  file only checked for links (tool passthrough, area-scope rejection).
+- **`names.png`'s screenshot crop needed its own shape**, not `worklist.png`'s copied as-is. A name
+  row's height depends on how many languages are missing (a taxon can carry 20+), so even one row is
+  routinely far taller than an images/links row; cropping at two rows (`worklist.png`'s convention)
+  produced an unusably tall 2593px capture. One row is the right unit for this page.
+- **The coverage floor came up short the same way it did after slice 7** (88.37% branch, floor 89%)
+  — real, meaningful gaps in the new code (the entity-missing path once fixed, `--limit` truncation,
+  a candidate's IUCN status riding onto the taxon row, `verifyNameFindings`'s own `--limit`/
+  `onProgress`), not the pre-existing, permanently-accepted gap every discovery module shares (the
+  `candidateSource ?? (iucn ? … : …)` query-selection fallback, untestable without hitting the
+  network — `discoverLinks.js` and `discover.js` both carry the identical unfixed gap). 89.05%
+  branch after closing the real ones.
+
+**Verified.** 391 unit tests, `npm run test:coverage` exits 0. Live, from a scratch `FINDINGS_DB`:
+two runs of `checkNames.js` accumulated (6 → 10 open) rather than destroying the backlog, matching
+every prior slice's own proof; a hand-seeded partial-confirm case against real Wikidata (Q140,
+*Panthera leo*, which already carries `en:"Lion"`) correctly trimmed `payload.missing` to only the
+fake locale that wasn't live, staying `open` rather than marking `done` prematurely or losing the
+language that did land. In Chrome, against that same seeded backlog: the worklist rendered real
+findings, Confirm and Skip both worked against live Wikidata, dark and light themes both rendered
+correctly (one screenshot-tool capture glitch along the way, resolved by checking `getComputedStyle`
+directly rather than trusting a single frame), and `search.html?kind=name` resolved a real clade
+(*Danaus*) with the rail, composition and "Find more" offer all correct. Against production
+`data/findings.db`, with Livia's go-ahead sought first per the standing "never verify against
+production data unless told to" rule: `node checkNames.js --limit 30` recorded 6 real open findings
+(a genuinely 20-language *Phaethon* row among them), giving `names.png` real content rather than a
+fixture, and cascading a nav-tile count update into `worklist.png`/`links.png`/`search.png`/
+`area.jpg`/`gallery.jpg` the same way slice 7's own regeneration did.
 
 ### 9. Deploy that container, with backups
 **Scope narrowed 2026-08-19**, now that slice 5d builds the image and proves it runs. What is left

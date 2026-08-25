@@ -15,6 +15,7 @@ never write to the real backlog.
 |---|---|
 | `worklist.png` | `web/index.html` — the backlog table and the QuickStatements panel |
 | `links.png` | `web/links.html` — the ambiguous/conflict review section (the worklist half looks like `worklist.png`'s, so the shot skips straight to what's new) |
+| `names.png` | `web/names.html` — the worklist, one row (a name row's height varies with how many languages are missing, so even one is routinely taller than an images/links row) |
 | `search.png` | `web/search.html` — clade search, scoped to Orchidaceae |
 | `area.jpg` | `web/area.html` — the map picker, scoped to 15km around Munich |
 | `gallery.jpg` | `web/taxon.html` — one taxon's iNaturalist photos |
