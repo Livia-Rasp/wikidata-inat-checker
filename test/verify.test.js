@@ -369,6 +369,21 @@ test('none of the proposed languages are live: stays open, payload untouched, ju
     assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'en', name: 'Jaguar' }]);
 });
 
+test('--limit caps a name-verify pass, and onProgress is called as each is checked', async () => {
+    const { store } = makeStore();
+    seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);
+    seedOpenName(store, 'Q2', '41971', [{ locale: 'en', name: 'Cougar' }]);
+    const progress = [];
+
+    const res = await verifyOpenFindings(store, {
+        kind: 'name', limit: 1, fetchFn: fakeNameApi({ Q1: [], Q2: [] }),
+        onProgress: (done, total) => progress.push([done, total]),
+    });
+
+    assert.equal(res.verified, 1, 'only the first of the backlog was checked');
+    assert.deepEqual(progress, [[1, 1]]);
+});
+
 test('a merged or deleted name-finding item becomes gone', async () => {
     const { db, store } = makeStore();
     seedOpenName(store, 'Q1', '41970', [{ locale: 'en', name: 'Jaguar' }]);

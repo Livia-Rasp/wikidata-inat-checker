@@ -53,7 +53,11 @@ const p1843 = (pairs) => pairs.map(({ locale, name }) => ({
 function makeEntitiesStub(fixtures) {
     return async (qids) => Object.fromEntries(qids.map((qid) => {
         const f = fixtures[qid];
-        if (!f || f === 'missing') return [qid, { missing: '' }];
+        // formatversion=2 (fetchEntitiesBatched's own fixed param) returns `missing` as a real
+        // boolean, unlike the legacy empty-string marker other test fakes in this repo use for a
+        // `!== undefined` check — discoverNames.js tests `entity.missing` for truthiness instead,
+        // so the fixture must match what the real API actually sends here.
+        if (!f || f === 'missing') return [qid, { missing: true }];
         return [qid, { claims: { P225: p225(f.taxonName), ...(f.names ? { P1843: p1843(f.names) } : {}) } }];
     }));
 }
@@ -150,6 +154,62 @@ test('a duplicate qid in the candidate stream is deduped', async () => {
     });
     assert.equal(result.scanned, 1);
     assert.equal(result.open, 1);
+});
+
+test('a candidate merged or deleted between collection and the entity fetch is skipped, not recorded', async () => {
+    const { store } = makeStore();
+    const taxaDb = makeTaxaDb();
+    const result = await discoverNames({
+        store, taxaDb,
+        candidateSource: candidates([{ qid: 'Q1', inatId: '41970' }, { qid: 'Q2', inatId: '999' }]),
+        fetchEntitiesFn: makeEntitiesStub({ Q1: 'missing', Q2: { taxonName: 'Turdus merula' } }),
+        fetchInatNamesFn: makeInatNamesStub({ 999: [{ locale: 'en', name: 'Blackbird' }] }),
+    });
+    assert.equal(result.scanned, 2);
+    assert.equal(result.open, 1);
+    assert.equal(store.listFindings({ kind: 'name', status: 'open' })[0].qid, 'Q2');
+});
+
+test('--limit stops collecting candidates once reached', async () => {
+    const { store } = makeStore();
+    const taxaDb = makeTaxaDb();
+    const result = await discoverNames({
+        store, taxaDb, limit: 1,
+        candidateSource: candidates([{ qid: 'Q1', inatId: '41970' }, { qid: 'Q2', inatId: '999' }]),
+        fetchEntitiesFn: makeEntitiesStub({
+            Q1: { taxonName: 'Panthera onca' }, Q2: { taxonName: 'Turdus merula' },
+        }),
+        fetchInatNamesFn: makeInatNamesStub({
+            41970: [{ locale: 'en', name: 'Jaguar' }], 999: [{ locale: 'en', name: 'Blackbird' }],
+        }),
+    });
+    assert.equal(result.scanned, 1, 'collection stopped at the limit, before the second candidate');
+});
+
+test('a candidate\'s IUCN status rides along onto the taxon row', async () => {
+    const { store } = makeStore();
+    const taxaDb = makeTaxaDb();
+    await discoverNames({
+        store, taxaDb,
+        candidateSource: candidates([{ qid: 'Q1', inatId: '41970', iucnQid: 'Q278113' }]), // VU
+        fetchEntitiesFn: makeEntitiesStub({ Q1: { taxonName: 'Panthera onca' } }),
+        fetchInatNamesFn: makeInatNamesStub({ 41970: [{ locale: 'en', name: 'Jaguar' }] }),
+    });
+    const [row] = store.listFindings({ kind: 'name', status: 'open' });
+    assert.equal(row.iucn, 'VU');
+});
+
+test('a candidate iNat never returned names for has nothing missing, and is not recorded', async () => {
+    const { store } = makeStore();
+    const taxaDb = makeTaxaDb();
+    const result = await discoverNames({
+        store, taxaDb,
+        candidateSource: candidates([{ qid: 'Q1', inatId: '41970' }]),
+        fetchEntitiesFn: makeEntitiesStub({ Q1: { taxonName: 'Panthera onca' } }),
+        fetchInatNamesFn: async () => new Map(), // iNat had nothing at all for this taxon
+    });
+    assert.equal(result.open, 0);
+    assert.equal(store.listFindings({ kind: 'name', status: 'open' }).length, 0);
 });
 
 test('a qid already settled is skipped, and a bad IUCN scope leaves no run behind', async () => {
