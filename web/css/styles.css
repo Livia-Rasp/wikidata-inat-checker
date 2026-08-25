@@ -637,3 +637,15 @@ tr.hide-done { display: none; }
 @media (max-width: 48em) {
   .review-candidate { grid-template-columns: 1fr; }
 }
+
+/* ================= names page =================
+   The worklist table reuses rows.js as-is (via createRowTable), same as links; no review section
+   — a name finding has no ambiguity concept, every candidate already has a confirmed inatId. */
+
+.taxon-col { width: 14em; font-style: italic; font-size: 0.9em; }
+.names-col { width: 18em; font-size: 0.85em; }
+.name-entry { display: block; line-height: 1.6; }
+.locale {
+  display: inline-block; width: 4.5em; font-family: monospace;
+  color: var(--faint); font-size: 0.9em;
+}

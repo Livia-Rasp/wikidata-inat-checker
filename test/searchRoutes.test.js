@@ -86,6 +86,20 @@ test('kind=link searches the link backlog independently from images', async (t) 
     assert.equal(links.taxa[0].qid, 'Q9');
 });
 
+test('kind=name searches the names backlog independently from images and links', async (t) => {
+    const { app, store } = makeApp(t);
+    store.upsertTaxon({ qid: 'Q9', inatId: '9001', taxonName: 'Bulbophyllum alpha' });
+    store.recordFinding({
+        qid: 'Q9', kind: 'name', status: 'open',
+        payload: { missing: [{ locale: 'en', name: 'Alpha orchid' }] },
+    });
+
+    const names = (await get(app, '/api/search?kind=name')).json();
+    assert.equal(names.total, 1);
+    assert.equal(names.taxa[0].qid, 'Q9');
+    assert.deepEqual(names.taxa[0].payload.missing, [{ locale: 'en', name: 'Alpha orchid' }]);
+});
+
 test('an unknown kind is rejected by the schema', async (t) => {
     const { app } = makeApp(t);
     assert.equal((await get(app, '/api/search?kind=nope')).statusCode, 400);

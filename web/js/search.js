@@ -18,8 +18,13 @@ import { mountShell } from './shell.js';
 /** Which backlog this page instance searches — set once at boot from ?kind=, never changes while
  *  the page is open. 'image' is the default so a bare search.html (or an old bookmark) keeps
  *  working exactly as it always has. */
-const KIND = new URLSearchParams(location.search).get('kind') === 'link' ? 'link' : 'image';
-const TOOL = KIND === 'link' ? 'links' : 'images';
+const KIND_FROM_QUERY = new URLSearchParams(location.search).get('kind');
+const KIND = KIND_FROM_QUERY === 'link' ? 'link' : KIND_FROM_QUERY === 'name' ? 'name' : 'image';
+const TOOL = KIND === 'link' ? 'links' : KIND === 'name' ? 'names' : 'images';
+/** shell.js's NAV entries use 'images' (plural) for the image kind, but 'link'/'name' (singular)
+ *  for the others — this maps KIND to the id mountShell expects. */
+const SHELL_ID = KIND === 'image' ? 'images' : KIND;
+const BACK_HREF = { image: 'index.html', link: 'links.html', name: 'names.html' };
 
 const THEAD_HTML = {
     image: `<tr>
@@ -39,11 +44,20 @@ const THEAD_HTML = {
         <th>Confidence</th>
         <th>QuickStatements (click to copy)</th>
       </tr>`,
+    name: `<tr>
+        <th class="check-col"></th>
+        <th>Wikidata item</th>
+        <th class="iucn-col">IUCN</th>
+        <th>Taxon name</th>
+        <th>iNat taxon</th>
+        <th>Missing names</th>
+        <th>QuickStatements (click to copy)</th>
+      </tr>`,
 };
 
-mountShell(KIND === 'link' ? 'link' : 'images');
+mountShell(SHELL_ID);
 document.getElementById('thead').innerHTML = THEAD_HTML[KIND];
-document.getElementById('back-link').href = KIND === 'link' ? 'links.html' : 'index.html';
+document.getElementById('back-link').href = BACK_HREF[KIND];
 
 const $ = (id) => document.getElementById(id);
 
