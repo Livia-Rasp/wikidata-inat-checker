@@ -21,7 +21,7 @@ const QUIET_HOURS_CACHE_MS = 24 * 60 * 60 * 1000;
  * tick starts at most one: the first tool that is both eligible and hasn't run today, in this
  * fixed order.
  */
-const TOOLS = ['images', 'links'];
+const TOOLS = ['images', 'links', 'names'];
 
 /** @param {number} ms */
 function utcDate(ms) {
