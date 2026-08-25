@@ -61,7 +61,7 @@ export default async function discoverRoutes(app, opts) {
                 type: 'object',
                 additionalProperties: false,
                 properties: {
-                    tool: { type: 'string', enum: ['images', 'links'], default: 'images' },
+                    tool: { type: 'string', enum: ['images', 'links', 'names'], default: 'images' },
                     taxon: { type: 'string', pattern: TAXON_PATTERN },
                     iucn: { type: 'string', enum: Object.keys(IUCN_STATUS_QIDS) },
                     // No hard maximum is documented on iNaturalist's own radius parameter; this is
@@ -107,12 +107,13 @@ export default async function discoverRoutes(app, opts) {
                 message: 'An area scope cannot be combined with a taxon or IUCN scope.',
             });
         }
-        // Links has no area-scope equivalent — checkLinks.js never had one, and nothing proposes
-        // "links near a point" as a concept.
-        if (tool === 'links' && config.scope.lat != null) {
+        // Links and names have no area-scope equivalent — neither checkLinks.js nor checkNames.js
+        // ever had one, and nothing proposes "links near a point" or "names near a point" as a
+        // concept.
+        if ((tool === 'links' || tool === 'names') && config.scope.lat != null) {
             return reply.status(400).send({
                 statusCode: 400, error: 'Bad Request', code: 'unsupported_scope_combination',
-                message: 'Links discovery has no area scope.',
+                message: `${tool === 'links' ? 'Links' : 'Names'} discovery has no area scope.`,
             });
         }
 
@@ -224,7 +225,7 @@ export default async function discoverRoutes(app, opts) {
             querystring: {
                 type: 'object',
                 additionalProperties: false,
-                properties: { tool: { type: 'string', enum: ['images', 'links'], default: 'images' } },
+                properties: { tool: { type: 'string', enum: ['images', 'links', 'names'], default: 'images' } },
             },
         },
     }, async (req) =>
@@ -260,6 +261,11 @@ export default async function discoverRoutes(app, opts) {
     }
 }
 
+/** Every tool `publicStatus`/the schema enums accept. Schema validation already guarantees a
+ *  request's `tool` is one of these by the time it reaches here — the fallback below is
+ *  defensive, not load-bearing. */
+const KNOWN_TOOLS = ['images', 'links', 'names'];
+
 /**
  * What a caller may see: the live record when a run is in flight, the last run from the database
  * once it is over (the in-memory one dies with the process), and never a raw error message.
@@ -267,7 +273,7 @@ export default async function discoverRoutes(app, opts) {
  * choice, since only one tool can ever be running at a time.
  */
 function publicStatus(record, store, discoverEnabled, scheduledTopup, tool = 'images') {
-    const last = store.latestRun(tool === 'links' ? 'links' : 'images');
+    const last = store.latestRun(KNOWN_TOOLS.includes(tool) ? tool : 'images');
     return {
         enabled: discoverEnabled,
         indexStale: taxaIndexIsStale(),
