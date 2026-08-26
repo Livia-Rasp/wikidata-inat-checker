@@ -1050,3 +1050,56 @@ server ended up sharing `lib/` directly.
   [global `skipped`](#known-skipped-does-not-survive-more-than-one-user) is waiting on. The shared
   enrichment cache above needs none of it — it is anonymous — but a per-user uploaded-list would.
 
+### Toolforge (research notes, not a slice)
+
+Raised 2026-08-26: deploying on [Wikimedia Toolforge](https://wikitech.wikimedia.org/wiki/Portal:Toolforge)
+rather than (or in addition to) a home server. Philosophically a better fit than self-hosting —
+Toolforge's Terms of Use explicitly names "run bots related to Wikimedia projects or data" as an
+allowed use, it is OAuth-native for the deferred upload slice, and its build-and-deploy model is
+manual (`toolforge build start`), which sidesteps the unattended-auto-deploy trust question the
+home-server Watchtower plan raises for a public instance. **Deliberately not attempted yet** — wait
+for Node 26 LTS (2026-10-28) and more beta testing/community approval first; tracked as a ToDo in the
+`Wikidata iNat Checker` vault note, not scheduled here.
+
+What this planning pass found, so it does not need re-deriving:
+
+- **Terms of Use, read in full.** §3 covers this use case by name. §7.2 (Toolforge-specific privacy
+  rules) is satisfied by construction — findings describe public Wikidata/iNaturalist facts, and the
+  app collects no End User personal information beyond what OAuth would eventually provide. §4.5
+  ("do not use WMCS to proxy or relay traffic for other servers") does **not** cover this app's own
+  outbound calls to Wikidata/Commons/iNaturalist APIs — those originate from WMCS, which is exactly
+  what the clause requires; it targets Tor/VPN/proxy relay services. The linked Cloud Services Cross
+  Site Policy is itself still a draft with only vague guidance ("minimize external data use, be
+  mindful of what user info leaks to other sites") — the closest thing to a live concern is
+  `web/js/area.js`'s **client-side** fetches straight to `api.inaturalist.org`, which do leak an end
+  user's IP/browser fingerprint to iNaturalist directly; this app's server-side checker calls do not,
+  since no end-user data rides along with them.
+- **The Build Service is buildpack-only.** No custom Dockerfile, no pushing a prebuilt image — confirmed
+  from `Help:Toolforge/Build_Service` and `Help:Toolforge/Building_container_images` directly. That
+  rules out reusing this repo's existing, carefully-tuned `Dockerfile` at all; Toolforge produces the
+  image, not us.
+- **The buildpack fork is Heroku's, not Paketo's.** Toolforge maintains its own fork
+  (`gitlab:groups/repos/cloud/toolforge/buildpacks`) of Heroku buildpacks. This matters because the
+  *mainstream* Paketo Node buildpack already packages Node 26.7.0 (confirmed via its GitHub releases,
+  as of this repo's exact pinned patch version) — but that says nothing about what Toolforge's Heroku
+  fork carries, and Heroku's own Node buildpack has historically been conservative about a major before
+  it reaches LTS. Node 26 is "Current," not "Active LTS," until 2026-10-28. **Unconfirmed, and the
+  reason to wait rather than test now**: an empirical check (reserve the tool name, push a trivial
+  `console.log(process.version)` Procfile app, `toolforge build start`) is the cheap way to find out,
+  once it's worth spending the tool-name reservation on.
+- **No native-dependency fallback if Node 26 isn't available.** Reintroducing `better-sqlite3` to
+  route around a missing Node 26 would undo slice 0's deliberate simplification. Decided: wait for
+  LTS instead, not a hard blocker worth compromising the architecture over.
+- **The Jobs framework would cleanly replace "run the checkers by hand."** Toolforge jobs (scheduled,
+  continuous, or one-off) share the tool's NFS home directory with the webservice — the same
+  multi-process-one-SQLite-file design this repo already relies on for the host CLI and the Docker
+  container. A discovery run's ~650 MB heap spike fits Toolforge's per-job ceiling (up to 4Gi) but
+  needs an explicit `--mem` bump past the 512Mi default.
+- **The slice-10 discovery-trigger problem is unchanged, just relocated.** Toolforge's own ingress is
+  a reverse proxy in front of every request, exactly like Docker's bridge NAT — a request via
+  `https://tool.toolforge.org` never looks like it came from loopback to the app. Whatever mechanism
+  slice 10 ends up building still has to exist under Toolforge.
+- **`TRUST_PROXY`/`ALLOWED_HOSTS` would need real values worked out against Toolforge's actual
+  ingress** (its proxy IP/CIDR, and the `<tool>.toolforge.org` hostname) — not attempted here since
+  there's no tool name reserved yet to test against.
+
