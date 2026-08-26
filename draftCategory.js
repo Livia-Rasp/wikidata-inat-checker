@@ -22,6 +22,7 @@ if (qids.length === 0) {
 }
 
 async function run() {
+    /** @type {Record<string, true>} */
     const available = Object.fromEntries(qids.map(q => [ENTITY_URI + q, true]));
     const drafts = await generateDraftWikitext(available);
 

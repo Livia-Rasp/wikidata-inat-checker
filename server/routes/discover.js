@@ -24,7 +24,7 @@ const START_RATE_LIMIT = { max: Number(process.env.RATE_LIMIT_DISCOVER_MAX ?? 6)
 /**
  * @param {import('fastify').FastifyInstance} app
  * @param {{store: any, jobs: any, dbFile: string, discoverEnabled?: boolean,
- *          openIndex?: () => any, scheduledTopup?: any,
+ *          openIndex?: () => any, scheduledTopup?: any, allowedHosts?: string[], rateLimit?: object,
  *          fetchAreaSpeciesFn?: typeof fetchAreaSpecies, fetchAreaCandidatesFn?: typeof fetchAreaCandidates}} opts
  */
 export default async function discoverRoutes(app, opts) {

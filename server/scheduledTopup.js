@@ -77,11 +77,15 @@ export function evaluateTopup({ jobsState, lastScheduledRun, quiet, config, nowM
 }
 
 /**
- * @param {{store: any, jobs: any, config: {
+ * @typedef {{
  *   taxon?: string|null, iucn?: string|null, limit: number, recheckAfter?: number, dbFile: string,
  *   checkIntervalMs: number, quietHoursCount: number, quietLookbackDays: number,
  *   quietMinSampleDays: number, dailyDeadlineHour: number, requestLogRetentionDays: number,
- * }, log?: any, now?: () => number, setIntervalFn?: Function, clearIntervalFn?: Function}} opts
+ * }} TopupConfig
+ */
+
+/**
+ * @param {{store: any, jobs: any, config: TopupConfig, log?: any, now?: () => number, setIntervalFn?: Function, clearIntervalFn?: Function}} opts
  */
 export function createScheduledTopup({
     store, jobs, config, log = { info() {}, warn() {}, error() {} },
