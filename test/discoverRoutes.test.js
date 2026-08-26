@@ -15,9 +15,13 @@ function makeIndex() {
     return createTaxaAccessor(db);
 }
 
-/** A jobs runner that records what it was asked to do. */
+/**
+ * A jobs runner that records what it was asked to do.
+ * @param {{state: string, phase?: string, runId?: number|null, scope?: any}} [initial]
+ */
 function fakeJobs(initial = { state: 'idle' }) {
     const calls = [];
+    /** @type {{state: string, phase?: string, runId?: number|null, scope?: any}} */
     let record = { ...initial };
     return {
         calls,
@@ -58,7 +62,13 @@ function fakeScheduledTopup(status = { quietHours: [2, 3], sampleDays: 10, ranTo
     return { start() {}, stop() {}, getStatus: () => status };
 }
 
-/** A request as the app's own page would make it, from a local peer. */
+/**
+ * A request as the app's own page would make it, from a local peer.
+ * @param {import('fastify').FastifyInstance} app
+ * @param {string} url
+ * @param {Record<string, any>} [payload]
+ * @param {Record<string, string>} [headers]
+ */
 const post = (app, url, payload, headers = {}) => app.inject({
     method: 'POST',
     url,
@@ -164,7 +174,8 @@ test('a well-formed area scope is accepted and reaches the runner whole', async 
     });
 });
 
-for (const [what, body] of [
+/** @type {[string, Record<string, any>][]} */
+const badScopes = [
     ['a LIKE wildcard', { taxon: '%' }],
     ['an underscore wildcard', { taxon: '_' }],
     ['an over-long name', { taxon: 'x'.repeat(200) }],
@@ -182,7 +193,9 @@ for (const [what, body] of [
     ['radius negative', { lat: 48, lng: 11, radius: -1 }],
     ['an area scope combined with a taxon', { lat: 48, lng: 11, radius: 5, taxon: 'Orchidaceae' }],
     ['an area scope combined with an IUCN code', { lat: 48, lng: 11, radius: 5, iucn: 'VU' }],
-]) {
+];
+
+for (const [what, body] of badScopes) {
     test(`${what} is rejected by the schema`, async (t) => {
         const { app, jobs } = makeApp(t);
         assert.equal((await post(app, '/api/discover', body)).statusCode, 400, what);

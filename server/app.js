@@ -77,13 +77,17 @@ class ApiOnlyLogController extends LogController {
 }
 
 /**
- * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
+ * @typedef {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
  *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
  *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
  *          topupConfig?: {enabled: boolean} & Omit<import('./scheduledTopup.js').TopupConfig, 'dbFile'>,
  *          scheduledTopup?: any,
  *          fetchAreaSpeciesFn?: typeof import('../lib/areaCandidates.js').fetchAreaSpecies,
- *          fetchAreaCandidatesFn?: typeof import('../lib/areaCandidates.js').fetchAreaCandidates}} opts
+ *          fetchAreaCandidatesFn?: typeof import('../lib/areaCandidates.js').fetchAreaCandidates}} BuildServerOptions
+ */
+
+/**
+ * @param {BuildServerOptions} opts
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({

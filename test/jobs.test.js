@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createJobs } from '../server/jobs.js';
 
-/** Stands in for a forked child: every lifecycle path can be driven without a real process. */
+/**
+ * Stands in for a forked child: every lifecycle path can be driven without a real process.
+ * @returns {EventEmitter & {sent: any[], signals: any[], send: (m: any) => void, kill: (sig: any) => boolean, stderr: EventEmitter}}
+ */
 function fakeChild() {
-    const child = new EventEmitter();
+    const child = /** @type {any} */ (new EventEmitter());
     child.sent = [];
     child.signals = [];
     child.send = (m) => child.sent.push(m);

@@ -48,7 +48,7 @@ export function createJobs(opts = {}) {
     let child = null;
     let timers = [];
     /** @type {{state: string, phase: string|null, runId: number|null, scope: object|null,
-     *          startedAt: string|null, finishedAt: string|null, counts: object|null,
+     *          startedAt: string|null, finishedAt: string|null, counts: Record<string, any>|null,
      *          error: {code: string, message: string}|null, cancelling: boolean}} */
     let record = idle();
 
