@@ -262,7 +262,6 @@ test('a conflict whose competing claim moved to a different iNat id also re-open
 test('verifying links fetches claims only, no sitelinks', async () => {
     const { store } = makeStore();
     seedOpenLink(store, 'Q1', '41970');
-    let seenProps;
     await verifyOpenFindings(store, {
         kind: 'link',
         fetchFn: async (qids) => ({ entities: Object.fromEntries(qids.map(q => [q, { id: q, claims: {} }])), success: 1 }),

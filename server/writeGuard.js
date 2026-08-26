@@ -36,7 +36,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 function isLoopback(addr) {
     if (!addr) return false;
     const a = addr.replace(/^::ffff:/, '');
-    return a === '::1' || a === '127.0.0.1' || /^127\./.test(a);
+    return a === '::1' || a === '127.0.0.1' || a.startsWith('127.');
 }
 
 /** `example.com:8080` → `example.com`. IPv6 literals keep their brackets. */

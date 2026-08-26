@@ -19,6 +19,7 @@
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=87 --test-coverage-branches=89",
     "typecheck": "tsc -p jsconfig.json && tsc -p web/jsconfig.json",
+    "lint": "oxlint",
     "images": "node checkImages.js",
     "verify": "node verifyFindings.js",
     "names": "node checkNames.js",
@@ -58,6 +59,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
+    "oxlint": "^1.80.0",
     "typescript": "^7.0.2"
   }
 }
