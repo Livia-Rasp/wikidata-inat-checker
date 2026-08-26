@@ -4,6 +4,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-%E2%89%A587%25-brightgreen)](.github/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A526-brightgreen)](.nvmrc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![GHCR](https://ghcr-badge.egpl.dev/livia-rasp/wikidata-inat-checker/latest_tag?trim=major&label=ghcr)](https://github.com/Livia-Rasp/wikidata-inat-checker/pkgs/container/wikidata-inat-checker)
 
 Finds Wikidata taxon items that are missing an image, a vernacular name or an iNaturalist link,
 and hands you the exact Wikitext or QuickStatements each fix needs.
