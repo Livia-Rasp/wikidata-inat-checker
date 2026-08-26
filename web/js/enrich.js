@@ -91,6 +91,7 @@ export function locationString(h) {
 const NOMINATIM = 'https://nominatim.openstreetmap.org/reverse';
 
 // Nominatim address fields (most-to-least specific synonyms) → our admin level.
+/** @type {[string[], number][]} */
 const NOMINATIM_LEVELS = [
     [['city', 'town', 'village', 'municipality', 'hamlet'], ADMIN.MUNICIPALITY],
     [['county'], ADMIN.COUNTY],

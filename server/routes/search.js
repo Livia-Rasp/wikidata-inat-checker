@@ -137,6 +137,10 @@ export default async function searchRoutes(app, opts) {
                         taxa: { type: 'array', items: findingSchema },
                     },
                 },
+                // An ambiguous/unknown taxon name (DiscoveryError). `...err.details` varies by
+                // code (e.g. `matches` for ambiguous_taxon), so this stays loose rather than
+                // duplicating DiscoveryError's per-code shapes here.
+                400: { type: 'object', additionalProperties: true },
             },
         },
     }, async (req, reply) => {

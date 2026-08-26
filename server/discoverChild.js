@@ -34,9 +34,12 @@ function makeReporter() {
     };
 }
 
-process.once('message', async (msg) => {
+process.once('message', async (rawMsg) => {
+    // Node types an IPC message as string|number|true|object — genuinely anything serializable —
+    // but this channel only ever carries what server/jobs.js's start() sends.
+    const msg = /** @type {{type: string, config: object}|null} */ (rawMsg);
     if (!msg || msg.type !== 'start') return;
-    const { tool = 'images', scope, limit, recheckAfter, dbFile, triggeredBy } = msg.config;
+    const { tool = 'images', scope, limit, recheckAfter, dbFile, triggeredBy } = /** @type {any} */ (msg.config);
     const run = RUNNERS[tool];
 
     let store;

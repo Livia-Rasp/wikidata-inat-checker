@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
 import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
 import { discoverNames } from '../lib/discoverNames.js';
+import { DiscoveryError } from '../lib/discover.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -226,7 +227,7 @@ test('a qid already settled is skipped, and a bad IUCN scope leaves no run behin
 
     await assert.rejects(
         () => discoverNames({ store, taxaDb, scope: { iucn: 'ZZ' } }),
-        (err) => err.code === 'unknown_iucn');
+        (err) => err instanceof DiscoveryError && err.code === 'unknown_iucn');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 1, 'only the first, valid run was recorded');
 });
 

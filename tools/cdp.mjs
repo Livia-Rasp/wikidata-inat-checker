@@ -70,8 +70,8 @@ export async function connect(wsUrl, onEvent = null) {
     ws.onmessage = (e) => {
         const msg = JSON.parse(/** @type {string} */ (e.data));
         if (msg.id === undefined) { onEvent?.(msg); return; }
-        msg.error ? settle(msg.id, 'rej', new Error(msg.error.message))
-                  : settle(msg.id, 'res', msg.result);
+        if (msg.error) settle(msg.id, 'rej', new Error(msg.error.message));
+        else settle(msg.id, 'res', msg.result);
     };
 
     const send = (method, params = {}) => new Promise((res, rej) => {

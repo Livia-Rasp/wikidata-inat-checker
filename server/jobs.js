@@ -48,7 +48,7 @@ export function createJobs(opts = {}) {
     let child = null;
     let timers = [];
     /** @type {{state: string, phase: string|null, runId: number|null, scope: object|null,
-     *          startedAt: string|null, finishedAt: string|null, counts: object|null,
+     *          startedAt: string|null, finishedAt: string|null, counts: Record<string, any>|null,
      *          error: {code: string, message: string}|null, cancelling: boolean}} */
     let record = idle();
 
@@ -155,7 +155,7 @@ export function createJobs(opts = {}) {
             return { ...record };
         },
 
-        /** @param {number|null} [runId] — refuse to cancel a run the caller did not mean. */
+        /** @param {number|null} [runId] - refuse to cancel a run the caller did not mean. */
         cancel(runId) {
             if (record.state !== 'running') return { cancelled: false, reason: 'not_running' };
             if (runId != null && record.runId != null && runId !== record.runId) {

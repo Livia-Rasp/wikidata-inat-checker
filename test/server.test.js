@@ -18,7 +18,11 @@ function seed(store, qid, { kind = 'image', status = 'open', wikitext = `draft $
     store.recordFinding({ qid, kind, status, payload: wikitext ? { wikitext } : undefined });
 }
 
-/** A fresh app per test: rate-limit counters live on the instance. */
+/**
+ * A fresh app per test: rate-limit counters live on the instance.
+ * @param {import('node:test').TestContext} t
+ * @param {Partial<import('../server/app.js').BuildServerOptions>} [opts]
+ */
 function makeApp(t, { store = makeStore(), ...opts } = {}) {
     const app = buildServer({ store, ...opts });
     t.after(() => app.close());

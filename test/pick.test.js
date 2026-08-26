@@ -36,7 +36,7 @@ test('picking a listed candidate re-records the finding as open, evidence and au
     const row = db.prepare("SELECT status, resolved_at, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
     assert.equal(row.resolved_at, null, 'picking is not a resolution');
-    const payload = JSON.parse(row.payload);
+    const payload = JSON.parse(String(row.payload));
     assert.equal(payload.inatId, '111');
     assert.equal(payload.rank, 'genus');
     assert.equal(payload.autoEligible, true, 'family+genus+order agreeing clears the --auto bar');
@@ -88,7 +88,7 @@ test('picking a candidate with no stored evidence falls back to a zeroed summary
     const result = pickCandidate(store, id, '111');
 
     assert.equal(result.picked, true);
-    const payload = JSON.parse(db.prepare("SELECT payload FROM findings WHERE qid='Q1'").get().payload);
+    const payload = JSON.parse(String(db.prepare("SELECT payload FROM findings WHERE qid='Q1'").get().payload));
     assert.deepEqual(payload.evidence, { matches: 0, mismatches: 0, matchedRanks: [] });
     assert.equal(payload.autoEligible, false);
 });

@@ -74,7 +74,7 @@ test('an unknown taxon throws instead of exiting', () => {
     const taxaDb = makeTaxaDb();
     // checkImages.js called process.exit(1) here. Over HTTP that is an unauthenticated remote kill.
     assert.throws(() => resolveTaxonScope('Nonexistentia', taxaDb), (err) => {
-        assert.ok(err instanceof DiscoveryError);
+        if (!(err instanceof DiscoveryError)) return false;
         assert.equal(err.code, 'unknown_taxon');
         return true;
     });
@@ -83,6 +83,7 @@ test('an unknown taxon throws instead of exiting', () => {
 test('an ambiguous taxon throws and says which ids to choose between', () => {
     const taxaDb = makeTaxaDb();
     assert.throws(() => resolveTaxonScope('Ambigua', taxaDb), (err) => {
+        if (!(err instanceof DiscoveryError)) return false;
         assert.equal(err.code, 'ambiguous_taxon');
         assert.deepEqual(err.details.matches.map(m => m.inatId).sort(), ['998', '999']);
         return true;
@@ -116,21 +117,24 @@ test('resolveTaxonId names a clade without scanning for its descendants', () => 
 
     // The same guard and the same typed errors as the scope path — one validator, not two.
     assert.throws(() => resolveTaxonId('%', guarded), /not in the iNat taxa index/);
-    assert.throws(() => resolveTaxonId('Ambigua', guarded), (err) => err.code === 'ambiguous_taxon');
+    assert.throws(() => resolveTaxonId('Ambigua', guarded),
+        (err) => err instanceof DiscoveryError && err.code === 'ambiguous_taxon');
 });
 
 test('IUCN codes resolve through the closed map, and nothing else does', () => {
     assert.deepEqual(resolveIucn('cr'), { code: 'CR', qid: 'Q219127' });
     assert.equal(resolveIucn(null), null);
-    assert.throws(() => resolveIucn('ZZ'), (err) => err.code === 'unknown_iucn');
+    assert.throws(() => resolveIucn('ZZ'),
+        (err) => err instanceof DiscoveryError && err.code === 'unknown_iucn');
     // A plain object literal answers `constructor` with a function; own-property only.
-    assert.throws(() => resolveIucn('constructor'), (err) => err.code === 'unknown_iucn');
+    assert.throws(() => resolveIucn('constructor'),
+        (err) => err instanceof DiscoveryError && err.code === 'unknown_iucn');
 });
 
 test('a bad scope leaves no run behind', async () => {
     const { db, store } = makeStore();
     await assert.rejects(() => discover({ store, taxaDb: makeTaxaDb(), scope: { iucn: 'ZZ' } }),
-        (err) => err.code === 'unknown_iucn');
+        (err) => err instanceof DiscoveryError && err.code === 'unknown_iucn');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0,
         'the scope is resolved before the run row is opened');
 });
@@ -159,7 +163,8 @@ test('an out-of-range area scope throws', () => {
         { lat: 48, lng: 11, radius: 0 },
         { lat: 48, lng: 11, radius: -1 },
     ]) {
-        assert.throws(() => resolveAreaScope(bad), (err) => err.code === 'invalid_area_scope');
+        assert.throws(() => resolveAreaScope(bad),
+            (err) => err instanceof DiscoveryError && err.code === 'invalid_area_scope');
     }
 });
 
@@ -172,7 +177,7 @@ test('a bad area scope leaves no run behind either', async () => {
     const { db, store } = makeStore();
     await assert.rejects(
         () => discover({ store, taxaDb: makeTaxaDb(), scope: { lat: 48 } }),
-        (err) => err.code === 'incomplete_area_scope');
+        (err) => err instanceof DiscoveryError && err.code === 'incomplete_area_scope');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0);
 });
 

@@ -145,8 +145,8 @@ test('markSkipped settles a finding without claiming Wikidata was asked', () => 
     assert.equal(row.status, 'skipped');
     assert.equal(row.verified_at, null, 'skipping never looked upstream, so it must not claim to have');
     assert.ok(row.resolved_at);
-    assert.equal(JSON.parse(row.resolution).reason, 'no Commons category will ever exist');
-    assert.equal(JSON.parse(row.payload).wikitext, 'precious', 'the draft survives');
+    assert.equal(JSON.parse(String(row.resolution)).reason, 'no Commons category will ever exist');
+    assert.equal(JSON.parse(String(row.payload)).wikitext, 'precious', 'the draft survives');
     assert.ok(store.skipQids('image').has('Q1'), 'skipped is sticky — never rediscovered');
 });
 

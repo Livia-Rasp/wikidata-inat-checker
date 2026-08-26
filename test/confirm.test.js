@@ -54,7 +54,7 @@ test('a finding is done only when both the image and the sitelink are live', asy
     const row = db.prepare("SELECT status, resolved_at, resolution FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'done');
     assert.ok(row.resolved_at);
-    const resolution = JSON.parse(row.resolution);
+    const resolution = JSON.parse(String(row.resolution));
     assert.equal(resolution.file, 'Q1.jpg');
     assert.equal(resolution.sitelink, 'Category:Taxon Q1');
 });
@@ -89,7 +89,7 @@ test('a failed confirm records that we looked and destroys nothing', async () =>
     assert.ok(row.verified_at, 'verified_at moves — we did look');
     assert.equal(row.resolved_at, null, 'but nothing was resolved');
     // The trap markVerified exists to avoid: recordFinding would have nulled this.
-    assert.equal(JSON.parse(row.payload).wikitext, '{{Species|Panthera onca|}}');
+    assert.equal(JSON.parse(String(row.payload)).wikitext, '{{Species|Panthera onca|}}');
 });
 
 test('confirming records the picked file alongside the live one, and clears the pick', async () => {
@@ -116,7 +116,7 @@ test('a live image that is not the picked one still confirms, and the difference
     const [res] = await confirmFindings(store, [id], { fetchFn: fakeApi({ Q1: 'both' }) });
 
     assert.equal(res.confirmed, true);
-    const resolution = JSON.parse(db.prepare("SELECT resolution FROM findings WHERE qid='Q1'").get().resolution);
+    const resolution = JSON.parse(String(db.prepare("SELECT resolution FROM findings WHERE qid='Q1'").get().resolution));
     assert.equal(resolution.file, 'Q1.jpg');
     assert.equal(resolution.expectedFile, 'Chosen.jpg');
 });
@@ -218,7 +218,7 @@ test('a link finding confirms once its own P3151 is live', async () => {
     assert.equal(res.confirmed, true);
     assert.equal(res.status, 'done');
     const row = db.prepare("SELECT status, resolution FROM findings WHERE qid='Q1'").get();
-    assert.equal(JSON.parse(row.resolution).inatId, '41970');
+    assert.equal(JSON.parse(String(row.resolution)).inatId, '41970');
 });
 
 test('a link finding with no live P3151 fails to confirm, distinguishably', async () => {
@@ -286,7 +286,7 @@ test('a name finding confirms once every proposed language is live', async () =>
     assert.equal(res.confirmed, true);
     assert.equal(res.status, 'done');
     const row = db.prepare("SELECT resolution FROM findings WHERE qid='Q1'").get();
-    assert.deepEqual(JSON.parse(row.resolution).locales, ['en', 'fr']);
+    assert.deepEqual(JSON.parse(String(row.resolution)).locales, ['en', 'fr']);
 });
 
 test('a name finding with only some languages live stays open, payload trimmed', async () => {
@@ -300,7 +300,7 @@ test('a name finding with only some languages live stays open, payload trimmed',
     assert.equal(res.status, 'open');
     const row = db.prepare("SELECT status, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
-    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'fr', name: 'Jaguar' }]);
+    assert.deepEqual(JSON.parse(String(row.payload)).missing, [{ locale: 'fr', name: 'Jaguar' }]);
 });
 
 test('a name finding with no proposed language live fails to confirm, distinguishably', async () => {

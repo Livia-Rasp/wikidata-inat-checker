@@ -49,7 +49,7 @@ test('a P18 that appeared upstream resolves the finding', async () => {
     const row = db.prepare("SELECT status, resolved_at, resolution FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'fixed_upstream');
     assert.ok(row.resolved_at, 'resolved_at is stamped');
-    assert.equal(JSON.parse(row.resolution).file, 'Lion.jpg', 'the image that fixed it is recorded');
+    assert.equal(JSON.parse(String(row.resolution)).file, 'Lion.jpg', 'the image that fixed it is recorded');
 });
 
 test('a still-imageless finding stays open but records that we looked', async () => {
@@ -98,7 +98,7 @@ test('verification never destroys the stored draft wikitext', async () => {
     for (const qid of ['Q1', 'Q2']) {
         const payload = db.prepare('SELECT payload FROM findings WHERE qid = ?').get(qid).payload;
         assert.ok(payload, `${qid} still has a payload`);
-        assert.match(JSON.parse(payload).wikitext, /^\{\{Species\|Panthera /);
+        assert.match(JSON.parse(String(payload)).wikitext, /^\{\{Species\|Panthera /);
     }
 });
 
@@ -200,7 +200,7 @@ test('a P3151 that appeared upstream resolves an open link finding', async () =>
     assert.deepEqual(res.fixedUpstream, ['Q1']);
     const row = db.prepare("SELECT status, resolution FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'fixed_upstream');
-    assert.equal(JSON.parse(row.resolution).inatId, '41970');
+    assert.equal(JSON.parse(String(row.resolution)).inatId, '41970');
 });
 
 test('a still-unclaimed open link finding stays open', async () => {
@@ -243,7 +243,7 @@ test('a conflict whose competing claim vanished re-opens, payload intact', async
     const row = db.prepare("SELECT status, resolved_at, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
     assert.equal(row.resolved_at, null, 're-opening is not a resolution');
-    const payload = JSON.parse(row.payload);
+    const payload = JSON.parse(String(row.payload));
     assert.equal(payload.inatId, '41970');
     assert.equal(payload.autoEligible, false, 'a lone genus match never clears the --auto bar');
 });
@@ -262,7 +262,6 @@ test('a conflict whose competing claim moved to a different iNat id also re-open
 test('verifying links fetches claims only, no sitelinks', async () => {
     const { store } = makeStore();
     seedOpenLink(store, 'Q1', '41970');
-    let seenProps;
     await verifyOpenFindings(store, {
         kind: 'link',
         fetchFn: async (qids) => ({ entities: Object.fromEntries(qids.map(q => [q, { id: q, claims: {} }])), success: 1 }),
@@ -336,7 +335,7 @@ test('every proposed language now live resolves the finding as fixed_upstream', 
     const row = db.prepare("SELECT status, resolved_at, resolution FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'fixed_upstream');
     assert.ok(row.resolved_at);
-    assert.deepEqual(JSON.parse(row.resolution).locales, ['en', 'fr']);
+    assert.deepEqual(JSON.parse(String(row.resolution)).locales, ['en', 'fr']);
 });
 
 test('some proposed languages now live trims payload.missing and stays open', async () => {
@@ -351,7 +350,7 @@ test('some proposed languages now live trims payload.missing and stays open', as
     const row = db.prepare("SELECT status, resolved_at, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
     assert.equal(row.resolved_at, null, 'a trimmed-but-open finding is not a resolved one');
-    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'fr', name: 'Jaguar' }]);
+    assert.deepEqual(JSON.parse(String(row.payload)).missing, [{ locale: 'fr', name: 'Jaguar' }]);
 });
 
 test('none of the proposed languages are live: stays open, payload untouched, just looked at', async () => {
@@ -366,7 +365,7 @@ test('none of the proposed languages are live: stays open, payload untouched, ju
     const row = db.prepare("SELECT status, verified_at, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'open');
     assert.ok(row.verified_at, 'verified_at moves');
-    assert.deepEqual(JSON.parse(row.payload).missing, [{ locale: 'en', name: 'Jaguar' }]);
+    assert.deepEqual(JSON.parse(String(row.payload)).missing, [{ locale: 'en', name: 'Jaguar' }]);
 });
 
 test('--limit caps a name-verify pass, and onProgress is called as each is checked', async () => {

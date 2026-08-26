@@ -36,7 +36,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 function isLoopback(addr) {
     if (!addr) return false;
     const a = addr.replace(/^::ffff:/, '');
-    return a === '::1' || a === '127.0.0.1' || /^127\./.test(a);
+    return a === '::1' || a === '127.0.0.1' || a.startsWith('127.');
 }
 
 /** `example.com:8080` → `example.com`. IPv6 literals keep their brackets. */
@@ -59,7 +59,10 @@ async function writeGuard(app, opts) {
 
     app.addHook('onRequest', async (req, reply) => {
         // Checked before the safe-method exit: a privileged route is privileged whatever the verb.
-        if (req.routeOptions?.config?.privileged && !isLoopback(req.socket?.remoteAddress)) {
+        // `privileged` is this app's own route-config extension; Fastify's own config type doesn't
+        // know about it.
+        const routeConfig = /** @type {{privileged?: boolean}|undefined} */ (req.routeOptions?.config);
+        if (routeConfig?.privileged && !isLoopback(req.socket?.remoteAddress)) {
             return reject(req, reply, 'not_local',
                 'This endpoint spends the operator\'s API budget and is available locally only.');
         }

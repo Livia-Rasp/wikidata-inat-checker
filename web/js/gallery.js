@@ -99,7 +99,7 @@ function card({ obs, photo }) {
         }
     };
 
-    const cb = el.querySelector('.mark input');
+    const cb = /** @type {HTMLInputElement} */ (el.querySelector('.mark input'));
     cb.addEventListener('change', () => {
         el.classList.toggle('uploaded', cb.checked);
         save(
@@ -111,7 +111,7 @@ function card({ obs, photo }) {
     // uploaded too, but — unlike before slice 4 — it does *not* mark the taxon done: the pick is
     // an intention to edit, and only Wikidata itself can say the edit happened. Clicking the
     // already-picked radio clears the selection.
-    const radio = el.querySelector('.p18 input');
+    const radio = /** @type {HTMLInputElement|null} */ (el.querySelector('.p18 input'));
     if (radio) {
         radio.addEventListener('click', () => {
             const picked = state.pickFor(qid)?.destFile === destFile;
@@ -188,7 +188,10 @@ async function render() {
 function setSort(next) {
     if (sort === next) return;
     sort = next;
-    document.querySelectorAll('#sort button').forEach((b) => b.classList.toggle('active', b.dataset.sort === sort));
+    document.querySelectorAll('#sort button').forEach((b) => {
+        const btn = /** @type {HTMLElement} */ (b);
+        btn.classList.toggle('active', btn.dataset.sort === sort);
+    });
     render();
 }
 
@@ -196,7 +199,8 @@ if (!taxonId) {
     $('status').textContent = 'Missing taxon_id in URL.';
 } else {
     setHeader();
-    document.querySelectorAll('#sort button').forEach((b) => {
+    document.querySelectorAll('#sort button').forEach((el) => {
+        const b = /** @type {HTMLElement} */ (el);
         b.classList.toggle('active', b.dataset.sort === sort);
         b.addEventListener('click', () => setSort(b.dataset.sort));
     });

@@ -101,7 +101,7 @@ export function buildDestFile({ photo, taxonName }) {
  * Commons-compatible. `photo` is one entry of observation.photos[].
  */
 export function buildUploadUrl(opts) {
-    const { observation, photo } = opts;
+    const { photo } = opts;
     const license = LICENSE_MAP[photo.license_code];
     if (!license) return null;
 

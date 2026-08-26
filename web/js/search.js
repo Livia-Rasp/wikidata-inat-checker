@@ -57,9 +57,10 @@ const THEAD_HTML = {
 
 mountShell(SHELL_ID);
 document.getElementById('thead').innerHTML = THEAD_HTML[KIND];
-document.getElementById('back-link').href = BACK_HREF[KIND];
+/** @type {HTMLAnchorElement} */ (document.getElementById('back-link')).href = BACK_HREF[KIND];
 
-const $ = (id) => document.getElementById(id);
+/** @returns {HTMLElement} an id known to exist in this page's static markup */
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
 /** Long enough that typing a word is one request, short enough to feel immediate. */
 const DEBOUNCE_MS = 300;
@@ -84,7 +85,7 @@ const table = createRowTable({
  *  The count line above has already said what happened. */
 function renderRows(taxa) {
     table.render(taxa);
-    document.querySelector('.table-scroll').hidden = taxa.length === 0;
+    /** @type {HTMLElement} */ (document.querySelector('.table-scroll')).hidden = taxa.length === 0;
 }
 
 /** The last query the server answered, so the offer always scopes to what is on screen. */
@@ -98,14 +99,15 @@ let seq = 0;
  *  of the orchids is not a meaningful place to land in the beetles. */
 function readForm() {
     return {
-        taxon: $('q').value.trim(),
-        iucn: document.querySelector('input[name="iucn"]:checked')?.value ?? '',
+        taxon: /** @type {HTMLInputElement} */ ($('q')).value.trim(),
+        iucn: /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="iucn"]:checked'))?.value ?? '',
     };
 }
 
 function writeForm({ taxon, iucn }) {
-    $('q').value = taxon ?? '';
-    const chip = document.querySelector(`input[name="iucn"][value="${CSS.escape(iucn ?? '')}"]`);
+    /** @type {HTMLInputElement} */ ($('q')).value = taxon ?? '';
+    const chip = /** @type {HTMLInputElement|null} */
+        (document.querySelector(`input[name="iucn"][value="${CSS.escape(iucn ?? '')}"]`));
     if (chip) chip.checked = true;
 }
 
@@ -187,13 +189,14 @@ function renderComposition(composition, total) {
     // Set through the CSSOM, not a style= attribute: style-src 'self' has no unsafe-inline, so an
     // inline attribute is blocked and every bar would silently render empty.
     bars.querySelectorAll('.comp').forEach((el, i) => {
-        el.style.setProperty('--w', `${Math.round((entries[i].count / top) * 100)}%`);
+        /** @type {HTMLElement} */ (el).style.setProperty('--w', `${Math.round((entries[i].count / top) * 100)}%`);
     });
     box.hidden = false;
 }
 
 function renderChipCounts(counts) {
-    for (const input of document.querySelectorAll('input[name="iucn"]')) {
+    for (const el of document.querySelectorAll('input[name="iucn"]')) {
+        const input = /** @type {HTMLInputElement} */ (el);
         const label = input.closest('.chip');
         const n = counts?.[input.value];
         label.querySelector('.chip-count')?.remove();
@@ -297,7 +300,7 @@ const topup = createTopup({
             discoverEnabled = s.enabled;
             renderOffer(lastResult.total, lastResult.resolved);
         }
-        const run = $('offer-run');
+        const run = /** @type {HTMLButtonElement} */ ($('offer-run'));
         if (!run) return;
         run.disabled = running;
         $('offer-cancel').hidden = !running;
@@ -320,7 +323,7 @@ async function startOffer() {
 // ---- searching ----
 
 /**
- * @param {{taxon?: string, iucn?: string}} query
+ * @param {{taxon?: string, iucn?: string, offset?: number}} query
  * @param {{history?: 'push'|'replace'|'none'}} opts — walking up the rail or down the composition
  *   strip is *navigation*, so Back has to undo it. Typing is not: debounced keystrokes would
  *   otherwise bury the page you came from under a history entry per word.
@@ -396,7 +399,7 @@ function scheduleSearch() {
 
 /** Jump straight to a taxon id — from the rail, the composition strip or a suggestion. */
 function goToTaxon(inatId, label) {
-    $('q').value = label ?? inatId;
+    /** @type {HTMLInputElement} */ ($('q')).value = label ?? inatId;
     search({ taxon: inatId, iucn: readForm().iucn }, { history: 'push' });
 }
 
@@ -405,7 +408,7 @@ function goToTaxon(inatId, label) {
 $('q').addEventListener('input', scheduleSearch);
 $('q').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { clearTimeout(timer); search(readForm()); }
-    if (e.key === 'Escape') { $('q').value = ''; search(readForm()); }
+    if (e.key === 'Escape') { /** @type {HTMLInputElement} */ ($('q')).value = ''; search(readForm()); }
 });
 $('iucn-chips').addEventListener('change', () => { clearTimeout(timer); search(readForm()); });
 $('clear').addEventListener('click', () => {
@@ -417,11 +420,12 @@ $('clear').addEventListener('click', () => {
 // One delegated listener for every "go to this taxon" control on the page. The pager wires its
 // own clicks, so nothing here needs to know about offsets.
 document.addEventListener('click', (e) => {
-    const jump = e.target.closest('[data-taxon]');
-    if (jump) return goToTaxon(jump.dataset.taxon, jump.dataset.name ?? jump.textContent.trim().split('\n')[0]);
+    const target = /** @type {HTMLElement} */ (e.target);
+    const jump = /** @type {HTMLElement|null} */ (target.closest('[data-taxon]'));
+    if (jump) return goToTaxon(jump.dataset.taxon, jump.dataset.name ?? jump.textContent?.trim().split('\n')[0]);
 
-    if (e.target.id === 'offer-run') return startOffer();
-    if (e.target.id === 'offer-cancel') {
+    if (target.id === 'offer-run') return startOffer();
+    if (target.id === 'offer-cancel') {
         $('offer-msg').textContent = 'Stopping — the taxa already checked are kept.';
         topup.cancel().catch((err) => { $('offer-msg').textContent = err.message; });
     }

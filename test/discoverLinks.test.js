@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
 import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
 import { discoverLinks } from '../lib/discoverLinks.js';
+import { DiscoveryError } from '../lib/discover.js';
 
 function makeStore() {
     const db = new DatabaseSync(':memory:');
@@ -118,7 +119,7 @@ test('an unclaimed single match becomes open, carrying evidence and auto-eligibi
     assert.equal(row.inatTaxonId, '41970');
     // listFindings' wikitext projection is image-shaped; read the link payload raw instead.
     const raw = db.prepare('SELECT payload FROM findings WHERE id = ?').get(row.id);
-    const payload = JSON.parse(raw.payload);
+    const payload = JSON.parse(String(raw.payload));
     assert.equal(payload.inatId, '41970');
     assert.deepEqual(payload.evidence.matchedRanks.sort(), ['family', 'genus', 'subfamily']);
     assert.equal(payload.evidence.mismatches, 0);
@@ -141,7 +142,7 @@ test('an already-claimed inatId under a different QID becomes a conflict, chains
     const rows = store.listFindings({ kind: 'link', status: 'conflict' });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].qid, 'Q1');
-    const payload = JSON.parse(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload);
+    const payload = JSON.parse(String(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload));
     assert.equal(payload.wdChain.length, 3);
     assert.ok(Array.isArray(payload.inatChain));
 });
@@ -173,7 +174,7 @@ test('a name shared by 2+ local taxa becomes ambiguous, one candidate per local 
     assert.equal(result.ambiguous, 1);
     const rows = store.listFindings({ kind: 'link', status: 'ambiguous' });
     assert.equal(rows.length, 1);
-    const payload = JSON.parse(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload);
+    const payload = JSON.parse(String(db.prepare('SELECT payload FROM findings WHERE id = ?').get(rows[0].id).payload));
     assert.equal(payload.wdChain.length, 3, 'the WD chain is kept in full, not just the evidence summary');
     assert.equal(payload.candidates.length, 2);
     for (const c of payload.candidates) assert.ok(Array.isArray(c.inatChain), `${c.inatId} carries its own iNat chain`);
@@ -199,7 +200,7 @@ test('a bad IUCN scope leaves no run behind', async () => {
     const taxaDb = makeTaxaDb();
     await assert.rejects(
         () => discoverLinks({ store, taxaDb, scope: { iucn: 'ZZ' } }),
-        (err) => err.code === 'unknown_iucn');
+        (err) => err instanceof DiscoveryError && err.code === 'unknown_iucn');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 0);
 });
 

@@ -77,18 +77,24 @@ class ApiOnlyLogController extends LogController {
 }
 
 /**
- * @param {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
+ * @typedef {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
  *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
  *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
- *          topupConfig?: {enabled: boolean} & Record<string, any>, scheduledTopup?: any,
- *          fetchAreaSpeciesFn?: Function, fetchAreaCandidatesFn?: Function}} opts
+ *          topupConfig?: {enabled: boolean} & Omit<import('./scheduledTopup.js').TopupConfig, 'dbFile'>,
+ *          scheduledTopup?: any,
+ *          fetchAreaSpeciesFn?: typeof import('../lib/areaCandidates.js').fetchAreaSpecies,
+ *          fetchAreaCandidatesFn?: typeof import('../lib/areaCandidates.js').fetchAreaCandidates}} BuildServerOptions
+ */
+
+/**
+ * @param {BuildServerOptions} opts
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({
     store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
     jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
     topupConfig, scheduledTopup, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
-} = {}) {
+}) {
     const app = Fastify({
         logger,
         logController: new ApiOnlyLogController(),
@@ -206,7 +212,10 @@ export function buildServer({
 
     // Fastify's default 500 includes err.message — and a node:sqlite error carries the absolute
     // path of the database. Client errors stay descriptive: they describe the caller's own input.
-    app.setErrorHandler((err, req, reply) => {
+    // Fastify types a handler's error as unknown by default — genuinely anything can be thrown —
+    // but everything reaching here in practice is Fastify's own FastifyError (validation failures,
+    // route errors), so casting here is honest rather than loosening what the property reads mean.
+    app.setErrorHandler((/** @type {import('fastify').FastifyError} */ err, req, reply) => {
         const status = err.statusCode ?? 500;
         if (err.validation || status < 500) {
             reply.status(status).send(err);
