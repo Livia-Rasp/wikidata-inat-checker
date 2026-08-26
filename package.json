@@ -18,6 +18,7 @@
   "scripts": {
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=87 --test-coverage-branches=89",
+    "typecheck": "tsc -p jsconfig.json",
     "images": "node checkImages.js",
     "verify": "node verifyFindings.js",
     "names": "node checkNames.js",
@@ -54,5 +55,9 @@
     "fastify-plugin": "^6.0.0",
     "p-limit": "^7.3.0",
     "wikibase-sdk": "^11.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^7.0.2"
   }
 }

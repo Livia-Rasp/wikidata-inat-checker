@@ -155,7 +155,7 @@ export function createJobs(opts = {}) {
             return { ...record };
         },
 
-        /** @param {number|null} [runId] — refuse to cancel a run the caller did not mean. */
+        /** @param {number|null} [runId] - refuse to cancel a run the caller did not mean. */
         cancel(runId) {
             if (record.state !== 'running') return { cancelled: false, reason: 'not_running' };
             if (runId != null && record.runId != null && runId !== record.runId) {
