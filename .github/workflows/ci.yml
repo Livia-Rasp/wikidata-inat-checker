@@ -19,6 +19,11 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # Lint before typecheck: oxlint is near-instant, tsc is comparatively slow, so a real
+      # problem in the cheap check fails fast rather than waiting on the slower one first.
+      - run: npm run lint
+      - run: npm run typecheck
+
       # Coverage is a ratchet, not a target. The floors in the test:coverage script sit just
       # under what the suite actually reaches, so a change that removes coverage fails here
       # instead of being noticed months later. Raise them when the real number rises; never
