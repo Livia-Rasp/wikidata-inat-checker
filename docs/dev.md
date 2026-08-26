@@ -162,6 +162,78 @@ One thing deliberately lives elsewhere: the ~236 MB iNat taxa SQLite index (`~/.
 
 The taxa-index tests don't download the 189 MB dump: `lib/getInatTaxaDb.js` exports `createTaxaAccessor(db)` (the query layer split out from the loaders), so a test builds an in-memory `node:sqlite` DB with a handful of fixture rows and exercises the real queries against it. The `descendantInatIds` test deliberately models the Panthera case (species as direct children of a genus) — it fails against the old two-`LIKE` query, guarding that regression.
 
+## Coding style checks (`npm run lint`, `npm run typecheck`)
+
+Both are CI-gating (`.github/workflows/ci.yml`, ahead of `test:coverage`). No Prettier: a prior
+trial in a sibling repo (Random Access) rewrote 44 of 81 files for 557 changed lines and caught
+zero defects, so it was never adopted here either.
+
+**Typecheck: `checkJs` over JSDoc, not a TypeScript source migration.** `jsconfig.json` had
+`checkJs: true` since early on but no `typescript` devDependency to actually run `tsc` — so it was
+inert, read only by an editor's language service, until both were added together. Two programs,
+not one:
+
+- `jsconfig.json` (root) — `lib/`, `report/`, `server/`, `test/`, the root entry scripts. Node ESM,
+  no `lib` override needed.
+- `web/jsconfig.json` — `web/js/*.js` only, `lib: ["ES2022", "DOM", "DOM.Iterable"]`.
+
+The split exists because `@types/node` now ships global `fetch`/`Response`/`Headers`/etc.
+(bundled `undici` types), and the DOM lib declares the same names — one program covering both
+trees risks duplicate-identity friction, and can't cleanly express "this half wants DOM, the other
+must not silently gain `window`/`document` as ambient names it shouldn't have." Two small
+`jsconfig.json`-shaped files also matches how an editor already resolves config per file (nearest
+wins), so editor and CI behaviour agree. `web/vendor/` (the vendored Leaflet copy) is excluded from
+both — third-party code, not ours to check. `web/js/global.d.ts` declares the vendored Leaflet
+global `L` (loaded via a classic `<script>` tag in `area.html`, consumed without import) as `any`
+— deliberate, not worth a real `@types/leaflet` dependency for one bare global.
+
+`tsc` does not auto-discover `jsconfig.json` the way an editor does — only `tsconfig.json` is
+auto-discovered — so both npm scripts pass `-p` explicitly: `tsc -p jsconfig.json && tsc -p
+web/jsconfig.json`.
+
+The first real run (turning on a tool that had never actually been exercised before) surfaced 128
+errors at the then-current, unchanged scope, none of them speculative — every one was either a
+missing `typeof` in a `ReturnType<import(...).fn>` JSDoc pattern, `node:sqlite`'s `SQLOutputValue`
+union needing a `String()`/null-guard at the row-mapping boundary (the schema is `STRICT` `TEXT`
+columns, so the cast is safe), a SPARQL result row typed as bare `object` instead of the real
+shape (`sparqlTSV`/`sparqlPost` flatten to `{[var]: string}`; `sparql()`'s raw JSON bindings are
+`{[var]: {value: string}}` — genuinely different shapes, documented in `lib/utils.js`'s own
+`SparqlBindingRow` typedef), a plain array literal `[a, b]` read as a union array rather than a
+2-tuple (checkJs doesn't infer tuples from literals — needs an explicit `@type {[A, B][]}`), or a
+DOM element access needing a cast from the generic `Element`/`HTMLElement`/`EventTarget` down to
+the specific subtype actually in use (`.value` → `HTMLInputElement`, `.checked` → same,
+`.disabled` → `HTMLButtonElement`, delegated click handlers' `e.target` → `HTMLElement` before
+`.closest()`). A handful were genuine bugs the type checker was right to catch, not just
+annotation gaps: `resolveAreaScope()` would silently accept a mistyped `--lat` with no value
+(`parseArgs` gives a bare flag the value `true`, and `Number(true)` is `1` — a wrong-but-plausible
+latitude) instead of raising `invalid_area_scope`; `buildServer`'s own options typedef undersold
+what it actually accepted (missing `allowedHosts`/`rateLimit`, a `topupConfig` looser than what it
+handed to `createScheduledTopup`); `p18Picks()`'s declared return type omitted the `findingId`
+field it actually returns. None of this was fixed by loosening types to make errors go away —
+where a shape was genuinely dynamic (`DiscoveryError`'s per-code `details`, a job runner's
+`counts`, a status-poll blob), it became `Record<string, any>` or a small named typedef, not `any`
+wholesale.
+
+**Lint: `oxlint`, `categories.correctness` only** (`.oxlintrc.json`). No `env`/`globals`/
+`overrides` block, on purpose — configured empirically after running it unscoped across the whole
+tree (Node and browser code alike) and looking at what actually fired, not speculatively. It found
+zero browser-global noise: `correctness` has no undefined-global-style rule, since that class of
+check is `tsc`'s job here and `web/jsconfig.json` already covers it. Findings were real (an unused
+catch parameter, a stray leftover test variable, an unused destructure, a regex simplified to
+`String#startsWith`, a ternary used purely for side effects rewritten as `if`/`else`) except one:
+`sparql()`'s control-character strip is deliberate (Wikidata does return literal C0 control
+characters in string values, per the comment above it), so that one line carries an inline
+`oxlint-disable-next-line` with a reason instead of being rewritten.
+
+**Renovate needs no changes for either.** `renovate.json5`'s `packageRule #2`
+(`matchManagers: ['npm', 'github-actions']`, `matchUpdateTypes` including minor/patch,
+`matchCurrentVersion: '!/^0/'`, `groupName: 'all non-major dependencies'`, `automerge: true`)
+already covers any new ≥1.0 devDependency generically — `typescript`, `@types/node` and `oxlint`
+are all well past 1.0, so no packageRule needed to name them individually. Automerge is gated on
+green CI regardless, so a future `oxlint` minor that adds a new `correctness` rule (its documented
+semver policy: minor releases *can* surface new lint errors — that's expected, not a bug) simply
+fails to automerge rather than silently breaking `main`.
+
 ## Report page rendering (`report/htmlShared.js`)
 
 The four review reports (`generateHTML` = drafts, `generateLinksHTML`, `generateNamesHTML`, `generateAmbiguousHTML`) share a page shape: a heading, a "Hide done" control, one copyable `<pre>` per row, and per-row done/hidden state persisted in `localStorage`. That common shell lives in `report/htmlShared.js`, so each builder only supplies its own columns and any page-specific CSS:

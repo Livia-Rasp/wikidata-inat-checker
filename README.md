@@ -56,9 +56,9 @@ first whenever the worklist runs low.
 > `~/.cache/wikidata-inat-checker/`. That takes a couple of minutes, once. Every run afterwards
 > reads it locally. The dump is refreshed every 30 days.
 
-Seven runtime dependencies, no dev dependencies, no build step. Renovate holds every release for
-two weeks before proposing it, then merges non-major bumps itself once the tests and the container
-smoke test pass. See the
+Seven runtime dependencies, three dev-only (typecheck + lint tooling), no build step. Renovate
+holds every release for two weeks before proposing it, then merges non-major bumps itself once the
+tests and the container smoke test pass. See the
 [dependency policy](docs/threat-model.md#dependency-policy).
 
 ## See it work
