@@ -16,7 +16,11 @@ import { mountShell } from './shell.js';
 
 mountShell('area');
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
+/** @type {(id: string) => HTMLInputElement} */
+const $input = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
+/** @type {(id: string) => HTMLButtonElement} */
+const $button = (id) => /** @type {HTMLButtonElement} */ (document.getElementById(id));
 const INAT_OBS = 'https://api.inaturalist.org/v1/observations';
 const LAST_AREA_KEY = 'winc-area-last';
 // Matches GET /api/discover/area's own schema ceiling — that route answers synchronously, in the
@@ -73,7 +77,7 @@ map.on('click', (e) =>
 let chosen = null;
 
 function readRadiusField() {
-    const n = Number($('radius').value);
+    const n = Number($input('radius').value);
     return Number.isFinite(n) && n > 0 ? n : 10;
 }
 
@@ -89,11 +93,11 @@ function readRadiusField() {
 function commitChosen(lat, lng, radius, { reformatFields }) {
     chosen = { lat, lng, radius };
     if (reformatFields) {
-        $('lat').value = lat.toFixed(6);
-        $('lng').value = lng.toFixed(6);
-        $('radius').value = String(radius);
+        $input('lat').value = lat.toFixed(6);
+        $input('lng').value = lng.toFixed(6);
+        $input('radius').value = String(radius);
     }
-    $('radius-slider').value = String(Math.min(radius, Number($('radius-slider').max)));
+    $input('radius-slider').value = String(Math.min(radius, Number($input('radius-slider').max)));
     placeOnMap(lat, lng, radius);
     map.panTo([lat, lng]);
     updateButtons();
@@ -104,7 +108,7 @@ function commitChosen(lat, lng, radius, { reformatFields }) {
  *  field reads as invalid (not as 0), so an unfilled lat/lng before any point is chosen is never
  *  mistaken for the equator/prime meridian. */
 function readTypedFields() {
-    const latText = $('lat').value.trim(), lngText = $('lng').value.trim(), radiusText = $('radius').value.trim();
+    const latText = $input('lat').value.trim(), lngText = $input('lng').value.trim(), radiusText = $input('radius').value.trim();
     if (!latText || !lngText || !radiusText) return null;
     const lat = Number(latText), lng = Number(lngText), radius = Number(radiusText);
     if (!Number.isFinite(lat) || lat < -90 || lat > 90) return null;
@@ -123,8 +127,8 @@ $('lat').addEventListener('input', onTypedChange);
 $('lng').addEventListener('input', onTypedChange);
 $('radius').addEventListener('input', onTypedChange);
 $('radius-slider').addEventListener('input', () => {
-    $('radius').value = $('radius-slider').value; // the slider is not a coordinate text field —
-    onTypedChange();                               // safe to set directly, nothing is fighting it
+    $input('radius').value = $input('radius-slider').value; // the slider is not a coordinate text
+    onTypedChange();                          // field — safe to set directly, nothing is fighting it
 });
 
 // ---- persistence: remember the last-used point, a per-browser convenience only ----
@@ -143,8 +147,8 @@ let topupRunning = false;
 function updateButtons() {
     const has = chosen !== null;
     const overPreviewLimit = has && chosen.radius > PREVIEW_RADIUS_MAX;
-    $('preview-run').disabled = !has || overPreviewLimit;
-    $('worklist-run').disabled = !has || topupRunning;
+    $button('preview-run').disabled = !has || overPreviewLimit;
+    $button('worklist-run').disabled = !has || topupRunning;
     $('radius-hint').textContent = overPreviewLimit
         ? `Preview works up to ${PREVIEW_RADIUS_MAX} km; Add to worklist has no such limit.`
         : '';
@@ -155,7 +159,7 @@ function updateButtons() {
 async function runPreview() {
     if (!chosen) return;
     const area = chosen;
-    $('preview-run').disabled = true;
+    $button('preview-run').disabled = true;
     $('area-status').textContent = 'Looking at the most-observed species here…';
     $('results-table').hidden = true;
     $('results-body').innerHTML = '';

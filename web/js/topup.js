@@ -9,7 +9,15 @@
 
 import { getJson, postJson } from './api.js';
 
-/** Human-readable progress. The counts differ per phase, so each says only what it knows. */
+/**
+ * @typedef {{state: string, phase?: string, enabled?: boolean, counts?: Record<string, any>,
+ *            error?: {message: string}}} TopupStatus the api/discover/status response
+ */
+
+/**
+ * Human-readable progress. The counts differ per phase, so each says only what it knows.
+ * @param {TopupStatus} s
+ */
 export function describe(s) {
     if (s.state === 'running') {
         const c = s.counts ?? {};
@@ -30,8 +38,8 @@ export function describe(s) {
 
 /**
  * @param {{
- *   onStatus: (s: object, running: boolean) => void,
- *   onSettled?: (s: object) => void,
+ *   onStatus: (s: TopupStatus, running: boolean) => void,
+ *   onSettled?: (s: TopupStatus) => void,
  *   intervalMs?: number,
  *   tool?: 'images'|'links'|'names',
  * }} opts

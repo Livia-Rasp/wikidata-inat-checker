@@ -238,17 +238,18 @@ export function createRowTable({ tbody, postJson, hidingDone = () => false, onSt
 
     // Delegated, so rows rendered later need no wiring of their own.
     tbody.addEventListener('click', async (e) => {
-        const row = e.target.closest('tr[data-qid]');
-        if (row && e.target.matches('.confirm-btn')) {
-            e.target.disabled = true;
+        const target = /** @type {HTMLElement} */ (e.target);
+        const row = /** @type {HTMLElement|null} */ (target.closest('tr[data-qid]'));
+        if (row && target.matches('.confirm-btn')) {
+            /** @type {HTMLButtonElement} */ (target).disabled = true;
             row.querySelector('.row-msg').textContent = 'Checking Wikidata…';
             await confirm([Number(row.dataset.id)]);
-            e.target.disabled = false;
+            /** @type {HTMLButtonElement} */ (target).disabled = false;
             return;
         }
-        if (row && e.target.matches('.skip-btn')) return skip(row);
+        if (row && target.matches('.skip-btn')) return skip(row);
 
-        const draft = e.target.closest('.draft');
+        const draft = target.closest('.draft');
         if (draft) copyDraft(draft);
     });
 

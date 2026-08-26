@@ -12,7 +12,7 @@ import { mountShell } from './shell.js';
 
 mountShell('name');
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
 let hidingDone = localStorage.getItem('hide-done-names') === '1';
 let offset = 0;
@@ -61,19 +61,21 @@ function qsLines(pending) {
 
 async function refreshQuickStatements() {
     const pending = await pendingOpen();
-    $('qs-text').value = qsLines(pending);
+    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
+    qsText.value = qsLines(pending);
     $('qs-count').textContent = pending.length ? `${pending.length} taxa` : '';
-    $('qs-copy').disabled = pending.length === 0;
-    $('qs-confirm').disabled = pending.length === 0;
-    $('qs-text').dataset.ids = JSON.stringify(pending.map((t) => t.id));
+    /** @type {HTMLButtonElement} */ ($('qs-copy')).disabled = pending.length === 0;
+    /** @type {HTMLButtonElement} */ ($('qs-confirm')).disabled = pending.length === 0;
+    qsText.dataset.ids = JSON.stringify(pending.map((t) => t.id));
 }
 
 function copyQuickStatements() {
-    const text = $('qs-text').value;
+    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
+    const text = qsText.value;
     if (!text) return;
     const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
-    else { $('qs-text').select(); document.execCommand('copy'); done(); }
+    else { qsText.select(); document.execCommand('copy'); done(); }
 }
 
 async function confirmPending() {

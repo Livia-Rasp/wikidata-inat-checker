@@ -14,7 +14,7 @@ import { mountShell } from './shell.js';
 
 mountShell('link');
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
 let hidingDone = localStorage.getItem('hide-done-links') === '1';
 let offset = 0;
@@ -60,19 +60,21 @@ function qsLines(pending) {
 
 async function refreshQuickStatements() {
     const pending = await autoEligibleOpen();
-    $('qs-text').value = qsLines(pending);
+    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
+    qsText.value = qsLines(pending);
     $('qs-count').textContent = pending.length ? `${pending.length} taxa` : '';
-    $('qs-copy').disabled = pending.length === 0;
-    $('qs-confirm').disabled = pending.length === 0;
-    $('qs-text').dataset.ids = JSON.stringify(pending.map((t) => t.id));
+    /** @type {HTMLButtonElement} */ ($('qs-copy')).disabled = pending.length === 0;
+    /** @type {HTMLButtonElement} */ ($('qs-confirm')).disabled = pending.length === 0;
+    qsText.dataset.ids = JSON.stringify(pending.map((t) => t.id));
 }
 
 function copyQuickStatements() {
-    const text = $('qs-text').value;
+    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
+    const text = qsText.value;
     if (!text) return;
     const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
-    else { $('qs-text').select(); document.execCommand('copy'); done(); }
+    else { qsText.select(); document.execCommand('copy'); done(); }
 }
 
 async function confirmPending() {
@@ -260,18 +262,19 @@ $('qs-confirm').addEventListener('click', confirmPending);
 $('hide-done').addEventListener('click', toggleHideDone);
 
 $('review-list').addEventListener('click', (e) => {
-    const pick = e.target.closest('.pick-btn');
+    const target = /** @type {HTMLElement} */ (e.target);
+    const pick = target.closest('.pick-btn');
     if (pick) {
-        const candidateEl = pick.closest('.review-candidate');
+        const candidateEl = /** @type {HTMLElement} */ (pick.closest('.review-candidate'));
         const groupEl = pick.closest('.review-group');
         return pickCandidate(groupEl, candidateEl.dataset.inatId);
     }
-    const skip = e.target.closest('.skip-btn');
-    if (skip) return skipReviewRow(skip.closest('.review-group'), Number(skip.dataset.id));
+    const skip = target.closest('.skip-btn');
+    if (skip) return skipReviewRow(skip.closest('.review-group'), Number(/** @type {HTMLElement} */ (skip).dataset.id));
 
     // Copy-on-click for a candidate's QuickStatements line — same behaviour as the worklist's
     // .draft cells, ported here since review rows use a plain .qs pre, not createRowTable's markup.
-    const qs = e.target.closest('.qs');
+    const qs = target.closest('.qs');
     if (qs) {
         const text = qs.textContent;
         if (navigator.clipboard) navigator.clipboard.writeText(text);

@@ -8,5 +8,5 @@
     "target": "ES2022"
   },
   "include": ["*.js", "lib/**/*.js", "report/**/*.js", "server/**/*.js", "test/**/*.js"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "web"]
 }

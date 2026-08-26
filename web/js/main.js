@@ -21,7 +21,7 @@ import { mountShell } from './shell.js';
 
 mountShell('images');
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
 let hidingDone = localStorage.getItem('hide-done') === '1';
 let offset = 0;
@@ -74,12 +74,12 @@ function qsLines(pending) {
 
 function refreshQuickStatements() {
     const pending = pendingQs();
-    $('qs-text').value = qsLines(pending);
+    /** @type {HTMLTextAreaElement} */ ($('qs-text')).value = qsLines(pending);
     $('qs-count').textContent = pending.length
         ? `${pending.length} taxa · ${pending.length * 2} statements`
         : '';
-    $('qs-copy').disabled = pending.length === 0;
-    $('qs-confirm').disabled = pending.length === 0;
+    /** @type {HTMLButtonElement} */ ($('qs-copy')).disabled = pending.length === 0;
+    /** @type {HTMLButtonElement} */ ($('qs-confirm')).disabled = pending.length === 0;
 }
 
 function copyQuickStatements() {
@@ -87,7 +87,7 @@ function copyQuickStatements() {
     if (!text) return;
     const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
-    else { $('qs-text').select(); document.execCommand('copy'); done(); }
+    else { /** @type {HTMLTextAreaElement} */ ($('qs-text')).select(); document.execCommand('copy'); done(); }
 }
 
 /** Confirm every taxon that currently has a pick — the batch you just pasted, whichever page of
