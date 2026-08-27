@@ -94,7 +94,7 @@ test('a pick outlives the finding it was made against', () => {
     seed(store, 'Q1', 'open');
     store.recordUpload({ destFile: 'A.jpg', qid: 'Q1', taxonName: 'Taxon Q1' });
     store.setP18Pick('Q1', 'A.jpg');
-    store.markSkipped('Q1', 'image', 'not mine');
+    store.recordSkip('Q1', 'image', 'client-a', { reason: 'not mine' });
 
     const picks = store.p18Picks();
     assert.equal(picks.Q1.destFile, 'A.jpg');
@@ -135,11 +135,11 @@ test('getFinding translates an id, carries the raw payload, and says nothing for
     assert.equal(store.getFinding(999_999), undefined);
 });
 
-test('markSkipped settles a finding without claiming Wikidata was asked', () => {
+test('recordSkip settles a finding without claiming Wikidata was asked, for the one known client', () => {
     const { db, store } = makeStore();
     seed(store, 'Q1', 'open', { wikitext: 'precious' });
 
-    store.markSkipped('Q1', 'image', 'no Commons category will ever exist');
+    store.recordSkip('Q1', 'image', 'client-a', { reason: 'no Commons category will ever exist' });
 
     const row = db.prepare("SELECT status, verified_at, resolved_at, resolution, payload FROM findings WHERE qid='Q1'").get();
     assert.equal(row.status, 'skipped');
@@ -148,6 +148,47 @@ test('markSkipped settles a finding without claiming Wikidata was asked', () => 
     assert.equal(JSON.parse(String(row.resolution)).reason, 'no Commons category will ever exist');
     assert.equal(JSON.parse(String(row.payload)).wikitext, 'precious', 'the draft survives');
     assert.ok(store.skipQids('image').has('Q1'), 'skipped is sticky — never rediscovered');
+});
+
+test('a per-client skip that has not yet settled the finding does not touch findings.status', () => {
+    // Regression guard for the discovery-facing half of slice 8b's contract: skipQids() must
+    // keep reading only findings.status, unaffected by an in-progress (not-yet-global) skip —
+    // 'open' is already in skipQids() either way (STICKY_STATUSES includes it, so discovery never
+    // re-adds a row that already exists), so the thing worth pinning is that the *status itself*
+    // stays 'open', not that skipQids' membership changes.
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open');
+    store.registerClient('client-b'); // a second known client that has not skipped yet
+
+    store.recordSkip('Q1', 'image', 'client-a', {});
+
+    assert.equal(store.openFindings('image').length, 1, 'still open — one of two known clients is not enough');
+    assert.ok(store.skipQids('image').has('Q1'), 'unaffected — was already there as an open finding');
+    assert.deepEqual(store.listFindings({ kind: 'image', clientId: 'client-a' }), [],
+        "hidden from client-a's own worklist");
+    assert.deepEqual(store.listFindings({ kind: 'image' }).map(r => r.qid), ['Q1'],
+        'still visible with no clientId — e.g. to the CLI reports and other clients');
+});
+
+test('recordUnskip on a legacy skip (no skips row) reopens with no per-client attribution needed', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'skipped'); // simulates a pre-slice-8b global skip
+
+    store.recordUnskip('Q1', 'image', 'client-a');
+
+    assert.equal(store.getFinding(store.listFindings({ kind: 'image' })[0].id)?.status, 'open');
+});
+
+test('recordUnskip restores the status a finding had when it was skipped, not a bare open', () => {
+    const { store } = makeStore();
+    seed(store, 'Q1', 'ambiguous');
+    const [{ id }] = store.listFindings({ kind: 'image', status: 'ambiguous' });
+
+    store.recordSkip('Q1', 'image', 'client-a', { global: true });
+    assert.equal(store.getFinding(id)?.status, 'skipped');
+
+    store.recordUnskip('Q1', 'image', 'client-a');
+    assert.equal(store.getFinding(id)?.status, 'ambiguous');
 });
 
 test('STRICT tables reject a wrong-typed value', () => {
