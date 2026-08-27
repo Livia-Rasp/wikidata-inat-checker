@@ -21,6 +21,11 @@ const MAX_LIMIT = 2000;
 /** Ids per bulk confirm. 200 is four Wikidata requests — polite, and one paste-sized batch. */
 const MAX_CONFIRM_IDS = 200;
 
+// An opaque, client-generated id (crypto.randomUUID(), 36 chars) scoping per-client skips —
+// slice 8b. Not an identity or auth mechanism: spoofable by anyone, same as any other
+// client-supplied field the write guard already accepts. See docs/threat-model.md.
+const clientIdSchema = { type: 'string', minLength: 1, maxLength: 64 };
+
 /**
  * Recover the photo id from a filename the app built, `<Taxon name> - <photoId>.<ext>`. Split on
  * the *last* separator: a taxon name can itself contain " - " (hybrids, cultivar names). Anything
@@ -102,6 +107,10 @@ export default async function findingsRoutes(app, opts) {
                     status: { type: 'string', enum: STATUSES, default: 'open' },
                     limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: 500 },
                     offset: { type: 'integer', minimum: 0, default: 0 },
+                    // Optional: hides this client's own not-yet-globally-settled skips from its
+                    // own worklist view, without touching `total`/`count` (those stay the true
+                    // figures across every tester) or any other client's view. Slice 8b.
+                    clientId: clientIdSchema,
                 },
             },
             response: {
@@ -119,8 +128,8 @@ export default async function findingsRoutes(app, opts) {
             },
         },
     }, async (req) => {
-        const { kind, status, limit, offset } = /** @type {any} */ (req.query);
-        const taxa = store.listFindings({ kind, status, limit, offset });
+        const { kind, status, limit, offset, clientId } = /** @type {any} */ (req.query);
+        const taxa = store.listFindings({ kind, status, limit, offset, clientId });
         return {
             generated: store.latestRunAt(),
             // total is what matched before paging: without it a truncated page reads as the
@@ -209,16 +218,48 @@ export default async function findingsRoutes(app, opts) {
             body: {
                 type: 'object',
                 additionalProperties: false,
-                properties: { reason: { type: 'string', maxLength: 500 } },
+                required: ['clientId'],
+                properties: {
+                    reason: { type: 'string', maxLength: 500 },
+                    clientId: clientIdSchema,
+                    // "This will never have a usable photo" — a permanent fact, not "not my area"
+                    // — settles the finding immediately rather than waiting on every other tester.
+                    global: { type: 'boolean', default: false },
+                },
             },
         },
     }, async (req, reply) => {
         const finding = store.getFinding(/** @type {any} */ (req.params).id);
         if (!finding) return reply.status(404).send({ statusCode: 404, error: 'Not Found' });
 
-        store.markSkipped(finding.qid, finding.kind, /** @type {any} */ (req.body)?.reason);
+        const { reason, clientId, global } = /** @type {any} */ (req.body);
+        store.recordSkip(finding.qid, finding.kind, clientId, { reason, global });
         store.clearP18Pick(finding.qid);
-        return { id: finding.id, qid: finding.qid, status: 'skipped' };
+        return { id: finding.id, qid: finding.qid, status: store.getFinding(finding.id)?.status };
+    });
+
+    app.post('/findings/:id/unskip', {
+        config: { rateLimit: WRITE_RATE_LIMIT },
+        schema: {
+            params: {
+                type: 'object',
+                properties: { id: { type: 'integer', minimum: 1 } },
+                required: ['id'],
+            },
+            body: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['clientId'],
+                properties: { clientId: clientIdSchema },
+            },
+        },
+    }, async (req, reply) => {
+        const finding = store.getFinding(/** @type {any} */ (req.params).id);
+        if (!finding) return reply.status(404).send({ statusCode: 404, error: 'Not Found' });
+
+        const { clientId } = /** @type {any} */ (req.body);
+        store.recordUnskip(finding.qid, finding.kind, clientId);
+        return { id: finding.id, qid: finding.qid, status: store.getFinding(finding.id)?.status };
     });
 
     app.post('/findings/:id/pick', {
