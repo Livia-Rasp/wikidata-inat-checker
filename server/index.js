@@ -8,6 +8,7 @@
 import { openFindingsDb } from '../lib/db.js';
 import { findingsDbPath } from '../lib/paths.js';
 import { buildServer } from './app.js';
+import { createLogger } from './logger.js';
 import { LOOPBACK_ONLY } from './writeGuard.js';
 
 const DB_FILE = findingsDbPath();
@@ -99,13 +100,10 @@ const app = buildServer({
     topupConfig,
     budgetConfig,
     store,
-    logger: {
-        level: process.env.LOG_LEVEL || 'info',
-        // Fastify's default serialiser logs no headers, so nothing is exposed today. The redaction
-        // is here because the sibling project leaked a foreign localhost cookie into its logs by
-        // adding a serialiser later, and this process will hold OAuth tokens if that work happens.
-        redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
-    },
+    // loggerInstance, not logger: this is an already-built pino instance (level, retention,
+    // redaction and the dual stdout+file destination all live in server/logger.js now — see
+    // docs/logging.md), and Fastify throws if a real instance is passed as `logger` instead.
+    loggerInstance: createLogger(),
 });
 
 let closing = false;
