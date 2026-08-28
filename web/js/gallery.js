@@ -35,8 +35,8 @@ function setHeader() {
     document.title = `${taxonName} — photos`;
     $('taxon-name').textContent = taxonName;
     const links = [];
-    if (qid) links.push(`<a href="https://www.wikidata.org/wiki/${qid}" target="_blank">${qid}</a>`);
-    if (taxonId) links.push(`<a href="https://www.inaturalist.org/taxa/${taxonId}" target="_blank">iNat taxon ${taxonId}</a>`);
+    if (qid) links.push(`<a href="https://www.wikidata.org/wiki/${escapeHtml(qid)}" target="_blank">${escapeHtml(qid)}</a>`);
+    if (taxonId) links.push(`<a href="https://www.inaturalist.org/taxa/${escapeHtml(taxonId)}" target="_blank">iNat taxon ${escapeHtml(taxonId)}</a>`);
     $('taxon-links').innerHTML = links.join(' · ');
 }
 
