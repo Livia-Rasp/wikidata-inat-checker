@@ -134,9 +134,9 @@ endpoint already carries, not a new capability.
 ### Discovery budget — POST /discover and GET /discover/area (slice 10)
 
 Discovery is the most expensive thing this server can be asked to do: minutes of Wikidata,
-iNaturalist and Commons traffic under the operator's identity. WDQS bans clients that ignore its
-limits and iNaturalist blocks above 10,000 requests a day, so the thing being protected here is not
-data — it is the **ability to keep using those APIs at all**.
+iNaturalist and Commons traffic under the operator's identity. WDQS (the Wikidata Query Service)
+bans clients that ignore its limits and iNaturalist blocks above 10,000 requests a day, so the
+thing being protected here is not data — it is the **ability to keep using those APIs at all**.
 
 Until slice 10 this was gated on a **loopback peer address** — `req.socket.remoteAddress`,
 unforgeable unlike `Host` (`curl -H 'Host: localhost'` forges that from anywhere) — on the theory
@@ -347,7 +347,8 @@ would be discovered by users rather than by tests.
 ## What is in place
 
 - **Security headers** (`@fastify/helmet`, registered first so they cover static assets, 404s and
-  error responses alike). The CSP is built with `useDefaults: false` and enumerates:
+  error responses alike). The CSP (Content Security Policy) is built with `useDefaults: false` and
+  enumerates:
   - `script-src 'self'` with **`script-src-attr 'none'`** and no `'unsafe-inline'`. This is the
     directive the delegated-listener refactor exists for: the app previously used `onclick=` /
     `onchange=` attributes, and it builds its table from database content with `innerHTML`, so an
@@ -371,8 +372,8 @@ would be discovered by users rather than by tests.
     plain-http LAN address, where every same-origin asset would be upgraded to a port with no TLS.
   - `hsts: false`: whatever terminates TLS owns that header, and an HSTS pin outlives the
     deployment that set it.
-  - `crossOriginEmbedderPolicy: false`, explicitly rather than by default — COEP would block the
-    iNat images, which carry no CORP header.
+  - `crossOriginEmbedderPolicy: false`, explicitly rather than by default — COEP (Cross-Origin
+    Embedder Policy) would block the iNat images, which carry no CORP header.
 - **Rate limiting** (`@fastify/rate-limit`), registered **inside** the `/api` plugin so it covers
   the API and only the API. This is not a stylistic choice: the sibling project
   `vue-commons-gallery` records an app-wide limiter tripping on the dozens of same-origin asset

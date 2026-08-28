@@ -165,8 +165,8 @@ The taxa-index tests don't download the 189 MB dump: `lib/getInatTaxaDb.js` expo
 ## Coding style checks (`npm run lint`, `npm run typecheck`)
 
 Both are CI-gating (`.github/workflows/ci.yml`, ahead of `test:coverage`). No Prettier: a prior
-trial in a sibling repo (Random Access) rewrote 44 of 81 files for 557 changed lines and caught
-zero defects, so it was never adopted here either.
+trial in a sibling repo (Random Access, another of Livia's projects) rewrote 44 of 81 files for
+557 changed lines and caught zero defects, so it was never adopted here either.
 
 **Typecheck: `checkJs` over JSDoc, not a TypeScript source migration.** `jsconfig.json` had
 `checkJs: true` since early on but no `typescript` devDependency to actually run `tsc` — so it was
@@ -579,7 +579,7 @@ anything not declared there — so the partial-vs-none distinction lives only in
 
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 
-`verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
+`verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS (the Wikidata Query Service) lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
 
 Requests use `redirects=no`. That is the load-bearing simplification: the API then reports a redirect exactly like a deleted entity, so since merged and deleted both resolve to `gone`, a single `entity.missing` check covers both and no requested-vs-returned id comparison is needed. An entity absent from the response entirely is also treated as `gone`, so a finding can never get stuck open because the API stopped mentioning its item.
 

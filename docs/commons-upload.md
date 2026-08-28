@@ -10,6 +10,9 @@ You review and submit the form yourself. **Nothing is uploaded automatically.**
 The design rationale, the inat2wiki prior art it builds on, and the technical research
 behind it are in the [design & research record](commons-upload-dev.md).
 
+The screenshots below go stale the same way prose does whenever `web/` changes — see
+[screenshots/README.md](screenshots/README.md) for how they're kept current.
+
 ![The worklist](screenshots/worklist.png)
 
 ## Usage

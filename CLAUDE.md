@@ -51,7 +51,8 @@ sits at one version and a single `vX.Y.Z:` commit closes the batch.
 
 There is no CHANGELOG, no git tag and no release tooling, on purpose: **`git log --grep '^v[0-9]'`
 is the changelog**, and it cannot drift from what was actually shipped. Same practice as
-`commons-describe-upload-toolbox`.
+`commons-describe-upload-toolbox` — a sibling repo (another Commons-upload tool of Livia's),
+cited elsewhere in `docs/` as precedent alongside another sibling repo, `vue-commons-gallery`.
 
 The version has two consumers, so it is read and never copied: the User-Agent in `lib/utils.js`
 (sent to Wikimedia and iNaturalist) and the container image tag pushed by CI.
