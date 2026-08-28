@@ -28,8 +28,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example                  ✅
 11  .mcp.json registration                                                                  ✅
 12  .github/workflows/ci.yml: test + build + publish mcp-server's image                       ✅
-13  docs: threat-model.md, new logging.md + mcp-server.md, CLAUDE.md, README.md               ← next
-14  v1.9.0: add structured server logging and a log-reading MCP server
+13  docs: threat-model.md, new logging.md + mcp-server.md, CLAUDE.md, README.md               ✅
+14  v1.9.0: add structured server logging and a log-reading MCP server                        ← next
 ```
 
 Each slice's exclusions are everything below it — every later slice depends on an earlier one

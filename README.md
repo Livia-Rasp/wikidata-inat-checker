@@ -139,8 +139,12 @@ docker pull ghcr.io/livia-rasp/wikidata-inat-checker:latest # or take the publis
 ```
 
 The image runs the server only, and bind-mounts `./data` so the container and your host share one
-database. CI builds, starts and smoke-tests it before publishing. Details, including what still
-needs the CLI: [docs/container.md](docs/container.md).
+database. `docker compose up` also brings up a second, read-only container over the server's
+rotated logs — an MCP server exposing six log-query tools to Claude Code or any MCP client, so
+debugging a deployed instance doesn't mean reconstructing a `jq` pipeline from scratch each time.
+See [docs/logging.md](docs/logging.md) and [docs/mcp-server.md](docs/mcp-server.md). CI builds,
+starts and smoke-tests both images before publishing. Details, including what still needs the
+CLI: [docs/container.md](docs/container.md).
 
 ## Project structure
 
@@ -149,9 +153,11 @@ needs the CLI: [docs/container.md](docs/container.md).
 - **`report/`** — the HTML report builders
 - **`server/`** — the Fastify app behind `npm run web`
 - **`web/`** — the browser upload app, plain HTML/JS/CSS, no build step
+- **`mcp-server/`** — a standalone, read-only MCP server over `server/`'s rotated logs; its own
+  package, its own dependencies, no build step here either
 - **`test/`** — unit tests on Node's built-in runner. No dev dependencies, no network
 - **`tools/`** — repo maintenance. `npm run screenshots` and `npm run record` regenerate this README's images from the running app
-- **`output/`, `cache/`, `data/`** — generated artifacts, gitignored, created on first run
+- **`output/`, `cache/`, `logs/`, `data/`** — generated artifacts, gitignored, created on first run
 
 ## Documentation
 
@@ -161,7 +167,9 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 |---|---|
 | [dev.md](docs/dev.md) | The implementation reference: module wiring, the taxa index, the findings store, discovery, search, the SPARQL and CirrusSearch patterns. |
 | [threat-model.md](docs/threat-model.md) | What the server defends against and why, including what is deliberately *not* done. A design record, not a disclosure policy. |
-| [container.md](docs/container.md) | Running the server in Docker, and what still needs the CLI. |
+| [logging.md](docs/logging.md) | What the server logs, and why — the dual stdout/rotated-file setup, correlation ids, `timed()` step tracing. |
+| [mcp-server.md](docs/mcp-server.md) | The standalone MCP server that reads those logs: its six tools, its own threat model. |
+| [container.md](docs/container.md) | Running the server (and the log-reading MCP server) in Docker, and what still needs the CLI. |
 | [findings-db-roadmap.md](docs/findings-db-roadmap.md) | The plan of record for the persistent-database restructure: the slices, the schema, and the decisions that were reversed during the build. |
 | [commons-integration.md](docs/commons-integration.md) | App-agnostic Commons/iNat/Wikidata recipes, written to be reusable outside this project. |
 | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) | The upload app: what it does, and the design record behind it. |
