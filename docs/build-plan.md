@@ -15,8 +15,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 
 ```
 0   scaffold docs/build-plan.md with this ladder                                    ✅
-1   lib/paths.js: LOGS_DIR / logPath()                                              ← next
-2   server/logger.js: dual stdout+rotated-file pino, redaction, timed()
+1   lib/paths.js: LOGS_DIR / logPath()                                              ✅
+2   server/logger.js: dual stdout+rotated-file pino, redaction, timed()             ← next
 3   wire the real logger into server/index.js + server/app.js; correlation IDs
 4   compose.yaml + Dockerfile + .gitignore/.dockerignore: writable logs mount
 5   lib/utils.js: thread `log` through the SPARQL/CirrusSearch/Commons helpers
