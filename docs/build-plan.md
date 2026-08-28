@@ -23,8 +23,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 6   lib/confirm.js, verify.js, discover*.js, areaCandidates.js: thread `log` from opts  ✅
 7   server/routes/*.js + server/app.js: pass req.log/app.log down those call chains      ✅
 7b  wire timed() into the confirm and area routes — slice 2 built it, nothing called it  ✅
-8   mcp-server/: logFiles.js, read.js, stats.js, time.js + fixture tests (no HTTP yet)     ← next
-9   mcp-server/: http.js, server.js, main.js — the MCP protocol layer, six tools
+8   mcp-server/: logFiles.js, read.js, stats.js, time.js + fixture tests (no HTTP yet)     ✅
+9   mcp-server/: http.js, server.js, main.js — the MCP protocol layer, six tools           ← next
 10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example
 11  .mcp.json registration
 12  .github/workflows/ci.yml: test + build + publish mcp-server's image
