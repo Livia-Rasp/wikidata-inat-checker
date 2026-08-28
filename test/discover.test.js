@@ -1,17 +1,9 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { createFindingsStore, migrate } from '../lib/db.js';
-import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
 import { discover, resolveTaxonScope, resolveTaxonId, resolveIucn, DiscoveryError } from '../lib/discover.js';
 import { resolveAreaScope } from '../lib/areaCandidates.js';
-
-function makeStore() {
-    const db = new DatabaseSync(':memory:');
-    migrate(db);
-    return { db, store: createFindingsStore(db) };
-}
+import { makeStore, makeTaxaDb as makeTaxaDbBase } from './helpers.js';
 
 function makeTaxaDb(rows = [
     ['1', 'Animalia', 'kingdom', null],
@@ -22,11 +14,7 @@ function makeTaxaDb(rows = [
     ['999', 'Ambigua', 'species', '1'],
     ['998', 'Ambigua', 'genus', '1'],
 ]) {
-    const db = new DatabaseSync(':memory:');
-    db.exec('CREATE TABLE taxa (taxon_id TEXT PRIMARY KEY, name TEXT NOT NULL, rank TEXT NOT NULL, ancestry TEXT);');
-    const ins = db.prepare('INSERT INTO taxa VALUES (?, ?, ?, ?)');
-    for (const [id, name, rank, ancestry] of rows) ins.run(id, name, rank, ancestry ?? null);
-    return createTaxaAccessor(db);
+    return makeTaxaDbBase(rows);
 }
 
 /** A Wikidata candidate stream: one row per iNat id. */

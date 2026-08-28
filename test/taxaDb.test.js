@@ -1,18 +1,7 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { createTaxaAccessor } from '../lib/getInatTaxaDb.js';
-
-// Build an in-memory taxa index from fixture rows, matching the real schema.
-// Each row: [taxon_id, name, rank, ancestry] (ancestry = '/'-joined ancestor ids, no self).
-function makeAccessor(rows) {
-    const db = new DatabaseSync(':memory:');
-    db.exec('CREATE TABLE taxa (taxon_id TEXT PRIMARY KEY, name TEXT NOT NULL, rank TEXT NOT NULL, ancestry TEXT);');
-    const ins = db.prepare('INSERT INTO taxa VALUES (?, ?, ?, ?)');
-    for (const [id, name, rank, ancestry] of rows) ins.run(id, name, rank, ancestry ?? null);
-    return createTaxaAccessor(db);
-}
+import { makeTaxaDb as makeAccessor } from './helpers.js';
 
 // Fixture modelled on the Panthera bug: species are DIRECT children of the genus, so their
 // ancestry *ends* in the genus id (no trailing slash) — the case the old two-LIKE query missed.

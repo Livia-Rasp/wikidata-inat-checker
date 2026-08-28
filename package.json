@@ -16,8 +16,8 @@
     "draft-category": "draftCategory.js"
   },
   "scripts": {
-    "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=87 --test-coverage-branches=89",
+    "test": "node --test test/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=87 --test-coverage-branches=89 test/*.test.js",
     "typecheck": "tsc -p jsconfig.json && tsc -p web/jsconfig.json",
     "lint": "oxlint",
     "images": "node checkImages.js",
