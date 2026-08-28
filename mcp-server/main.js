@@ -54,7 +54,7 @@ async function main() {
 
     const app = createHttpApp({ logDir: config.logDir, token: config.token, allowedHosts: config.allowedHosts });
 
-    app.listen(config.port, config.bindHost, () => {
+    const httpServer = app.listen(config.port, config.bindHost, () => {
         // stderr, not stdout: this server speaks MCP over HTTP rather than stdio, so stdout is
         // free — but keeping every diagnostic on stderr means the same code could be given a
         // stdio transport without corrupting the protocol channel.
@@ -62,6 +62,19 @@ async function main() {
             `winc-logs: listening on http://${config.bindHost}:${config.port}/mcp, `
             + `reading ${config.logDir}, hosts allowed: ${config.allowedHosts.join(', ')}\n`);
     });
+
+    // Express installs no SIGTERM handler of its own, so without this `docker stop` kills the
+    // process outright — an exit code of 143, not 0, and every in-flight response cut off rather
+    // than finished. There is nothing here to drain (every tool call is one request/response, no
+    // background work survives it), so closing the listener and exiting is the whole shutdown.
+    let closing = false;
+    function shutdown() {
+        if (closing) return;
+        closing = true;
+        httpServer.close(() => process.exit(0));
+    }
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
 }
 
 main().catch((error) => {

@@ -27,8 +27,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 9   mcp-server/: http.js, server.js, main.js — the MCP protocol layer, six tools           ✅
 10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example                  ✅
 11  .mcp.json registration                                                                  ✅
-12  .github/workflows/ci.yml: test + build + publish mcp-server's image                       ← next
-13  docs: threat-model.md, new logging.md + mcp-server.md, CLAUDE.md, README.md
+12  .github/workflows/ci.yml: test + build + publish mcp-server's image                       ✅
+13  docs: threat-model.md, new logging.md + mcp-server.md, CLAUDE.md, README.md               ← next
 14  v1.9.0: add structured server logging and a log-reading MCP server
 ```
 
