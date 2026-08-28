@@ -7,19 +7,11 @@
 // docs/threat-model.md's "Discovery budget" section) rather than by a loopback-peer check, which
 // could never be satisfied through a published Docker port. The bucket is shared with the
 // scheduled top-up (server/scheduledTopup.js) — both draw from the same store-backed state.
-import rateLimit from '@fastify/rate-limit';
-import writeGuard from '../writeGuard.js';
 import { IUCN_STATUS_QIDS } from '../../lib/utils.js';
 import { openTaxaDb, TaxaIndexUnavailable, taxaIndexIsStale } from '../../lib/getInatTaxaDb.js';
 import { resolveTaxonScope, DiscoveryError } from '../../lib/discover.js';
 import { resolveAreaScope, fetchAreaSpecies, fetchAreaCandidates } from '../../lib/areaCandidates.js';
-
-/**
- * A taxon is either an iNat id or a name. The digits branch is load-bearing beyond parsing:
- * descendantInatIds interpolates the id into LIKE patterns, so `%` would match every row of a
- * 3M-row table and turn one request into hundreds of SPARQL queries.
- */
-const TAXON_PATTERN = '^(\\d{1,12}|[\\p{L}][\\p{L}\\p{M} .×\'-]{0,119})$';
+import { TAXON_PATTERN, registerApiDefaults } from './shared.js';
 
 /** Starting a run is far more expensive than reading its status; they do not share a *rate* limit —
  *  they do now share a *daily budget*, see DEFAULT_BUDGET_CONFIG below. */
@@ -81,19 +73,7 @@ export default async function discoverRoutes(app, opts) {
         fetchAreaSpeciesFn = fetchAreaSpecies, fetchAreaCandidatesFn = fetchAreaCandidates,
     } = opts;
 
-    await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
-    await app.register(rateLimit, {
-        max: Number(process.env.RATE_LIMIT_MAX ?? 120),
-        timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
-        keyGenerator: (req) => req.ip,
-        skipOnError: false,
-        ...opts.rateLimit,
-    });
-
-    app.addHook('onSend', (_req, reply, _payload, done) => {
-        reply.header('cache-control', 'no-store');
-        done();
-    });
+    await registerApiDefaults(app, opts);
 
     /** The parent keeps a cheap read-only handle for validation: getAll() is an indexed lookup. */
     let index = null;

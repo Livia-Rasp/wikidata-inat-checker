@@ -3,16 +3,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate } from '../lib/db.js';
-import { createTaxaAccessor, TaxaIndexUnavailable } from '../lib/getInatTaxaDb.js';
+import { TaxaIndexUnavailable } from '../lib/getInatTaxaDb.js';
 import { buildServer } from '../server/app.js';
+import { makeTaxaDb } from './helpers.js';
 
 function makeIndex() {
-    const db = new DatabaseSync(':memory:');
-    db.exec('CREATE TABLE taxa (taxon_id TEXT PRIMARY KEY, name TEXT NOT NULL, rank TEXT NOT NULL, ancestry TEXT);');
-    const ins = db.prepare('INSERT INTO taxa VALUES (?, ?, ?, ?)');
-    ins.run('47217', 'Orchidaceae', 'family', '1');
-    ins.run('1', 'Plantae', 'kingdom', null);
-    return createTaxaAccessor(db);
+    return makeTaxaDb([
+        ['47217', 'Orchidaceae', 'family', '1'],
+        ['1', 'Plantae', 'kingdom', null],
+    ]);
 }
 
 /**

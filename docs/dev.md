@@ -165,8 +165,8 @@ The taxa-index tests don't download the 189 MB dump: `lib/getInatTaxaDb.js` expo
 ## Coding style checks (`npm run lint`, `npm run typecheck`)
 
 Both are CI-gating (`.github/workflows/ci.yml`, ahead of `test:coverage`). No Prettier: a prior
-trial in a sibling repo (Random Access) rewrote 44 of 81 files for 557 changed lines and caught
-zero defects, so it was never adopted here either.
+trial in a sibling repo (Random Access, another of Livia's projects) rewrote 44 of 81 files for
+557 changed lines and caught zero defects, so it was never adopted here either.
 
 **Typecheck: `checkJs` over JSDoc, not a TypeScript source migration.** `jsconfig.json` had
 `checkJs: true` since early on but no `typescript` devDependency to actually run `tsc` — so it was
@@ -442,13 +442,14 @@ left late in the day. Two things worth knowing before touching the rest of it:
   `TOPUP_QUIET_MIN_SAMPLE_DAYS`) is treated as "every hour eligible", not "wait" — a fresh
   deployment should not sit idle for a week waiting to earn the right to run.
 - **One shared config, tried per tool in a fixed order.** `tick()` loops `TOOLS = ['images',
-  'links']`; each has its own daily-once gate (`store.latestRun(tool, {triggeredBy:'schedule'})`
-  reads that tool's own history), but only one job can ever be running, so a tick starts at most
-  the first tool that is both eligible and hasn't run today — a skip for one tool falls through to
-  the next rather than ending the tick. `getStatus().ranToday` is therefore per tool
-  (`{images: bool, links: bool}`), not a single flag. There is deliberately no `TOPUP_LINKS_*`
-  config: one `TOPUP_ENABLED` switch and one taxon/iucn scope drives both — Livia's call, over
-  giving links its own independent schedule.
+  'links', 'names']`; each has its own daily-once gate (`store.latestRun(tool,
+  {triggeredBy:'schedule'})` reads that tool's own history), but only one job can ever be running,
+  so a tick starts at most the first tool that is both eligible and hasn't run today — a skip for
+  one tool falls through to the next rather than ending the tick. `getStatus().ranToday` is
+  therefore per tool (`{images: bool, links: bool, names: bool}`), not a single flag. There is
+  deliberately no `TOPUP_LINKS_*`/`TOPUP_NAMES_*` config: one `TOPUP_ENABLED` switch and one
+  taxon/iucn scope drives all three — Livia's call, over giving each tool its own independent
+  schedule.
 
 The daily-once gate reads `runs.triggered_by = 'schedule'`, which means it has the same blind spot
 `discover()`'s own "a bad scope leaves no run behind" design has, one layer further out: a missing
@@ -578,7 +579,7 @@ anything not declared there — so the partial-vs-none distinction lives only in
 
 ### Verification (`lib/verify.js`, `verifyFindings.js`)
 
-`verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
+`verifyOpenFindings(store, {kind, limit, fetchFn})` re-checks open findings against the **Action API, never SPARQL** — WDQS (the Wikidata Query Service) lag would report an image still missing right after you added it, and a second one would go on. `fetchFn` is injectable, the repo's established seam for faking the network in tests.
 
 Requests use `redirects=no`. That is the load-bearing simplification: the API then reports a redirect exactly like a deleted entity, so since merged and deleted both resolve to `gone`, a single `entity.missing` check covers both and no requested-vs-returned id comparison is needed. An entity absent from the response entirely is also treated as `gone`, so a finding can never get stuck open because the API stopped mentioning its item.
 

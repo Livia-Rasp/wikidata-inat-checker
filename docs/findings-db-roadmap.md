@@ -657,7 +657,8 @@ dark-mode color-contrast fix; and all four screenshots regenerated and visually 
 Migrated `checkLinks.js` onto the findings table with P3151 as the verification predicate, and
 folded in the roadmap's own ["Wanted: an interface for ambiguous matches"](#wanted-an-interface-for-ambiguous-matches)
 section — bringing links into the DB was the natural moment, since both problems it names
-(`links-ambiguous.html`'s hemihomonyms and `inat-links-conflicts.json`'s conflicts) are `kind=link`
+(`links-ambiguous.html`'s hemihomonyms — names shared across taxa that only partly collide, images.md's
+"ambiguous" case — and `inat-links-conflicts.json`'s conflicts) are `kind=link`
 rows. `checkLinksStats.js` needed no change — confirmed to have no dependency on the findings DB at
 all (`fetchWdTaxaByNames`, `cirrusCount`, the taxa index only).
 

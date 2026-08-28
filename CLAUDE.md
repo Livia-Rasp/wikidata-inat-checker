@@ -32,10 +32,9 @@ npm run lint                                # oxlint, correctness category only
 npm run typecheck                           # tsc over jsconfig.json, then web/jsconfig.json
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
 npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
+npm run backup                              # snapshot data/findings.db, prune old ones (see container.md)
 
-docker compose up --build                   # the server in a container, http://localhost:8080
-                                            # bind-mounts ./data; server only, no checkers — but
-                                            # discovery works through it (see container.md)
+docker compose up --build                   # the server in a container — see docs/container.md
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -50,7 +49,8 @@ sits at one version and a single `vX.Y.Z:` commit closes the batch.
 
 There is no CHANGELOG, no git tag and no release tooling, on purpose: **`git log --grep '^v[0-9]'`
 is the changelog**, and it cannot drift from what was actually shipped. Same practice as
-`commons-describe-upload-toolbox`.
+`commons-describe-upload-toolbox` — a sibling repo (another Commons-upload tool of Livia's),
+cited elsewhere in `docs/` as precedent alongside another sibling repo, `vue-commons-gallery`.
 
 The version has two consumers, so it is read and never copied: the User-Agent in `lib/utils.js`
 (sent to Wikimedia and iNaturalist) and the container image tag pushed by CI.
@@ -69,7 +69,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location; also a discovery scope in the app (`/area`) | [area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 | Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 
@@ -142,11 +142,11 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–8 are done; 9–10 remain, and OAuth is
-  deliberately outside the plan. Three known gaps are written up there rather than fixed:
-  **`skipped` is global**, a **CLI run killed outright stays `running`** (only the server
-  reconciles), and the **scheduled top-up retries every interval rather than once a day** when the
-  taxa index is missing (no run row is ever opened for that failure, so the daily-once gate can't
-  see it). **Read it before changing anything about caching, persistence, or the web app.**
+  restructure around `data/findings.db`. Slices 0–8 and 10 are done; 9 remains, and OAuth is
+  deliberately outside the plan. Two known gaps are written up there rather than fixed: a **CLI
+  run killed outright stays `running`** (only the server reconciles), and the **scheduled top-up
+  retries every interval rather than once a day** when the taxa index is missing (no run row is
+  ever opened for that failure, so the daily-once gate can't see it). **Read it before changing
+  anything about caching, persistence, or the web app.**
 - [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
   Wikidata recipes, the reference for building further Commons-upload tools.

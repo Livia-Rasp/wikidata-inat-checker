@@ -6,13 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate, DEFAULT_RECHECK_DAYS } from '../lib/db.js';
-
-// A migrated in-memory findings DB, so the real schema and queries are exercised without a file.
-function makeStore() {
-    const db = new DatabaseSync(':memory:');
-    migrate(db);
-    return { db, store: createFindingsStore(db) };
-}
+import { makeStore } from './helpers.js';
 
 /** Backdate a finding's checked_at by `days`, to test negative-result expiry without sleeping. */
 function backdate(db, qid, days) {

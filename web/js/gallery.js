@@ -11,6 +11,7 @@ import {
 } from './enrich.js';
 import { state } from './state.js';
 import { mountShell } from './shell.js';
+import { escapeHtml } from './rows.js';
 
 mountShell('images');
 
@@ -27,16 +28,13 @@ const qid = params.get('qid') || '';
 let sort = 'votes'; // 'votes' (most faved) | 'created_at' (newest)
 
 const $ = (id) => document.getElementById(id);
-function escapeHtml(s) {
-    return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 
 function setHeader() {
     document.title = `${taxonName} — photos`;
     $('taxon-name').textContent = taxonName;
     const links = [];
-    if (qid) links.push(`<a href="https://www.wikidata.org/wiki/${qid}" target="_blank">${qid}</a>`);
-    if (taxonId) links.push(`<a href="https://www.inaturalist.org/taxa/${taxonId}" target="_blank">iNat taxon ${taxonId}</a>`);
+    if (qid) links.push(`<a href="https://www.wikidata.org/wiki/${escapeHtml(qid)}" target="_blank">${escapeHtml(qid)}</a>`);
+    if (taxonId) links.push(`<a href="https://www.inaturalist.org/taxa/${escapeHtml(taxonId)}" target="_blank">iNat taxon ${escapeHtml(taxonId)}</a>`);
     $('taxon-links').innerHTML = links.join(' · ');
 }
 
@@ -162,12 +160,19 @@ async function enrich(el, { obs, photo }) {
     }
 }
 
+// Bumped on every call so a render superseded by a later sort click (still awaiting its own
+// fetch/enrich) can tell it lost the race and stop touching the grid instead of appending its
+// stale cards on top of — or after — the newer render's.
+let renderSeq = 0;
+
 async function render() {
+    const mySeq = ++renderSeq;
     const grid = $('grid');
     grid.innerHTML = '';
     $('status').textContent = 'Loading photos…';
     try {
         const photos = await fetchAllPhotos();
+        if (mySeq !== renderSeq) return;
         $('status').textContent = photos.length
             ? `${photos.length} photo${photos.length === 1 ? '' : 's'} — preparing upload links…`
             : 'No Commons-compatible photos found for this taxon.';
@@ -177,10 +182,15 @@ async function render() {
 
         // Resolve all place IDs once, then enrich each card (caches make repeats cheap).
         await resolvePlaceIds(photos.flatMap((p) => p.obs.place_ids || []));
-        for (let i = 0; i < photos.length; i++) await enrich(els[i], photos[i]);
+        for (let i = 0; i < photos.length; i++) {
+            if (mySeq !== renderSeq) return;
+            await enrich(els[i], photos[i]);
+        }
+        if (mySeq !== renderSeq) return;
 
         $('status').textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
     } catch (e) {
+        if (mySeq !== renderSeq) return;
         $('status').textContent = `Error: ${e.message}`;
     }
 }

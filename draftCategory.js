@@ -5,23 +5,25 @@
 // family, …) doesn't exist on Commons yet and needs creating from scratch.
 import { generateDraftWikitext } from './lib/generateWikitext.js';
 import { extractTaxonName } from './report/htmlShared.js';
-import { runMain } from './lib/cli.js';
+import { runMain, UsageError } from './lib/cli.js';
 
 const ENTITY_URI = 'http://www.wikidata.org/entity/';
 
 // Accept Q-numbers, "wd:Q123", or full entity URLs; keep only the first Q-id per token.
-const qids = process.argv.slice(2)
-    .map(tok => (tok.match(/Q\d+/i) || [])[0])
-    .filter(Boolean)
-    .map(q => q.toUpperCase());
-
-if (qids.length === 0) {
-    console.error('Usage: node draftCategory.js <QID> [<QID> …]');
-    console.error('  e.g. node draftCategory.js Q14625955   (genus Cornicandovia)');
-    process.exit(1);
+function parseQids() {
+    const qids = process.argv.slice(2)
+        .map(tok => (tok.match(/Q\d+/i) || [])[0])
+        .filter(Boolean)
+        .map(q => q.toUpperCase());
+    if (qids.length === 0) {
+        throw new UsageError('Usage: node draftCategory.js <QID> [<QID> …]',
+            ['e.g. node draftCategory.js Q14625955   (genus Cornicandovia)']);
+    }
+    return qids;
 }
 
 async function run() {
+    const qids = parseQids();
     /** @type {Record<string, true>} */
     const available = Object.fromEntries(qids.map(q => [ENTITY_URI + q, true]));
     const drafts = await generateDraftWikitext(available);

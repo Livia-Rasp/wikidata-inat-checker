@@ -4,47 +4,24 @@
 // distinguishes them" the roadmap's ambiguous-match wishlist asked for, replacing the static
 // output/links-ambiguous.html + output/inat-links-conflicts.json nothing in the app used to read.
 //
-// The worklist half reuses rows.js's createRowTable exactly as index.html does. The review half is
-// new: no equivalent existed anywhere in the app before this.
+// The worklist half is worklist.js's shared controller, configured for this kind — see its own
+// header for why. The review half is unrelated to that controller: no equivalent existed anywhere
+// in the app before this.
 
 import { getJson, postJson } from './api.js';
-import { createRowTable, escapeHtml } from './rows.js';
-import { createPager, PAGE_SIZE } from './pager.js';
-import { mountShell } from './shell.js';
+import { escapeHtml } from './rows.js';
 import { clientId } from './clientId.js';
+import { mountShell } from './shell.js';
+import { createWorklistPage } from './worklist.js';
 
 mountShell('link');
 
 const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 
-let hidingDone = localStorage.getItem('hide-done-links') === '1';
-let offset = 0;
-
-const table = createRowTable({
-    tbody: $('tbody'),
-    postJson,
-    hidingDone: () => hidingDone,
-    onStatus: (msg) => { $('status').textContent = msg; },
-    onChange: refreshQuickStatements,
-});
-
-const pager = createPager({
-    el: $('pager'),
-    scrollTo: $('controls'),
-    onPage: (to) => { offset = to; loadWorklist(); },
-});
-
-function toggleHideDone() {
-    hidingDone = !hidingDone;
-    localStorage.setItem('hide-done-links', hidingDone ? '1' : '');
-    $('hide-done').textContent = hidingDone ? 'Show done' : 'Hide done';
-    document.querySelectorAll('#tbody tr.done').forEach((row) => row.classList.toggle('hide-done', hidingDone));
-}
-
 // ---- QuickStatements panel: open matches that clear the --auto bar ----
 // Unlike images, a link finding needs no per-taxon pick — the proposed inatId is fixed at
 // discovery time — so this is simply every open, autoEligible finding, fetched independently of
-// the paged worklist above (the same reason images' pendingQs() doesn't read the visible page).
+// the paged worklist above (the same reason images' pending set doesn't read the visible page).
 
 /** Above the API's page-size ceiling but within its MAX_LIMIT, so one request is the whole
  *  practical backlog — an ambiguous-match-sized bucket, not the millions the taxa index holds. */
@@ -56,36 +33,19 @@ async function autoEligibleOpen() {
     return taxa.filter((t) => t.payload?.autoEligible === true);
 }
 
-function qsLines(pending) {
-    return pending.map((t) => `${t.qid}\tP3151\t"${t.inatTaxonId}"`).join('\n');
-}
-
-async function refreshQuickStatements() {
-    const pending = await autoEligibleOpen();
-    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
-    qsText.value = qsLines(pending);
-    $('qs-count').textContent = pending.length ? `${pending.length} taxa` : '';
-    /** @type {HTMLButtonElement} */ ($('qs-copy')).disabled = pending.length === 0;
-    /** @type {HTMLButtonElement} */ ($('qs-confirm')).disabled = pending.length === 0;
-    qsText.dataset.ids = JSON.stringify(pending.map((t) => t.id));
-}
-
-function copyQuickStatements() {
-    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
-    const text = qsText.value;
-    if (!text) return;
-    const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
-    else { qsText.select(); document.execCommand('copy'); done(); }
-}
-
-async function confirmPending() {
-    const ids = JSON.parse($('qs-text').dataset.ids || '[]');
-    const results = await table.confirm(ids);
-    const ok = results.filter((r) => r.confirmed).length;
-    $('qs-hint').textContent = results.length ? `${ok} of ${results.length} confirmed.` : 'Nothing to confirm.';
-    await Promise.all([loadWorklist(), refreshQuickStatements()]);
-}
+const page = createWorklistPage({
+    kind: 'link',
+    hideDoneKey: 'hide-done-links',
+    postJson, getJson,
+    qsLabel: 'high-confidence matches',
+    qsPlaceholder: 'Open matches whose ancestor taxonomy agrees on 3+ ranks, including family or '
+        + 'order, appear here automatically — the same bar checkLinks.js --auto uses. Copy, run '
+        + 'the batch, then Confirm pending.',
+    fetchPending: autoEligibleOpen,
+    qsLines: (pending) => pending.map((t) => `${t.qid}\tP3151\t"${t.inatTaxonId}"`).join('\n'),
+    idsOf: (pending) => pending.map((t) => t.id),
+    confirmMessage: (ok, total) => `${ok} of ${total} confirmed.`,
+});
 
 // ---- review: ambiguous names and conflicts, one comparison table per candidate ----
 // Ported from report/htmlShared.js's renderTreePair, not imported: web/ has no build step and
@@ -214,7 +174,7 @@ async function pickCandidate(groupEl, inatId) {
         msg.className = 'review-msg ok';
         groupEl.remove();
         $('review-count').textContent = --reviewCount ? `(${reviewCount})` : '';
-        await Promise.all([loadWorklist(), refreshQuickStatements()]);
+        await Promise.all([page.load(), page.refreshQuickStatements()]);
     } catch (e) {
         msg.textContent = `Could not pick: ${e.message}`;
         msg.className = 'review-msg warn';
@@ -240,34 +200,7 @@ async function skipReviewRow(groupEl, id) {
     }
 }
 
-// ---- worklist loading ----
-
-async function loadWorklist() {
-    try {
-        const data = await getJson(
-            `api/findings?kind=link&status=open&limit=${PAGE_SIZE}&offset=${offset}&clientId=${encodeURIComponent(clientId())}`);
-        const taxa = data.taxa || [];
-
-        const fallback = pager.fallbackOffset(data);
-        if (fallback !== null) { offset = fallback; return loadWorklist(); }
-
-        $('count').textContent = taxa.length < data.total
-            ? `${data.total} taxa — showing ${offset + 1}–${offset + taxa.length}`
-            : `${data.total} taxa`;
-        if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
-        table.render(taxa);
-        pager.render(data);
-        if (hidingDone) $('hide-done').textContent = 'Show done';
-        if (data.total === 0) $('status').textContent = 'Nothing open in the backlog. Search for a clade to find more.';
-    } catch (e) {
-        $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
-    }
-}
-
 // ---- wiring ----
-$('qs-copy').addEventListener('click', copyQuickStatements);
-$('qs-confirm').addEventListener('click', confirmPending);
-$('hide-done').addEventListener('click', toggleHideDone);
 
 $('review-list').addEventListener('click', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
@@ -291,6 +224,6 @@ $('review-list').addEventListener('click', (e) => {
 });
 
 // ---- boot ----
-loadWorklist();
-refreshQuickStatements();
+page.load();
+page.refreshQuickStatements();
 loadReview();

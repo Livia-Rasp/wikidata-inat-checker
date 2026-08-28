@@ -8,16 +8,12 @@
 // genuinely cannot run; search can still match the names the findings database holds itself, so it
 // degrades instead. That matters because this read surface is meant to become public, and because a
 // checkout that has never run a CLI checker has no index at all.
-import rateLimit from '@fastify/rate-limit';
-import writeGuard from '../writeGuard.js';
 import { IUCN_STATUS_QIDS } from '../../lib/utils.js';
 import { openTaxaDb, TaxaIndexUnavailable } from '../../lib/getInatTaxaDb.js';
 import { resolveTaxonId, DiscoveryError } from '../../lib/discover.js';
 import { createBacklogIndex } from '../../lib/backlogIndex.js';
 import { findingSchema } from './findings.js';
-
-/** Same guard as discovery's, and for the same reason — see server/routes/discover.js. */
-const TAXON_PATTERN = '^(\\d{1,12}|[\\p{L}][\\p{L}\\p{M} .×\'-]{0,119})$';
+import { TAXON_PATTERN, registerApiDefaults } from './shared.js';
 
 /** A prefix worth suggesting from. Two characters keeps the range bounded and the answers useful. */
 const PREFIX_PATTERN = '^[\\p{L}][\\p{L}\\p{M} .×\'-]{0,119}$';
@@ -41,19 +37,7 @@ const taxonRecordSchema = {
 export default async function searchRoutes(app, opts) {
     const { store, openIndex = openTaxaDb } = opts;
 
-    await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
-    await app.register(rateLimit, {
-        max: Number(process.env.RATE_LIMIT_MAX ?? 120),
-        timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
-        keyGenerator: (req) => req.ip,
-        skipOnError: false,
-        ...opts.rateLimit,
-    });
-
-    app.addHook('onSend', (_req, reply, _payload, done) => {
-        reply.header('cache-control', 'no-store');
-        done();
-    });
+    await registerApiDefaults(app, opts);
 
     /** The index if there is one, null if there is not. Never throws: absence is a mode here. */
     function taxaIndexOrNull() {

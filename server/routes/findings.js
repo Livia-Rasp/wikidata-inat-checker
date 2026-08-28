@@ -3,11 +3,10 @@
 // here covers the API and *only* the API (an app-wide limiter trips on the burst of static assets
 // one page load fires), and the write guard registered here covers every mutating route, including
 // the ones later slices add.
-import rateLimit from '@fastify/rate-limit';
 import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
 import { confirmByKind } from '../../lib/confirm.js';
 import { pickCandidate } from '../../lib/pick.js';
-import writeGuard from '../writeGuard.js';
+import { registerApiDefaults } from './shared.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
 const KINDS = ['image', 'name', 'link'];
@@ -78,22 +77,10 @@ export default async function findingsRoutes(app, opts) {
     const { store } = opts;
 
     // Before any route: every non-GET request under /api passes the guard, including ones added
-    // by later slices, and including the wildcard 404 below.
-    await app.register(writeGuard, { allowedHosts: opts.allowedHosts });
-
-    await app.register(rateLimit, {
-        max: Number(process.env.RATE_LIMIT_MAX ?? 120),
-        timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
-        keyGenerator: (req) => req.ip,
-        skipOnError: false, // a broken limiter must fail closed, not wave everything through
-        ...opts.rateLimit,
-    });
-
-    // A backlog is worklist state; a cached copy is a worklist someone has already worked through.
-    app.addHook('onSend', (_req, reply, _payload, done) => {
-        reply.header('cache-control', 'no-store');
-        done();
-    });
+    // by later slices, and including the wildcard 404 below. A backlog is worklist state, so the
+    // shared cache-control hook applies here too — a cached copy is a worklist someone has
+    // already worked through.
+    await registerApiDefaults(app, opts);
 
     app.get('/findings', {
         schema: {

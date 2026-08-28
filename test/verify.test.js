@@ -1,15 +1,8 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { createFindingsStore, migrate } from '../lib/db.js';
 import { verifyOpenFindings, readImageFacts, readLinkFacts, readNameFacts } from '../lib/verify.js';
-
-function makeStore() {
-    const db = new DatabaseSync(':memory:');
-    migrate(db);
-    return { db, store: createFindingsStore(db) };
-}
+import { makeStore } from './helpers.js';
 
 function seedOpen(store, qid, wikitext = `{{Species|Taxon ${qid}|}}`) {
     store.upsertTaxon({ qid, inatId: `inat-${qid}`, taxonName: `Taxon ${qid}`, iucn: 'VU' });

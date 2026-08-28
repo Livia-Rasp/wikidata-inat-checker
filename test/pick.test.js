@@ -1,15 +1,8 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
-import { createFindingsStore, migrate } from '../lib/db.js';
 import { pickCandidate } from '../lib/pick.js';
-
-function makeStore() {
-    const db = new DatabaseSync(':memory:');
-    migrate(db);
-    return { db, store: createFindingsStore(db) };
-}
+import { makeStore } from './helpers.js';
 
 function seedAmbiguous(store, qid = 'Q1') {
     store.upsertTaxon({ qid, taxonName: 'Grania' });

@@ -11,16 +11,21 @@ import { buildServer } from './app.js';
 import { LOOPBACK_ONLY } from './writeGuard.js';
 
 const DB_FILE = findingsDbPath();
-const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 
 /** `0` is a meaningful value for several of these (a deadline of midnight, an immediate recheck),
  * so `Number(x) || fallback` would be wrong for them — unset or empty is the only thing that means
- * "use the default". */
+ * "use the default". A malformed value (e.g. `PORT=abc`) fails loudly at startup rather than
+ * silently becoming NaN and only surfacing later as a broken listener or a no-op scheduled run. */
 function envInt(name, fallback) {
     const raw = process.env[name];
-    return raw === undefined || raw === '' ? fallback : Number(raw);
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new Error(`${name} must be a number, got ${JSON.stringify(raw)}`);
+    return n;
 }
+
+const PORT = envInt('PORT', 8080);
 
 const discoverEnabled = Boolean(process.env.DISCOVER_ENABLED);
 

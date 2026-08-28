@@ -14,7 +14,7 @@ import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { discoverLinks } from './lib/discoverLinks.js';
 import { generateLinksHTML } from './report/generateLinksHTML.js';
 import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
-import { sparql, qidFromUri, chunk, fetchWdAncestorChains, parseArgs, parseLimit, DEFAULT_SCAN_SEED } from './lib/utils.js';
+import { sparql, qidFromUri, chunk, fetchWdAncestorChains, parseArgs, parseLimit, parseSeed } from './lib/utils.js';
 import { outputPath, ensureParentDir, findingsDbPath } from './lib/paths.js';
 import { runMain } from './lib/cli.js';
 
@@ -26,7 +26,7 @@ const autoMode = args.auto === true;
 // SELECT DISTINCT name FROM taxa (allNames(), lib/getInatTaxaDb.js) has no ORDER BY, but SQLite
 // happens to emit it alphabetically — shuffled so --limit does not always collect the same
 // early-alphabet slice. Fixed seed keeps a from-scratch run reproducible; override with --seed.
-const seed = Number.parseInt(/** @type {string} */ (args.seed), 10) || DEFAULT_SCAN_SEED;
+const seed = parseSeed(args);
 // Skips the P3151 cross-check and the ancestor-chain fetch for matches — only ambiguous items are
 // wanted, e.g. to source a gold-labeling sample for the sibling ML repo (see docs/links.md).
 const ambiguousOnly = args['ambiguous-only'] === true;
