@@ -156,13 +156,13 @@ for (const query of [
 test('an internal failure never leaks the database path', async (t) => {
     const store = makeStore();
     store.listFindings = () => {
-        throw new Error('SQLITE_CANTOPEN: unable to open /home/livia/repos/secret/data/findings.db');
+        throw new Error('SQLITE_CANTOPEN: unable to open /home/someuser/repos/secret/data/findings.db');
     };
     const { app } = makeApp(t, { store });
 
     const res = await app.inject('/api/findings');
     assert.equal(res.statusCode, 500);
-    assert.ok(!res.body.includes('/home/livia'), 'the filesystem must not be described to callers');
+    assert.ok(!res.body.includes('/home/someuser'), 'the filesystem must not be described to callers');
     assert.ok(!res.body.includes('SQLITE_CANTOPEN'));
 });
 

@@ -286,7 +286,7 @@ test('the run row says what became of the run', async () => {
     assert.equal(store.latestRun('images').state, 'cancelled');
 
     await assert.rejects(() => run(store, makeTaxaDb(), {
-        inatOptions: { fetchPage: async () => { throw new Error('/home/livia/secret/path'); }, rateLimit: noWait },
+        inatOptions: { fetchPage: async () => { throw new Error('/home/someuser/secret/path'); }, rateLimit: noWait },
         onProgress: (p) => { if (p.phase === 'querying') throw new DiscoveryError('boom', 'x'); },
     }));
     const failed = store.latestRun('images');
