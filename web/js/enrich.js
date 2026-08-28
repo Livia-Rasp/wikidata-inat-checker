@@ -493,7 +493,7 @@ async function authorViaCommons(userId) {
 }
 
 async function authorViaWikidata(userId) {
-    const q = `SELECT ?cat WHERE { ?item wdt:P12022 "${userId}". ?item wdt:P373 ?cat. }`;
+    const q = `SELECT ?cat WHERE { ?item wdt:P12022 ${sparqlStr(userId)}. ?item wdt:P373 ?cat. }`;
     const data = await getJSON(`${WDQS}?${new URLSearchParams({ format: 'json', query: q })}`);
     return (data.results?.bindings || []).map((b) => b.cat.value);
 }
