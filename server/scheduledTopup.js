@@ -77,10 +77,36 @@ export function evaluateTopup({ jobsState, lastScheduledRun, quiet, config, nowM
 }
 
 /**
+ * The pure decision behind the scheduler's once-a-day bonus draw on unused shared capacity —
+ * "scheduled can use up the bucket at the end of a period, if it wasn't used up by users" (slice
+ * 10). Mirrors evaluateTopup's own seam: no side effects, unit-tested in isolation. Reuses
+ * `dailyDeadlineHour` as "late in the day" rather than a second hour knob — it is already this
+ * scheduler's own signal for "stop waiting for a quiet hour and just run."
+ * @param {{jobsState: string, bonusRanToday: boolean, allToolsRanToday: boolean,
+ *          tokensRemaining: number, bucketCapacity: number,
+ *          config: {dailyDeadlineHour: number, bonusMinBucketFraction?: number}, nowMs: number}} args
+ * @returns {{action: 'skip'|'start', reason: string}}
+ */
+export function evaluateBonusRun({
+    jobsState, bonusRanToday, allToolsRanToday, tokensRemaining, bucketCapacity, config, nowMs,
+}) {
+    if (jobsState === 'running') return { action: 'skip', reason: 'already_running' };
+    if (bonusRanToday) return { action: 'skip', reason: 'bonus_ran_today' };
+    if (utcHour(nowMs) < config.dailyDeadlineHour) return { action: 'skip', reason: 'not_late_yet' };
+    if (!allToolsRanToday) return { action: 'skip', reason: 'tools_not_settled' };
+
+    const minFraction = config.bonusMinBucketFraction ?? 0.5;
+    if (tokensRemaining < bucketCapacity * minFraction) return { action: 'skip', reason: 'insufficient_surplus' };
+
+    return { action: 'start', reason: 'surplus_available' };
+}
+
+/**
  * @typedef {{
  *   taxon?: string|null, iucn?: string|null, limit: number, recheckAfter?: number, dbFile: string,
  *   checkIntervalMs: number, quietHoursCount: number, quietLookbackDays: number,
  *   quietMinSampleDays: number, dailyDeadlineHour: number, requestLogRetentionDays: number,
+ *   discoverBucket?: {capacity: number, refillPerHour: number}, bonusMinBucketFraction?: number,
  * }} TopupConfig
  */
 
@@ -132,6 +158,44 @@ export function createScheduledTopup({
             });
             return; // one job per tick, regardless of how many tools were eligible
         }
+        maybeBonusRun(jobsState, nowMs); // reached only when every tool skipped this tick
+    }
+
+    /**
+     * Once a day, late, take a bonus run from the shared 'discover' bucket if on-demand callers
+     * have left meaningful capacity unused — see evaluateBonusRun above for the actual decision.
+     * Always targets TOOLS[0] ('images'): this is a once-a-day top-up on leftover budget, not a
+     * second full round for every tool.
+     * @param {string} jobsState @param {number} nowMs
+     */
+    function maybeBonusRun(jobsState, nowMs) {
+        if (!config.discoverBucket) return; // no shared bucket configured — nothing to draw from
+        const allToolsRanToday = TOOLS.every(
+            (t) => ranToday(store.latestRun(t, { triggeredBy: 'schedule' }), nowMs));
+        const bonusRanToday = ranToday(store.latestRun(TOOLS[0], { triggeredBy: 'schedule-bonus' }), nowMs);
+        const status = store.discoverBudgetStatus('discover', config.discoverBucket);
+
+        const decision = evaluateBonusRun({
+            jobsState, bonusRanToday, allToolsRanToday, tokensRemaining: status.tokensRemaining,
+            bucketCapacity: config.discoverBucket.capacity, config, nowMs,
+        });
+        log.info({ ...decision, hour: utcHour(nowMs), tokensRemaining: status.tokensRemaining },
+            'scheduled bonus check');
+        if (decision.action === 'skip') return;
+
+        // Draw fresh rather than trusting the status() read above: an on-demand caller could have
+        // spent the last token in between, and the draw itself is what's authoritative.
+        const draw = store.drawDiscoverBudget('discover', config.discoverBucket);
+        if (!draw.admitted) return;
+        log.info({ tokensRemaining: draw.tokensRemaining }, 'scheduled bonus run starting');
+        jobs.start({
+            tool: TOOLS[0],
+            scope: { taxon: config.taxon, iucn: config.iucn },
+            limit: config.limit,
+            recheckAfter: config.recheckAfter,
+            dbFile: config.dbFile,
+            triggeredBy: 'schedule-bonus',
+        });
     }
 
     return {
