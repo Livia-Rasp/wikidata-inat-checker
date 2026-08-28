@@ -99,7 +99,9 @@ test('a write must be JSON', async (t) => {
 
 test('reads are never guarded', async (t) => {
     const { app } = makeApp(t);
-    // The read API is meant to be public eventually; every guard case must leave GET alone.
+    // The read API is meant to be public eventually; every guard case must leave an *ordinary*
+    // GET alone. GET /discover/area is the one exception — see below — because unlike this route
+    // it spends real external API budget on every call.
     for (const headers of [
         { 'sec-fetch-site': 'cross-site' },
         { origin: 'http://evil.example' },
@@ -113,4 +115,38 @@ test('reads are never guarded', async (t) => {
         });
         assert.equal(res.statusCode, 200, JSON.stringify(headers));
     }
+});
+
+test('GET /discover/area is NOT exempt like an ordinary read — costsBudget opts it back in', async (t) => {
+    // Dropping the old loopback-peer check from this route (slice 10) would leave it with no
+    // protection at all against a background cross-origin request, since GET is normally exempt
+    // from everything below — this is the regression that must never come back.
+    const { app } = makeApp(t, { discoverEnabled: true, dbFile: ':memory:' });
+
+    const badHost = await app.inject({
+        method: 'GET', url: '/api/discover/area?lat=1&lng=1&radius=1',
+        headers: { host: 'evil.example' },
+    });
+    assert.equal(badHost.statusCode, 403);
+    assert.equal(badHost.json().reason, 'host_not_allowed');
+
+    const crossSite = await app.inject({
+        method: 'GET', url: '/api/discover/area?lat=1&lng=1&radius=1',
+        headers: { host: 'localhost:8080', 'sec-fetch-site': 'cross-site' },
+    });
+    assert.equal(crossSite.statusCode, 403);
+    assert.equal(crossSite.json().reason, 'cross_site');
+});
+
+test('a same-origin GET /discover/area still succeeds', async (t) => {
+    const { app } = makeApp(t, {
+        discoverEnabled: true, dbFile: ':memory:',
+        fetchAreaSpeciesFn: async () => new Map(),
+        fetchAreaCandidatesFn: async function* () {},
+    });
+    const res = await app.inject({
+        method: 'GET', url: '/api/discover/area?lat=1&lng=1&radius=1',
+        headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' },
+    });
+    assert.equal(res.statusCode, 200);
 });

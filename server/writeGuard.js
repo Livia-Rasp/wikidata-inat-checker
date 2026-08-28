@@ -15,29 +15,23 @@
 //     a write.
 //   - **A JSON content type**, because Fastify parses `text/plain` by default and a cross-origin
 //     HTML form can send exactly that without a preflight.
+//
+// Discovery (POST /discover, GET /discover/area) used to add a fourth check on top of these three —
+// a loopback TCP peer address, since it spends the operator's Wikimedia/iNaturalist API budget, not
+// just stored state. That check could never be satisfied through a published Docker port (slice 10,
+// docs/findings-db-roadmap.md), so it is gone: cost is now bounded by an hourly-refilling token
+// bucket in the route handler (lib/db.js's drawDiscoverBudget), not by checking who is asking. The
+// one thing that survives from that mechanism is `costsBudget` below — GET /discover/area still
+// needs *this* guard's protection even though GET is normally exempt, because unlike an ordinary
+// read it makes real outbound requests on every call. See docs/threat-model.md's "Discovery budget"
+// section.
 import fp from 'fastify-plugin';
 
 /** Hostnames a loopback deployment answers to. ALLOWED_HOSTS adds to this, it does not replace it. */
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 
-/** Methods that cannot change state, and so are never guarded. */
+/** Methods that cannot change state, and so are normally exempt from every check below. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-/**
- * Some routes are not just writes — they spend the operator's Wikimedia and iNaturalist API
- * reputation. Those are marked `config: { privileged: true }` and additionally require a **loopback
- * peer address**, which is unforgeable, unlike `Host`: `curl -H 'Host: localhost'` forges that from
- * anywhere, so the Host allowlist below stops DNS rebinding and nothing else.
- *
- * The point is the day the read view goes public: nobody but a local user should be able to make
- * this server go and hammer Wikidata under the operator's identity.
- * @param {string|undefined} addr
- */
-function isLoopback(addr) {
-    if (!addr) return false;
-    const a = addr.replace(/^::ffff:/, '');
-    return a === '::1' || a === '127.0.0.1' || a.startsWith('127.');
-}
 
 /** `example.com:8080` → `example.com`. IPv6 literals keep their brackets. */
 function hostname(hostHeader) {
@@ -58,15 +52,13 @@ async function writeGuard(app, opts) {
     const allowed = new Set([...LOOPBACK_HOSTS, ...extra]);
 
     app.addHook('onRequest', async (req, reply) => {
-        // Checked before the safe-method exit: a privileged route is privileged whatever the verb.
-        // `privileged` is this app's own route-config extension; Fastify's own config type doesn't
-        // know about it.
-        const routeConfig = /** @type {{privileged?: boolean}|undefined} */ (req.routeOptions?.config);
-        if (routeConfig?.privileged && !isLoopback(req.socket?.remoteAddress)) {
-            return reject(req, reply, 'not_local',
-                'This endpoint spends the operator\'s API budget and is available locally only.');
-        }
-        if (SAFE_METHODS.has(req.method)) return;
+        // `costsBudget` is this app's own route-config extension; Fastify's own config type
+        // doesn't know about it. A GET normally exits here untouched — it can't change state — but
+        // GET /discover/area spends real external API budget on every call, so it opts back into
+        // the Host allowlist / fetch-metadata / content-type checks below the same way a write
+        // would, even though its own HTTP verb would otherwise exempt it.
+        const routeConfig = /** @type {{costsBudget?: boolean}|undefined} */ (req.routeOptions?.config);
+        if (SAFE_METHODS.has(req.method) && !routeConfig?.costsBudget) return;
 
         const host = String(req.headers.host ?? '');
         if (!allowed.has(hostname(host))) {
