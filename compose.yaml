@@ -2,15 +2,19 @@
 #
 #   docker compose up --build      then open http://localhost:8080
 #
-# This is the runtime half of the deployment only. Publishing an image, redeploying it and backing
-# the database up are slice 9 of docs/findings-db-roadmap.md.
+# `image:` points at the published tag (see docs/container.md) and `build: .` is local-dev
+# convenience only — the *server* must never run `docker compose up --build` itself, since that
+# rebuilds from whatever source happens to be checked out there rather than the image CI already
+# built and smoke-tested. Backing the database up is tools/backup.mjs (`npm run backup`), run from
+# the host on a timer; see docs/container.md. Network exposure for anyone beyond the operator is
+# still undecided (slice 9, narrowed 2026-08-26) — this file does not change that.
 #
 # No top-level `version:` — it has been obsolete since Compose v2 and only earns a warning.
 
 services:
   web:
     build: .
-    image: wikidata-inat-checker
+    image: ghcr.io/livia-rasp/wikidata-inat-checker:latest
 
     # tini as PID 1. Not for the usual reason: the app already signals its own discovery child
     # (server/app.js's onClose hook SIGTERMs it with a 5 s escalation). This is for reaping any
@@ -18,6 +22,13 @@ services:
     # Node will not do for processes it did not spawn itself.
     init: true
     restart: unless-stopped
+    labels:
+      # Opt-in, not "watch every container on the box" — vue-commons-gallery already runs
+      # nicholas-fedor/watchtower on the home server this is meant to share, polling GHCR for any
+      # container carrying this label. This repo deliberately does NOT define its own watchtower
+      # service: one poller per host, not one per project. If that other repo's watchtower is ever
+      # not running on the deploy host, this label alone buys nothing — redeploys need it present.
+      - "com.centurylinklabs.watchtower.enable=true"
 
     # Defaults to 1000:1000, which is the `node` user in the image — and, on a single-user Linux
     # box, usually you. It has to match whoever owns ./data, because a **bind mount keeps the

@@ -896,6 +896,12 @@ backlog — `worklist.png`, `links.png` and `names.png` all show the new "foreve
 here is everything *around* the container rather than the container itself: publishing it, getting
 it onto the home server, and keeping the database safe once it lives there.
 
+**Narrowed again, 2026-08-26.** The deployment target changed mid-planning from a single operator to
+a home server with selected beta testers — which meant [slice 8b](#8b-per-client-skip-scoping) had
+to come first, and split *this* slice into what's independent of the still-undecided access question
+(redeploy, backups) and what depends on it (`ALLOWED_HOSTS`, `TRUST_PROXY`, the port binding). Only
+the former is built here.
+
 - **~~Registry~~ — done early, in 5d.** Publishing turned out to be far smaller than the rest of
   this slice, so it was not worth deferring: `GITHUB_TOKEN` can push to the repository's own GHCR
   namespace, so there is no PAT to create and no secret to rotate. CI builds, smoke-tests and then
@@ -907,14 +913,31 @@ it onto the home server, and keeping the database safe once it lives there.
   from a public repository, so the package's visibility had to be switched to public once, by hand,
   in its settings. **Done on 2026-08-23**; `docker pull` now works unauthenticated, verified with
   `docker manifest inspect` against a logged-out client.
-- **Redeploy.** Still here: `nicholas-fedor/watchtower` on the host polling GHCR. The pipeline
-  shape to copy is `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo.
-- **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
-  it, and by then it represents days of API budget. Note the server's connection is bound to the
-  file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.
-- **`TRUST_PROXY` once something fronts it** — see [threat-model.md](threat-model.md) for why
-  trusting `X-Forwarded-For` unconditionally makes the rate limiter bypassable, and why leaving it
-  off behind a real proxy collapses every client into one bucket.
+- **~~Redeploy~~ — the label is wired, 2026-08-26.** `compose.yaml`'s `web` service carries
+  `com.centurylinklabs.watchtower.enable=true` and `image:` now points at the published GHCR tag
+  rather than a local-only name. Deliberately **not** a second `nicholas-fedor/watchtower` service
+  in this repo — `vue-commons-gallery` already runs one on the home server this is meant to share,
+  polling GHCR for any labelled container, opt-in by design so sibling services can join it without
+  each running their own poller. Real cross-repo dependency, documented in
+  [container.md](container.md): if that other repo's Watchtower isn't running on wherever this gets
+  deployed, the label alone does nothing.
+- **~~Backups~~ — `tools/backup.mjs`, 2026-08-26.** `npm run backup` (`VACUUM INTO`, timestamped,
+  pruned to the last 14 by default) run from the **host** on a timer, not inside the container —
+  the container's root filesystem is read-only and has no cron, and the CLI already talks to
+  `data/findings.db` directly on the host, so this is the same two-process-one-file shape
+  `openFindingsDb` was written for, not a new one. `docs/container.md` has the crontab line and the
+  restore procedure. Confirmed live against `node:sqlite`: `VACUUM INTO` accepts a bound parameter
+  and produces a real, independently-openable snapshot regardless of the source being written to
+  concurrently.
+- **`TRUST_PROXY`/`ALLOWED_HOSTS` once something fronts it, and the port binding beta testers will
+  need — still not decided.** These three move together (a non-loopback bind needs `ALLOWED_HOSTS`
+  for whatever hostname reaches it, and a real reverse proxy needs `TRUST_PROXY` too, or the rate
+  limiter collapses every client into one bucket) and depend on how testers actually connect —
+  VPN/Tailscale, an exposed instance behind an access-control layer, or per-tester SSH tunnels are
+  all live options, deliberately left open rather than guessed at here.
+- **Getting it onto the physical home server is still a manual step**, same as `vue-commons-gallery`'s
+  own `docker login`/`.docker/config.json` — no session working on this repo has access to that
+  machine, and nothing about this slice needed it to.
 
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
