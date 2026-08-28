@@ -8,7 +8,7 @@ import { openFindingsDb } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { discoverNames } from './lib/discoverNames.js';
 import { generateNamesHTML } from './report/generateNamesHTML.js';
-import { parseArgs, parseIucnArg, parseLimit, DEFAULT_SCAN_SEED } from './lib/utils.js';
+import { parseArgs, parseIucnArg, parseLimit, parseSeed } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
 import { runMain } from './lib/cli.js';
 
@@ -20,7 +20,7 @@ const showAll = args.all === true;
 // allInatIds() (lib/getInatTaxaDb.js) comes back in whatever incidental order SQLite emits it,
 // so an unshuffled --limit run would always hit the same early slice first. Fixed seed keeps a
 // from-scratch run reproducible for debugging; override with --seed for a different sample.
-const seed = Number.parseInt(/** @type {string} */ (args.seed), 10) || DEFAULT_SCAN_SEED;
+const seed = parseSeed(args);
 
 /** Turn discoverNames()'s progress events into the lines this tool has always printed. */
 function report(p) {
