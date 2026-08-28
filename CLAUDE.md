@@ -34,8 +34,8 @@ npm run screenshots                         # regenerate docs/screenshots/ (need
 npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
 
 docker compose up --build                   # the server in a container, http://localhost:8080
-                                            # bind-mounts ./data; server only — no checkers, and
-                                            # discovery cannot start there (see container.md)
+                                            # bind-mounts ./data; server only, no checkers — but
+                                            # discovery works through it (see container.md)
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the

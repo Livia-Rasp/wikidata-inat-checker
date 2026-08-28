@@ -4,13 +4,13 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–8 and 8b are shipped — the findings database, the verification pass, the
+**Status:** slices 0–8, 8b and 10 are shipped — the findings database, the verification pass, the
 Fastify backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
 backlog search, a container that runs, the app shell, area as a discovery scope, the links checker
-with a real ambiguous/conflict review UI, the names checker onto the findings table, and per-client
-skip scoping. Remaining: 9 (deploying that container, with backups — narrowed 2026-08-26 to redeploy
-+ backups only, network exposure for beta testers deliberately still undecided) and 10 (making
-discovery reachable once it is deployed). Each slice ships as its own pull request, and each records
+with a real ambiguous/conflict review UI, the names checker onto the findings table, per-client skip
+scoping, and on-demand discovery reachable through a published port. Remaining: 9 (deploying that
+container, with backups — narrowed 2026-08-26 to redeploy + backups only, network exposure for beta
+testers deliberately still undecided). Each slice ships as its own pull request, and each records
 below what turned out differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
@@ -451,7 +451,9 @@ Five things turned out differently, three of them decisions and two of them disc
   accepted with 202 — verified. It only dies immediately because the taxa index is absent from the
   image. Mount that index one day and the ~650 MB fork happens, at which point a 512m cap
   OOM-kills it and `SIGKILL` is never reported as a cancel. `mem_limit` is 1500m, sized for the
-  spike rather than for today's accident.
+  spike rather than for today's accident. **The "unreachable from the host browser" half of this
+  entry is superseded by [slice 10](#10-discovery-reachable-from-a-deployed-container)** — the peer
+  check described here no longer exists; the mem_limit reasoning still holds.
 - **Publishing to GHCR came along for the ride**, pulled forward out of slice 9 because it turned
   out to be about fifteen lines and no secrets — `GITHUB_TOKEN` can push to the repository's own
   namespace. The trap, caught before it shipped: `github.repository_owner` is `Livia-Rasp`, and
@@ -612,9 +614,10 @@ above:
   answering in ~6s even for a 6,000-species area) and returns instantly; `web/js/area.js` fetches
   enrichment lazily, one row at a time, straight from iNat — the same client-side pattern
   `gallery.js` already used for its own cards, which is what made the fallback cheap to build once
-  the server-side version turned out not to fit. Gated `privileged` + `DISCOVER_ENABLED` like
-  `POST /discover`, not left unprivileged like search, because it makes real outbound requests
-  (search deliberately does not) — see [threat-model.md](threat-model.md#privileged-routes--discovery).
+  the server-side version turned out not to fit. Gated `DISCOVER_ENABLED` and (since slice 10)
+  `costsBudget` rather than left unprivileged like search, because it makes real outbound requests
+  (search deliberately does not) — see
+  [threat-model.md](threat-model.md#discovery-budget--post-discover-and-get-discoverarea-slice-10).
 - **The enrichment fix's own request shape was simplified during the build.** The plan (and
   `docs/area.md`'s prior "Known limitation" text) described fixing dates and photos with the
   checker's original two-request-per-batch shape, just per taxon instead of batched. Built as one
@@ -942,39 +945,94 @@ the former is built here.
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
 
-### 10. Discovery reachable from a deployed container
+### 10. Discovery reachable from a deployed container — **done**
 
-Slices 5 and 5b are how the backlog gets fed — on-demand from the app, or automatically once it
-runs low. Both are `privileged: true` routes gated on the loopback peer check in
-[threat-model.md](threat-model.md#privileged-routes--discovery), and slice 5d proved that check is
-not merely inconvenient behind a published port, it is structurally unreachable there: Docker's NAT
-means the peer address the server sees is always the bridge gateway, never `127.x`, so **neither
-on-demand nor scheduled discovery can be triggered from outside the container's own network
-namespace.** A container deployed by slice 9 can only ever serve the backlog it shipped with — after
-that it is a read-only demo, not a worklist, until someone `docker compose exec`s in by hand.
+Slice 5 (on-demand discovery from the app) is how the backlog gets fed by hand; slice 5b (the
+scheduled top-up) is how it gets fed automatically. Slice 5d proved that `POST /discover`'s
+loopback-peer check is not merely inconvenient behind a published port, it is structurally
+unreachable there: Docker's NAT means the peer address the server sees is always the bridge gateway,
+never `127.x`. **5b was never actually blocked by this** — it calls `jobs.start()` directly,
+in-process, never over HTTP, so the loopback-peer check never applied to it; a deployed container's
+backlog has stayed automatically fillable since 5b shipped. What was genuinely blocked was on-demand
+discovery: a container deployed by slice 9 could serve only the backlog it shipped with plus
+whatever the scheduler topped up, with no way for a user to ask for a specific clade or area right
+now, short of `docker compose exec`.
 
-**Scope: replace or supplement the loopback check with something that survives NAT**, without
-turning the two most expensive routes on the server into something an internet caller can trigger.
-The risk being defended is the same one threat-model.md already states for these routes — spending
-the operator's Wikidata/iNaturalist API budget, and later an OAuth grant, not data exposure — so
-whatever mechanism ships has to keep that property: unforgeable by a caller who is merely on the
-same network as the published port, and not dependent on a header a proxy could rewrite (the same
-reason `TRUST_PROXY` does not already fix this).
+**Scope, as actually decided — narrower than the original draft of this section (kept below, for
+the record of what was rejected and why):** rather than inventing a new peer-identity mechanism that
+survives NAT, stop gating cost on peer identity at all. `POST /discover` and `POST /discover/cancel`
+dropped `privileged: true` entirely — the ordinary write guard (Host allowlist, fetch metadata, JSON
+content type) plus `DISCOVER_ENABLED` is what they check now — and cost is bounded instead by two
+independent, hourly-refilling token buckets (`discover_budget`, schema v6), one per route, persisted
+so they survive a restart rather than resetting on every Watchtower redeploy the way an in-memory
+counter would. Sizing, the arithmetic behind it, and the full mechanism are written up in
+[threat-model.md](threat-model.md#discovery-budget--post-discover-and-get-discoverarea-slice-10)
+rather than duplicated here.
 
-**Deliberately not designed yet.** This slice is sequenced so it exists on the plan, not because the
-mechanism is decided — that is real design work, to be done when the deployment in slice 9 is
-otherwise in place and this is the thing actually blocking it. Candidates to weigh at that point,
-none chosen: a bearer token set via environment variable and checked on the privileged routes only;
-putting the check behind whatever credential OAuth eventually introduces instead of inventing a
-second scheme; a network-level answer (a VPN or Tailscale hop that makes the caller genuinely local
-again) that needs no change to the server at all. Whichever it is, it should get its own writeup in
-threat-model.md next to the loopback check it replaces or narrows.
+`GET /discover/area` needed a second, different fix: dropping its own loopback check with nothing
+replacing it would have left a GET-shaped route with real per-call cost open to a background
+cross-origin request from any page on the internet, since `server/writeGuard.js` normally exempts
+safe HTTP methods from the Host-allowlist/CSRF checks entirely. Fixed with a new `costsBudget`
+route-config flag that opts a specific GET back into those checks — see threat-model.md for the full
+reasoning, including why a loopback-only bypass was considered and rejected.
 
-**Working means:** a discovery run — on-demand or 5b's scheduled top-up — can be triggered against
-the container from wherever slice 9 puts it, without the privileged routes becoming reachable by
-anyone who can merely reach the published port.
+**The scheduler (slice 5b) gained one more piece: a once-a-day bonus draw.** Its own guaranteed
+per-tool attempt (at most one run per tool per day, unchanged, entirely independent of the new
+buckets — "the scheduler gets a certain amount definitely each day, which shouldn't be too big," a
+property that already existed and needed no new code to keep) now has a sibling —
+`maybeBonusRun`/`evaluateBonusRun` in `server/scheduledTopup.js`: once every tool's own slot has
+settled for the day and it is past `TOPUP_DAILY_DEADLINE_HOUR`, if more than half the shared
+`discover` bucket's capacity is still unused (`TOPUP_BONUS_MIN_BUCKET_FRACTION`, default `0.5`), the
+scheduler takes one extra run on the leftover capacity — "scheduled can use up the bucket at the end
+of a period, if it wasn't used up by users." Recorded with `triggeredBy: 'schedule-bonus'`,
+distinguishable from an ordinary `'schedule'` run in `runs`.
 
-The ordered plan ends here. Slice 10 is the last thing needed for a deployed instance to stay
+**Candidates considered and rejected**, kept here rather than in threat-model.md since this is about
+how the decision was reached, not the mechanism that shipped:
+- **Docker-networking-level fixes** (`--userland-proxy=false`, `network_mode: host`) — researched and
+  rejected. Hairpin NAT still masquerades loopback-originated published-port traffic through the
+  bridge gateway even with the userland proxy disabled (it relies on `MASQUERADE`, which rewrites the
+  source address the same way), so it would not actually have fixed the peer-address problem.
+  `network_mode: host` would fix it, genuinely, but trades away real network-namespace isolation for
+  a container that runs a single process anyway — a security-posture change nobody asked for, for a
+  problem the budget approach solves without it.
+- **A bearer token / shared secret** (this section's own original leading candidate) — dropped once
+  the budget approach was on the table: it solves the same problem (bound what a non-loopback caller
+  can do) without inventing a new secret an operator has to generate, distribute to beta testers out
+  of band, and rotate, and without reopening the static-browser-app-cannot-hold-a-secret problem this
+  repo's write-guard design already worked around once (see "No authentication" in threat-model.md).
+- **A network-level answer** (VPN/Tailscale) — still a legitimate answer to slice 9's still-open "how
+  do beta testers reach this at all" question, but orthogonal to this slice: it would fix
+  *reachability*, not the peer-address check, which used to fire regardless of how a request arrived
+  at the published port.
+- **Extending `GET /discover/area` to draw from the same shared bucket as `POST /discover`** —
+  rejected in favour of its own bucket: its cost shape is genuinely different (a flat 2 requests per
+  call vs. up to 142 WDQS batches for a run), and it has no `runs` row and no `jobs.start()` call to
+  hang a shared counter off in the first place.
+
+**Working means, and verified live against a real running server:** `POST /discover` and
+`POST /discover/cancel` succeed from a non-loopback peer once budget allows; repeated calls exhaust
+the `discover` bucket and the next one answers `429 budget_exhausted` with a `Retry-After` header;
+restarting the server does not reset the budget; `GET /discover/area` rejects a spoofed `Host` with
+`403 host_not_allowed` and otherwise works the same way, on its own bucket.
+
+**Making discovery genuinely reachable in a container surfaced a real bug that had never been
+reachable before.** `generateDraftWikitext()` calls `saveCommonsCatCache()` once per batch that
+generates any wikitext, writing `cache/cache-commons-cats.json` unconditionally. Fine on the host or
+under `docker compose exec` — but the container's root filesystem is `read_only: true` with no
+volume mounted over `cache/`, so before slice 10 this was moot (discovery could not start in a
+container at all) and after slice 10 it would have failed the whole batch — findings and all — the
+first time a container-triggered run found anything actionable, with an opaque `run_failed`.
+Reproduced directly (`fs.writeFileSync` against a read-only directory throws `EACCES`/`EROFS`) and
+confirmed the failure would propagate: `generateDrafts()` runs *before* `recordBatch()` for each
+batch in `lib/discover.js`, so a throw there drops that batch's results before they are ever
+recorded, even though every prior batch in the same run stays safely committed. **Fixed in
+`lib/utils.js`**: `saveCommonsCatCache()` now catches a failed write and drops it silently — this is
+a cross-run performance cache, not correctness state, so losing it in a read-only deployment just
+means re-checking category existence against the live API next time, the same as a first run
+anywhere else.
+
+The ordered plan ends here. Slice 10 was the last thing needed for a deployed instance to stay
 usable rather than draining to a fixed backlog; what follows is deliberately outside it.
 
 ## Known: `skipped` does not survive more than one user
@@ -1187,10 +1245,13 @@ What this planning pass found, so it does not need re-deriving:
   multi-process-one-SQLite-file design this repo already relies on for the host CLI and the Docker
   container. A discovery run's ~650 MB heap spike fits Toolforge's per-job ceiling (up to 4Gi) but
   needs an explicit `--mem` bump past the 512Mi default.
-- **The slice-10 discovery-trigger problem is unchanged, just relocated.** Toolforge's own ingress is
-  a reverse proxy in front of every request, exactly like Docker's bridge NAT — a request via
-  `https://tool.toolforge.org` never looks like it came from loopback to the app. Whatever mechanism
-  slice 10 ends up building still has to exist under Toolforge.
+- **The discovery-trigger problem this bullet used to describe no longer exists.** Written when
+  slice 10 was still open and gated `POST /discover` on a loopback-peer check: Toolforge's own
+  ingress is a reverse proxy in front of every request, exactly like Docker's bridge NAT, so a
+  request via `https://tool.toolforge.org` would never have looked like it came from loopback
+  either. Slice 10 shipped a budget-based gate instead of a peer-address one (see
+  [threat-model.md](threat-model.md#discovery-budget--post-discover-and-get-discoverarea-slice-10)),
+  which does not care where a request came from — so this is no longer a Toolforge-specific concern.
 - **`TRUST_PROXY`/`ALLOWED_HOSTS` would need real values worked out against Toolforge's actual
   ingress** (its proxy IP/CIDR, and the `<tool>.toolforge.org` hostname) — not attempted here since
   there's no tool name reserved yet to test against.

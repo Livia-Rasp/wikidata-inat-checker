@@ -4,8 +4,11 @@
 docker compose up --build     # then open http://localhost:8080
 ```
 
-The image runs the server only. No checkers run inside it, and discovery cannot start there. The
-reasons are in [threat-model.md](threat-model.md).
+The image runs the server only. No checkers run inside it, and only the CLI may build the taxa
+index that discovery needs — a run started inside the image fails in milliseconds without it.
+Discovery itself, once that index exists, works normally through the published port (slice 10) —
+see "Two limits worth knowing" below for what that means in practice. The reasons for both are in
+[threat-model.md](threat-model.md).
 
 It bind-mounts `./data`, so the container and your host share one database. Run `npm run images`
 on the host and the new findings appear without a restart. The published port is bound to the
@@ -22,14 +25,21 @@ WINC_UID=$(id -u) WINC_GID=$(id -g) docker compose up --build
 
 ## Two limits worth knowing
 
-**"Find more", and the area page's Preview and Add to worklist, do not work from the host
-browser.** All three are privileged routes that require a request from the server's own machine.
-Through a published port the container sees the bridge gateway instead. Fill the backlog with the
-CLI, which is what it is for.
+**"Find more" and the area page's Add to worklist now work from the host browser.** Cost used to be
+bounded by requiring a request from the server's own machine — which a published port could never
+satisfy, since the container always sees the bridge gateway as the peer, never real loopback. Slice
+10 replaced that with an hourly-refilling token budget instead (see
+[threat-model.md](threat-model.md)'s "Discovery budget" section), so it no longer matters where the
+request comes from, only how much of the budget is left. **The area page's Preview button is the
+one exception** — it still needs the same `costsBudget` write-guard checks (Host allowlist,
+same-origin) any of these routes get, but is otherwise ordinary now too. All three still need
+`DISCOVER_ENABLED=1`, and none of them can build the taxa index — see below.
 
 **The iNaturalist taxa index is not in the image.** That is ~236 MB of derived data, and only the
-CLI may build it. Without it the app still serves everything. Search falls back to name matching
-rather than failing.
+CLI may build it. Without it, discovery fails immediately (`taxa_index_unavailable`) but the app
+still serves everything else — search falls back to name matching rather than failing. Fill the
+backlog with the CLI first (`node checkImages.js` etc., against the same bind-mounted `./data`),
+and once the index exists, discovery through the app works normally.
 
 ## The published image
 

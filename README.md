@@ -139,8 +139,8 @@ docker pull ghcr.io/livia-rasp/wikidata-inat-checker:latest # or take the publis
 ```
 
 The image runs the server only, and bind-mounts `./data` so the container and your host share one
-database. CI builds, starts and smoke-tests it before publishing. Details, including what does not
-work through a published port: [docs/container.md](docs/container.md).
+database. CI builds, starts and smoke-tests it before publishing. Details, including what still
+needs the CLI: [docs/container.md](docs/container.md).
 
 ## Project structure
 
@@ -161,7 +161,7 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 |---|---|
 | [dev.md](docs/dev.md) | The implementation reference: module wiring, the taxa index, the findings store, discovery, search, the SPARQL and CirrusSearch patterns. |
 | [threat-model.md](docs/threat-model.md) | What the server defends against and why, including what is deliberately *not* done. A design record, not a disclosure policy. |
-| [container.md](docs/container.md) | Running the server in Docker, and what does not work through a published port. |
+| [container.md](docs/container.md) | Running the server in Docker, and what still needs the CLI. |
 | [findings-db-roadmap.md](docs/findings-db-roadmap.md) | The plan of record for the persistent-database restructure: the slices, the schema, and the decisions that were reversed during the build. |
 | [commons-integration.md](docs/commons-integration.md) | App-agnostic Commons/iNat/Wikidata recipes, written to be reusable outside this project. |
 | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) | The upload app: what it does, and the design record behind it. |
