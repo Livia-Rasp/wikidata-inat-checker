@@ -24,6 +24,23 @@ function envInt(name, fallback) {
 
 const discoverEnabled = Boolean(process.env.DISCOVER_ENABLED);
 
+// Slice 10: the token buckets POST /discover and GET /discover/area draw from, now that cost is
+// bounded by budget rather than by a loopback-peer check a published Docker port could never
+// satisfy. Sizing and the arithmetic behind these defaults are in docs/threat-model.md's
+// "Discovery budget" section. Built unconditionally (not gated on DISCOVER_ENABLED) — the values
+// are harmless to compute even when discovery itself is off, and server/scheduledTopup.js's
+// bonus-draw path needs the same `discover` numbers topupConfig below is given.
+const budgetConfig = {
+    discover: {
+        capacity: envInt('DISCOVER_BUDGET_CAPACITY', 24),
+        refillPerHour: envInt('DISCOVER_BUDGET_REFILL_PER_HOUR', 1),
+    },
+    discover_area: {
+        capacity: envInt('DISCOVER_AREA_BUDGET_CAPACITY', 120),
+        refillPerHour: envInt('DISCOVER_AREA_BUDGET_REFILL_PER_HOUR', 5),
+    },
+};
+
 // Slice 5b: a daily discovery top-up, preferring a quiet hour derived from measured request
 // volume. Off unless configured; see docs/threat-model.md for the full variable table.
 const topupConfig = {
@@ -38,6 +55,10 @@ const topupConfig = {
     quietMinSampleDays: envInt('TOPUP_QUIET_MIN_SAMPLE_DAYS', 7),
     dailyDeadlineHour: envInt('TOPUP_DAILY_DEADLINE_HOUR', 23),
     requestLogRetentionDays: envInt('TOPUP_REQUEST_LOG_RETENTION_DAYS', 60),
+    // Slice 10: how much of the shared 'discover' bucket must still be unused, late in the day,
+    // before the scheduler takes a bonus run on top of its own guaranteed once-a-day attempt.
+    discoverBucket: budgetConfig.discover,
+    bonusMinBucketFraction: envInt('TOPUP_BONUS_MIN_BUCKET_FRACTION', 0.5),
 };
 
 // A scheduled top-up spends the same API budget on-demand discovery does, so it needs the same
@@ -71,6 +92,7 @@ const app = buildServer({
     dbFile: DB_FILE,
     discoverEnabled,
     topupConfig,
+    budgetConfig,
     store,
     logger: {
         level: process.env.LOG_LEVEL || 'info',
