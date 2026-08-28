@@ -11,6 +11,7 @@ import { getJson, postJson } from './api.js';
 import { createRowTable, escapeHtml } from './rows.js';
 import { createPager, PAGE_SIZE } from './pager.js';
 import { mountShell } from './shell.js';
+import { clientId } from './clientId.js';
 
 mountShell('link');
 
@@ -50,7 +51,8 @@ function toggleHideDone() {
 const QS_FETCH_LIMIT = 2000;
 
 async function autoEligibleOpen() {
-    const { taxa } = await getJson(`api/findings?kind=link&status=open&limit=${QS_FETCH_LIMIT}`);
+    const { taxa } = await getJson(
+        `api/findings?kind=link&status=open&limit=${QS_FETCH_LIMIT}&clientId=${encodeURIComponent(clientId())}`);
     return taxa.filter((t) => t.payload?.autoEligible === true);
 }
 
@@ -219,11 +221,16 @@ async function pickCandidate(groupEl, inatId) {
     }
 }
 
+// A conflict candidate's Skip is a much rarer path than the main worklist's (one competing claim,
+// not "every tester"), and this group is removed from the DOM outright on skip — so unlike
+// rows.js's skip(), there is no inline Undo here; reversing one means reloading the review section.
 async function skipReviewRow(groupEl, id) {
     const msg = groupEl.querySelector('.review-msg');
     try {
-        await postJson(`api/findings/${id}/skip`, {});
-        msg.textContent = 'Skipped — it will not be offered again.';
+        const result = await postJson(`api/findings/${id}/skip`, { clientId: clientId() });
+        msg.textContent = result.status === 'skipped'
+            ? 'Skipped — it will not be offered again.'
+            : 'Skipped for you — still open for other testers.';
         msg.className = 'review-msg ok';
         groupEl.remove();
         $('review-count').textContent = --reviewCount ? `(${reviewCount})` : '';
@@ -237,7 +244,8 @@ async function skipReviewRow(groupEl, id) {
 
 async function loadWorklist() {
     try {
-        const data = await getJson(`api/findings?kind=link&status=open&limit=${PAGE_SIZE}&offset=${offset}`);
+        const data = await getJson(
+            `api/findings?kind=link&status=open&limit=${PAGE_SIZE}&offset=${offset}&clientId=${encodeURIComponent(clientId())}`);
         const taxa = data.taxa || [];
 
         const fallback = pager.fallbackOffset(data);

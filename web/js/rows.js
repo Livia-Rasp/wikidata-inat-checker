@@ -6,6 +6,8 @@
 // Nothing here reaches for an element by id: the table is passed in. That is what lets two pages
 // hold one of these each without their rows fighting over `document`.
 
+import { clientId } from './clientId.js';
+
 const INAT_OBS = (id) =>
     `https://www.inaturalist.org/observations?taxon_id=${id}&photo_license=cc0%2Ccc-by%2Ccc-by-sa&quality_grade=research`;
 const INAT_TAXON = (id) => `https://www.inaturalist.org/taxa/${id}`;
@@ -44,6 +46,14 @@ export const REASONS = {
     not_found: 'This finding is no longer in the backlog — reload.',
 };
 
+/** Shared by all three row kinds, so the global-skip checkbox and its wording live in one place. */
+function skipControlsHtml() {
+    return `<button class="skip-btn" title="Skip — hidden from your worklist; settles for everyone once every tester has skipped it too">Skip</button>
+      <label class="skip-global" title="This is a permanent fact (e.g. no usable photo exists) — settles it immediately, not just for you">
+        <input type="checkbox" class="skip-global-cb"> forever
+      </label>`;
+}
+
 function imageRowHtml(t) {
     const inatCell = t.inatTaxonId
         ? `<a href="${escapeHtml(INAT_OBS(t.inatTaxonId))}" target="_blank">${escapeHtml(t.inatTaxonId)}</a>`
@@ -61,7 +71,7 @@ function imageRowHtml(t) {
     return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
       <td class="check-col">
         <button class="confirm-btn" title="Check live Wikidata for the image and the Commons category">Confirm</button>
-        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+        ${skipControlsHtml()}
       </td>
       <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
       <td class="iucn-col">${iucnBadge(t.iucn)}</td>
@@ -92,7 +102,7 @@ function linkRowHtml(t) {
     return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
       <td class="check-col">
         <button class="confirm-btn" title="Check live Wikidata for the P3151 statement">Confirm</button>
-        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+        ${skipControlsHtml()}
       </td>
       <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
       <td class="iucn-col">${iucnBadge(t.iucn)}</td>
@@ -134,7 +144,7 @@ function nameRowHtml(t) {
     return `<tr id="row-${escapeHtml(t.qid)}" data-qid="${escapeHtml(t.qid)}" data-id="${t.id}">
       <td class="check-col">
         <button class="confirm-btn" title="Check live Wikidata for these names">Confirm</button>
-        <button class="skip-btn" title="Never offer this taxon again">Skip</button>
+        ${skipControlsHtml()}
       </td>
       <td class="wd-col"><a href="${escapeHtml(t.wdUri)}" target="_blank">${escapeHtml(t.qid)}</a></td>
       <td class="iucn-col">${iucnBadge(t.iucn)}</td>
@@ -222,17 +232,44 @@ export function createRowTable({ tbody, postJson, hidingDone = () => false, onSt
         }
     }
 
+    /** A skip leaves the row in the DOM either way (settled globally or just hidden from this
+     *  client) — dimming it and offering Undo needs no re-render, unlike the reload a settled
+     *  skip actually needs to leave the backlog for good. */
+    function renderSkipped(row, settled) {
+        row.classList.add('done');
+        if (hidingDone()) row.classList.add('hide-done');
+        const msg = row.querySelector('.row-msg');
+        msg.innerHTML = (settled
+            ? 'Skipped — it will not be offered again. '
+            : 'Skipped for you — still open for other testers. ')
+            + '<button type="button" class="undo-skip-btn">Undo</button>';
+        msg.className = 'row-msg ok';
+    }
+
     async function skip(row) {
         const id = Number(row.dataset.id);
+        const global = /** @type {HTMLInputElement|null} */ (row.querySelector('.skip-global-cb'))?.checked ?? false;
         try {
-            await postJson(`api/findings/${id}/skip`, {});
-            row.classList.add('done');
-            if (hidingDone()) row.classList.add('hide-done');
-            row.querySelector('.row-msg').textContent = 'Skipped — it will not be offered again.';
-            row.querySelector('.row-msg').className = 'row-msg ok';
+            const result = await postJson(`api/findings/${id}/skip`, { clientId: clientId(), global });
+            renderSkipped(row, result.status === 'skipped');
             onChange();
         } catch (e) {
             onStatus(`Could not skip: ${e.message}`);
+        }
+    }
+
+    async function undoSkip(row) {
+        const id = Number(row.dataset.id);
+        try {
+            await postJson(`api/findings/${id}/unskip`, { clientId: clientId() });
+            row.classList.remove('done', 'hide-done');
+            const cb = /** @type {HTMLInputElement|null} */ (row.querySelector('.skip-global-cb'));
+            if (cb) cb.checked = false;
+            row.querySelector('.row-msg').textContent = '';
+            row.querySelector('.row-msg').className = 'row-msg';
+            onChange();
+        } catch (e) {
+            onStatus(`Could not undo skip: ${e.message}`);
         }
     }
 
@@ -248,6 +285,7 @@ export function createRowTable({ tbody, postJson, hidingDone = () => false, onSt
             return;
         }
         if (row && target.matches('.skip-btn')) return skip(row);
+        if (row && target.matches('.undo-skip-btn')) return undoSkip(row);
 
         const draft = target.closest('.draft');
         if (draft) copyDraft(draft);

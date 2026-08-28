@@ -9,6 +9,7 @@ import { getJson, postJson } from './api.js';
 import { createRowTable, buildNameQuickStatements } from './rows.js';
 import { createPager, PAGE_SIZE } from './pager.js';
 import { mountShell } from './shell.js';
+import { clientId } from './clientId.js';
 
 mountShell('name');
 
@@ -48,7 +49,8 @@ function toggleHideDone() {
 const QS_FETCH_LIMIT = 2000;
 
 async function pendingOpen() {
-    const { taxa } = await getJson(`api/findings?kind=name&status=open&limit=${QS_FETCH_LIMIT}`);
+    const { taxa } = await getJson(
+        `api/findings?kind=name&status=open&limit=${QS_FETCH_LIMIT}&clientId=${encodeURIComponent(clientId())}`);
     return taxa;
 }
 
@@ -90,7 +92,8 @@ async function confirmPending() {
 
 async function loadWorklist() {
     try {
-        const data = await getJson(`api/findings?kind=name&status=open&limit=${PAGE_SIZE}&offset=${offset}`);
+        const data = await getJson(
+            `api/findings?kind=name&status=open&limit=${PAGE_SIZE}&offset=${offset}&clientId=${encodeURIComponent(clientId())}`);
         const taxa = data.taxa || [];
 
         const fallback = pager.fallbackOffset(data);
