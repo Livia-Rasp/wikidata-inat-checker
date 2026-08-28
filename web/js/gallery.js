@@ -162,12 +162,19 @@ async function enrich(el, { obs, photo }) {
     }
 }
 
+// Bumped on every call so a render superseded by a later sort click (still awaiting its own
+// fetch/enrich) can tell it lost the race and stop touching the grid instead of appending its
+// stale cards on top of — or after — the newer render's.
+let renderSeq = 0;
+
 async function render() {
+    const mySeq = ++renderSeq;
     const grid = $('grid');
     grid.innerHTML = '';
     $('status').textContent = 'Loading photos…';
     try {
         const photos = await fetchAllPhotos();
+        if (mySeq !== renderSeq) return;
         $('status').textContent = photos.length
             ? `${photos.length} photo${photos.length === 1 ? '' : 's'} — preparing upload links…`
             : 'No Commons-compatible photos found for this taxon.';
@@ -177,10 +184,15 @@ async function render() {
 
         // Resolve all place IDs once, then enrich each card (caches make repeats cheap).
         await resolvePlaceIds(photos.flatMap((p) => p.obs.place_ids || []));
-        for (let i = 0; i < photos.length; i++) await enrich(els[i], photos[i]);
+        for (let i = 0; i < photos.length; i++) {
+            if (mySeq !== renderSeq) return;
+            await enrich(els[i], photos[i]);
+        }
+        if (mySeq !== renderSeq) return;
 
         $('status').textContent = `${photos.length} photo${photos.length === 1 ? '' : 's'}`;
     } catch (e) {
+        if (mySeq !== renderSeq) return;
         $('status').textContent = `Error: ${e.message}`;
     }
 }
