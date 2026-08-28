@@ -416,7 +416,7 @@ table { border-collapse: collapse; width: 100%; }
 th { text-align: left; padding: 0.5em 0.75em; background: var(--surface-alt);
      border-bottom: 2px solid var(--edge); font-size: 0.85em; }
 td { vertical-align: top; padding: 0.4em 0.75em; border-bottom: 1px solid var(--rule); }
-.check-col { width: 5.5em; }
+.check-col { width: 7em; }
 .check-col button {
   display: block; width: 100%; margin-bottom: 0.25em;
   font-size: 0.78em; padding: 0.2em 0.4em; cursor: pointer;
@@ -424,9 +424,20 @@ td { vertical-align: top; padding: 0.4em 0.75em; border-bottom: 1px solid var(--
 }
 .confirm-btn { border-color: var(--good); background: var(--good-bg); }
 .check-col button:disabled { opacity: 0.5; cursor: default; }
+/* "forever" (a global/permanent skip) rides along next to Skip rather than a separate control, so
+   it is a choice made in the same click, not a second decision on a second row. */
+.skip-global {
+  display: flex; align-items: center; gap: 0.25em; margin-top: 0.15em;
+  font-size: 0.72em; color: var(--muted-ink); cursor: pointer;
+}
+.skip-global input { margin: 0; }
 .row-msg { display: block; margin-top: 0.35em; font-size: 0.8em; }
 .row-msg.ok { color: var(--ok); }
 .row-msg.warn { color: var(--warn); }
+.row-msg button {
+  font-size: 0.85em; padding: 0.1em 0.5em; margin-left: 0.3em; cursor: pointer;
+  border: 1px solid var(--edge); background: var(--surface); color: var(--ink); border-radius: 3px;
+}
 tr.done td { opacity: 0.35; }
 tr.done .draft { background: var(--surface-alt); cursor: default; }
 tr.hide-done { display: none; }

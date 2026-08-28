@@ -18,6 +18,7 @@ import { legacy } from './cache.js';
 import { createRowTable } from './rows.js';
 import { createPager, PAGE_SIZE } from './pager.js';
 import { mountShell } from './shell.js';
+import { clientId } from './clientId.js';
 
 mountShell('images');
 
@@ -166,7 +167,7 @@ window.addEventListener('focus', () => {
 async function load() {
     try {
         const [data] = await Promise.all([
-            getJson(`api/findings?kind=image&status=open&limit=${PAGE_SIZE}&offset=${offset}`),
+            getJson(`api/findings?kind=image&status=open&limit=${PAGE_SIZE}&offset=${offset}&clientId=${encodeURIComponent(clientId())}`),
             state.load(),
         ]);
         const taxa = data.taxa || [];

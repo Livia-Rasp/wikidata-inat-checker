@@ -251,17 +251,88 @@ test('when Wikidata cannot be reached the answer is 503 and nothing changes', as
     assert.equal(store.listFindings({ kind: 'image' })[0].status, 'open');
 });
 
-test('skipping settles a finding and clears its pick', async (t) => {
+test('skipping settles a finding and clears its pick, for the one known client', async (t) => {
     const { app, store } = makeApp(t);
     seed(store, 'Q1');
     store.recordUpload({ destFile: 'A.jpg', qid: 'Q1' });
     store.setP18Pick('Q1', 'A.jpg');
 
-    const res = await post(app, `/api/findings/${firstId(store)}/skip`, { reason: 'no category' });
+    const res = await post(app, `/api/findings/${firstId(store)}/skip`,
+        { reason: 'no category', clientId: 'client-a' });
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().status, 'skipped');
     assert.deepEqual(store.p18Picks(), {});
     assert.ok(store.skipQids('image').has('Q1'), 'and discovery will not offer it again');
+});
+
+test('a second client skipping the same finding settles it once every known client agrees', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    const id = firstId(store);
+    store.registerClient('client-b'); // client-b is "known" before it has skipped anything
+
+    const res = await post(app, `/api/findings/${id}/skip`, { clientId: 'client-a' });
+    assert.equal(res.json().status, 'open', 'client-b has not agreed yet');
+    assert.deepEqual(store.listFindings({ kind: 'image' }).map(r => r.qid), ['Q1'],
+        'still on the shared worklist for anyone who has not skipped it');
+    assert.deepEqual(store.listFindings({ kind: 'image', clientId: 'client-a' }), [],
+        "hidden from client-a's own worklist though");
+
+    // Neither skip is `global` — settling here comes purely from every known client agreeing.
+    const secondRes = await post(app, `/api/findings/${id}/skip`, { clientId: 'client-b' });
+    assert.equal(secondRes.json().status, 'skipped', 'the last known client agreeing settles it');
+    assert.ok(store.skipQids('image').has('Q1'));
+});
+
+test('a global skip settles a finding immediately, and a later plain skip from another known client is a no-op', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    const id = firstId(store);
+    store.registerClient('client-b');
+
+    const res = await post(app, `/api/findings/${id}/skip`, { clientId: 'client-a', global: true });
+    assert.equal(res.json().status, 'skipped', 'global settles it without waiting for client-b');
+
+    // client-b's own skip is not itself global, but the finding is already settled by the
+    // earlier global one — exercises the any_global branch, not the coverage-count one.
+    const secondRes = await post(app, `/api/findings/${id}/skip`, { clientId: 'client-b' });
+    assert.equal(secondRes.json().status, 'skipped');
+});
+
+test('unskip un-settles a finding once the coverage that settled it is no longer complete', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1', { status: 'ambiguous', kind: 'link' });
+    const id = store.listFindings({ kind: 'link', status: 'ambiguous' })[0].id;
+    store.registerClient('client-b');
+
+    await post(app, `/api/findings/${id}/skip`, { clientId: 'client-a' });
+    assert.equal(store.getFinding(id)?.status, 'ambiguous', 'one of two known clients is not enough yet');
+    await post(app, `/api/findings/${id}/skip`, { clientId: 'client-b' });
+    assert.equal(store.getFinding(id)?.status, 'skipped', 'now both agree');
+
+    const res = await post(app, `/api/findings/${id}/unskip`, { clientId: 'client-a' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().status, 'ambiguous',
+        'client-b alone no longer covers every known client, so it reopens — restoring the status it had when skipped, not a bare open');
+});
+
+test('unskip on an unknown finding id is a 404', async (t) => {
+    const { app } = makeApp(t);
+    const res = await post(app, '/api/findings/999999/unskip', { clientId: 'client-a' });
+    assert.equal(res.statusCode, 404);
+});
+
+test('unskip on a legacy (pre-slice-8b) global skip works with no per-client attribution', async (t) => {
+    const { app, store } = makeApp(t);
+    seed(store, 'Q1');
+    const id = firstId(store);
+    // Simulate a skip recorded before per-client tracking existed: status flipped directly, no
+    // row in `skips` at all.
+    store.recordFinding({ qid: 'Q1', kind: 'image', status: 'skipped' });
+
+    const res = await post(app, `/api/findings/${id}/unskip`, { clientId: 'client-a' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().status, 'open');
 });
 
 test('POST /findings/:id/pick flips an ambiguous finding to open with the chosen candidate', async (t) => {
@@ -304,7 +375,7 @@ test('POST /findings/:id/pick refuses a candidate that was never offered', async
 
 test('an unknown finding id is a 404, not a silent success', async (t) => {
     const { app } = makeApp(t, { fetchFn: fakeApi('both') });
-    assert.equal((await post(app, '/api/findings/999999/skip')).statusCode, 404);
+    assert.equal((await post(app, '/api/findings/999999/skip', { clientId: 'client-a' })).statusCode, 404);
     // Confirm reports it per-id rather than failing the whole batch.
     const [result] = (await post(app, '/api/findings/999999/confirm')).json().results;
     assert.equal(result.reason, 'not_found');

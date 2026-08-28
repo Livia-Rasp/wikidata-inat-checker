@@ -4,13 +4,14 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–8 are shipped — the findings database, the verification pass, the Fastify
-backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
+**Status:** slices 0–8 and 8b are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
 backlog search, a container that runs, the app shell, area as a discovery scope, the links checker
-with a real ambiguous/conflict review UI, and the names checker onto the findings table. Remaining:
-9 (deploying that container, with backups) and 10 (making discovery reachable once it is deployed).
-Each slice ships as its own pull request, and each records below what turned out differently from
-the plan — that is the part worth reading.
+with a real ambiguous/conflict review UI, the names checker onto the findings table, and per-client
+skip scoping. Remaining: 9 (deploying that container, with backups — narrowed 2026-08-26 to redeploy
++ backups only, network exposure for beta testers deliberately still undecided) and 10 (making
+discovery reachable once it is deployed). Each slice ships as its own pull request, and each records
+below what turned out differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -830,10 +831,76 @@ production data unless told to" rule: `node checkNames.js --limit 30` recorded 6
 fixture, and cascading a nav-tile count update into `worklist.png`/`links.png`/`search.png`/
 `area.jpg`/`gallery.jpg` the same way slice 7's own regeneration did.
 
+### 8b. Per-client skip scoping — **done**
+Added 2026-08-26, ahead of slice 9 rather than after it. Slice 9's actual deployment target changed
+mid-planning from a single-operator home server to a home server with **selected beta testers**, which
+made the gap already named in [Known: `skipped` does not survive more than one user](#known-skipped-does-not-survive-more-than-one-user)
+live immediately rather than something to defer until OAuth: a shared, unauthenticated deployment
+with more than one person clicking Skip needed the fix before it needed anything else in slice 9.
+
+Built close to what that section had already sketched, but resolved one thing it left open — schema
+v5 adds `clients` (one row per opaque, client-generated id, `crypto.randomUUID()` from
+`web/js/clientId.js`) and `skips` (one row per `(qid, kind, client_id)`, carrying `reason`, a
+`global` flag, and the `prior_status` the finding had *when that client skipped it*). `findings.status`
+keeps its exact pre-8b meaning and only becomes `'skipped'` once every row in `clients` has a
+matching row in `skips` for that finding, or one skip is `global` ("this will never have a usable
+photo" — a permanent fact, not "not my area"). Discovery's `skipQids()`, the CLI reports and
+`output/drafts.html` needed **zero changes** — they only ever read `status`, whose meaning never
+moved.
+
+Four things worth keeping:
+
+- **`prior_status`, not a bare `'open'`, is what unskip restores.** A skip button also lives on
+  `link`'s ambiguous/conflict review rows, so "restore to open" would have been wrong for a finding
+  that was `ambiguous` or `conflict` when someone skipped it. Captured once, at skip time, and never
+  overwritten by a later re-skip from the same client (`ON CONFLICT ... DO UPDATE` deliberately
+  leaves `prior_status` alone) — a second skip must not launder a status the finding only had because
+  it was *already* sitting in a settled, `'skipped'`-adjacent state from the first one.
+- **A legacy skip (recorded before this slice existed) has no `skips` row to attribute unskip to —
+  and that's fine.** It already flipped `status` directly, the same way `markSkipped` always did, so
+  any client may undo it outright; there is no original "whose judgement was this" to defer to, and
+  inventing one would be worse than admitting there isn't one.
+- **The worklist API hides a client's own not-yet-settled skips without touching anyone else's
+  view or the reported `total`.** `GET /api/findings` takes an optional `clientId` and excludes rows
+  that client has skipped via `NOT EXISTS` against `skips` — `total`/`count` (from `countFindings`,
+  untouched) stay the true figures across every tester, so a personalized page reads as a normal
+  paginated one rather than a mysteriously shrinking backlog.
+- **Undo needed no new fetch or re-render.** A skipped row never actually left `createRowTable`'s
+  DOM — `skip()` already only dims it — so `undoSkip()` just reverses the same classes and clears the
+  message. The one place that pattern doesn't hold is the links review section's conflict-candidate
+  skip, which removes the whole DOM group on skip (mirroring `pick`'s behaviour there); that path
+  gets the `clientId`/`global` wiring for correctness but no inline Undo, a deliberate, smaller scope
+  than the main worklist's.
+
+**Not built, and deliberately out of scope:** a page to review or bulk-undo everything a client has
+ever skipped across sessions — today's Undo only covers a skip still visible on screen. Revisit if
+beta testers report actually wanting it; the `skips` table already has everything such a page would
+need to query, so it is a UI addition, not a schema one.
+
+**Verified.** 399 unit tests (`npm run test:coverage` exits 0), including the coverage/settle table
+exercised directly — two known clients, neither `global`, second one settling it; `any_global` true
+from an earlier skip settling a later plain one; unskip un-settling a coverage-based skip and
+restoring the exact prior status, not a bare `open`; unskip on a legacy row with no `skips` history.
+Live, against a scratch `FINDINGS_DB` seeded with real taxa and driven in Chrome: a lone known
+client's Skip settled a finding immediately (`skipQids` picked it up); registering a second known
+client and skipping again from the browser correctly left it `open` server-side while removing it
+from *that* browser's own reloaded worklist (`GET /api/findings?clientId=...` returning one row where
+the unfiltered query returned two); the "forever" checkbox produced a `global: true` skip and an
+immediate settle; Undo reversed a settled skip and the row came back exactly as before. `links.html`
+and `names.html` both loaded cleanly against the same scratch backlog with no console errors.
+`npm run screenshots` regenerated against a throwaway copy of the real 605-open-finding production
+backlog — `worklist.png`, `links.png` and `names.png` all show the new "forever" checkbox.
+
 ### 9. Deploy that container, with backups
 **Scope narrowed 2026-08-19**, now that slice 5d builds the image and proves it runs. What is left
 here is everything *around* the container rather than the container itself: publishing it, getting
 it onto the home server, and keeping the database safe once it lives there.
+
+**Narrowed again, 2026-08-26.** The deployment target changed mid-planning from a single operator to
+a home server with selected beta testers — which meant [slice 8b](#8b-per-client-skip-scoping) had
+to come first, and split *this* slice into what's independent of the still-undecided access question
+(redeploy, backups) and what depends on it (`ALLOWED_HOSTS`, `TRUST_PROXY`, the port binding). Only
+the former is built here.
 
 - **~~Registry~~ — done early, in 5d.** Publishing turned out to be far smaller than the rest of
   this slice, so it was not worth deferring: `GITHUB_TOKEN` can push to the repository's own GHCR
@@ -846,14 +913,31 @@ it onto the home server, and keeping the database safe once it lives there.
   from a public repository, so the package's visibility had to be switched to public once, by hand,
   in its settings. **Done on 2026-08-23**; `docker pull` now works unauthenticated, verified with
   `docker manifest inspect` against a logged-out client.
-- **Redeploy.** Still here: `nicholas-fedor/watchtower` on the host polling GHCR. The pipeline
-  shape to copy is `docs/deployment-roadmap.md` in the `vue-commons-gallery` repo.
-- **Backups.** `VACUUM INTO` on a timer. The database is gitignored, so nothing else is protecting
-  it, and by then it represents days of API budget. Note the server's connection is bound to the
-  file it opened: **restoring a backup requires a restart**, or it keeps serving the old database.
-- **`TRUST_PROXY` once something fronts it** — see [threat-model.md](threat-model.md) for why
-  trusting `X-Forwarded-For` unconditionally makes the rate limiter bypassable, and why leaving it
-  off behind a real proxy collapses every client into one bucket.
+- **~~Redeploy~~ — the label is wired, 2026-08-26.** `compose.yaml`'s `web` service carries
+  `com.centurylinklabs.watchtower.enable=true` and `image:` now points at the published GHCR tag
+  rather than a local-only name. Deliberately **not** a second `nicholas-fedor/watchtower` service
+  in this repo — `vue-commons-gallery` already runs one on the home server this is meant to share,
+  polling GHCR for any labelled container, opt-in by design so sibling services can join it without
+  each running their own poller. Real cross-repo dependency, documented in
+  [container.md](container.md): if that other repo's Watchtower isn't running on wherever this gets
+  deployed, the label alone does nothing.
+- **~~Backups~~ — `tools/backup.mjs`, 2026-08-26.** `npm run backup` (`VACUUM INTO`, timestamped,
+  pruned to the last 14 by default) run from the **host** on a timer, not inside the container —
+  the container's root filesystem is read-only and has no cron, and the CLI already talks to
+  `data/findings.db` directly on the host, so this is the same two-process-one-file shape
+  `openFindingsDb` was written for, not a new one. `docs/container.md` has the crontab line and the
+  restore procedure. Confirmed live against `node:sqlite`: `VACUUM INTO` accepts a bound parameter
+  and produces a real, independently-openable snapshot regardless of the source being written to
+  concurrently.
+- **`TRUST_PROXY`/`ALLOWED_HOSTS` once something fronts it, and the port binding beta testers will
+  need — still not decided.** These three move together (a non-loopback bind needs `ALLOWED_HOSTS`
+  for whatever hostname reaches it, and a real reverse proxy needs `TRUST_PROXY` too, or the rate
+  limiter collapses every client into one bucket) and depend on how testers actually connect —
+  VPN/Tailscale, an exposed instance behind an access-control layer, or per-tester SSH tunnels are
+  all live options, deliberately left open rather than guessed at here.
+- **Getting it onto the physical home server is still a manual step**, same as `vue-commons-gallery`'s
+  own `docker login`/`.docker/config.json` — no session working on this repo has access to that
+  machine, and nothing about this slice needed it to.
 
 Sequenced before OAuth on purpose, accepting that the deployment will need revisiting for secret
 handling once tokens exist — getting the tool onto the home server earlier is worth one redeploy.
@@ -894,6 +978,14 @@ The ordered plan ends here. Slice 10 is the last thing needed for a deployed ins
 usable rather than draining to a fixed backlog; what follows is deliberately outside it.
 
 ## Known: `skipped` does not survive more than one user
+
+**Fixed in [slice 8b](#8b-per-client-skip-scoping), 2026-08-26** — pulled forward ahead of slice 9
+once its deployment target changed from a single operator to a home server with selected beta
+testers, which made this section's "not fixed now" premise no longer true. Built essentially as
+"the shape that works, and works now" describes below, including the un-skip and reason/global
+capture this section named as prerequisites. Left in place as the design record for *why* it looks
+the way it does — the reasoning here is what a future OAuth-based identity migration still has to
+reckon with (the last bullet below).
 
 Raised 2026-08-16. `Skip` writes `status = 'skipped'` on the finding itself, and `skipped` is a
 sticky status — `skipQids()` excludes it from **every** future discovery run, permanently, with no
@@ -1049,4 +1141,57 @@ server ended up sharing `lib/` directly.
 - **Auth / multi-user**, which arrives with OAuth and is what
   [global `skipped`](#known-skipped-does-not-survive-more-than-one-user) is waiting on. The shared
   enrichment cache above needs none of it — it is anonymous — but a per-user uploaded-list would.
+
+### Toolforge (research notes, not a slice)
+
+Raised 2026-08-26: deploying on [Wikimedia Toolforge](https://wikitech.wikimedia.org/wiki/Portal:Toolforge)
+rather than (or in addition to) a home server. Philosophically a better fit than self-hosting —
+Toolforge's Terms of Use explicitly names "run bots related to Wikimedia projects or data" as an
+allowed use, it is OAuth-native for the deferred upload slice, and its build-and-deploy model is
+manual (`toolforge build start`), which sidesteps the unattended-auto-deploy trust question the
+home-server Watchtower plan raises for a public instance. **Deliberately not attempted yet** — wait
+for Node 26 LTS (2026-10-28) and more beta testing/community approval first; tracked as a ToDo in the
+`Wikidata iNat Checker` vault note, not scheduled here.
+
+What this planning pass found, so it does not need re-deriving:
+
+- **Terms of Use, read in full.** §3 covers this use case by name. §7.2 (Toolforge-specific privacy
+  rules) is satisfied by construction — findings describe public Wikidata/iNaturalist facts, and the
+  app collects no End User personal information beyond what OAuth would eventually provide. §4.5
+  ("do not use WMCS to proxy or relay traffic for other servers") does **not** cover this app's own
+  outbound calls to Wikidata/Commons/iNaturalist APIs — those originate from WMCS, which is exactly
+  what the clause requires; it targets Tor/VPN/proxy relay services. The linked Cloud Services Cross
+  Site Policy is itself still a draft with only vague guidance ("minimize external data use, be
+  mindful of what user info leaks to other sites") — the closest thing to a live concern is
+  `web/js/area.js`'s **client-side** fetches straight to `api.inaturalist.org`, which do leak an end
+  user's IP/browser fingerprint to iNaturalist directly; this app's server-side checker calls do not,
+  since no end-user data rides along with them.
+- **The Build Service is buildpack-only.** No custom Dockerfile, no pushing a prebuilt image — confirmed
+  from `Help:Toolforge/Build_Service` and `Help:Toolforge/Building_container_images` directly. That
+  rules out reusing this repo's existing, carefully-tuned `Dockerfile` at all; Toolforge produces the
+  image, not us.
+- **The buildpack fork is Heroku's, not Paketo's.** Toolforge maintains its own fork
+  (`gitlab:groups/repos/cloud/toolforge/buildpacks`) of Heroku buildpacks. This matters because the
+  *mainstream* Paketo Node buildpack already packages Node 26.7.0 (confirmed via its GitHub releases,
+  as of this repo's exact pinned patch version) — but that says nothing about what Toolforge's Heroku
+  fork carries, and Heroku's own Node buildpack has historically been conservative about a major before
+  it reaches LTS. Node 26 is "Current," not "Active LTS," until 2026-10-28. **Unconfirmed, and the
+  reason to wait rather than test now**: an empirical check (reserve the tool name, push a trivial
+  `console.log(process.version)` Procfile app, `toolforge build start`) is the cheap way to find out,
+  once it's worth spending the tool-name reservation on.
+- **No native-dependency fallback if Node 26 isn't available.** Reintroducing `better-sqlite3` to
+  route around a missing Node 26 would undo slice 0's deliberate simplification. Decided: wait for
+  LTS instead, not a hard blocker worth compromising the architecture over.
+- **The Jobs framework would cleanly replace "run the checkers by hand."** Toolforge jobs (scheduled,
+  continuous, or one-off) share the tool's NFS home directory with the webservice — the same
+  multi-process-one-SQLite-file design this repo already relies on for the host CLI and the Docker
+  container. A discovery run's ~650 MB heap spike fits Toolforge's per-job ceiling (up to 4Gi) but
+  needs an explicit `--mem` bump past the 512Mi default.
+- **The slice-10 discovery-trigger problem is unchanged, just relocated.** Toolforge's own ingress is
+  a reverse proxy in front of every request, exactly like Docker's bridge NAT — a request via
+  `https://tool.toolforge.org` never looks like it came from loopback to the app. Whatever mechanism
+  slice 10 ends up building still has to exist under Toolforge.
+- **`TRUST_PROXY`/`ALLOWED_HOSTS` would need real values worked out against Toolforge's actual
+  ingress** (its proxy IP/CIDR, and the `<tool>.toolforge.org` hostname) — not attempted here since
+  there's no tool name reserved yet to test against.
 
