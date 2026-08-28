@@ -69,6 +69,11 @@ services:
     volumes:
       - ${WINC_DATA:-./data}:/app/data
 
+      # A bind mount, not a named volume — deliberately, so an external reader (the mcp-logs
+      # service added in a later slice) has a plain, directly-readable host path rather than
+      # needing `docker volume inspect` first. See docs/logging.md.
+      - ${WINC_LOGS:-./logs}:/app/logs
+
     environment:
       # A container is reached from outside its own network namespace, so the default 127.0.0.1
       # bind would be unreachable through the published port. server/index.js refuses a
@@ -84,6 +89,9 @@ services:
       # TRUST_PROXY set to that proxy's address:
       #   ALLOWED_HOSTS: "inat.example"
       #   TRUST_PROXY: "127.0.0.1"
+
+      # LOG_LEVEL and LOG_RETENTION_DAYS are also deliberately NOT set — server/logger.js's
+      # defaults (info, 7 days) are fine for this deployment. See docs/threat-model.md.
 
     # The app's SIGTERM handler drains and exits promptly; this is headroom, not an expectation.
     stop_grace_period: 30s

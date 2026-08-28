@@ -37,10 +37,13 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 COPY --chown=node:node . .
 
-# Create and own the mount point while still root, then drop privileges. `node` is uid/gid 1000 in
-# the official images. The directory must be writable, not merely the database file: WAL creates
-# -wal and -shm beside it, and a read-only directory breaks WAL even for readers.
-RUN mkdir -p /app/data && chown node:node /app/data
+# Create and own the mount points while still root, then drop privileges. `node` is uid/gid 1000
+# in the official images. /app/data must be writable, not merely the database file: WAL creates
+# -wal and -shm beside it, and a read-only directory breaks WAL even for readers. /app/logs is
+# where server/logger.js's rotated files land — pino-roll's own mkdir:true would create it lazily,
+# but as root the first time the read_only root filesystem (compose.yaml) forces it to already
+# exist before the process starts.
+RUN mkdir -p /app/data /app/logs && chown node:node /app/data /app/logs
 USER node
 
 EXPOSE 8080
