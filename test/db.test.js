@@ -1,6 +1,9 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createFindingsStore, migrate, DEFAULT_RECHECK_DAYS } from '../lib/db.js';
 
@@ -521,4 +524,27 @@ test('pruneRequestLog deletes only buckets older than the retention window', () 
     const deleted = store.pruneRequestLog(60);
     assert.equal(deleted, 1);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM request_log').get().n, 1);
+});
+
+test('vacuumInto writes a real, independently-openable snapshot', () => {
+    // VACUUM INTO writes a target file regardless of whether the source is :memory: — the whole
+    // reason it was chosen for backups (docs/findings-db-roadmap.md) over a filesystem copy is
+    // that it produces a consistent snapshot without needing the source connection closed first.
+    const { store } = makeStore();
+    seed(store, 'Q1', 'open', { wikitext: 'precious' });
+    const dir = mkdtempSync(join(tmpdir(), 'winc-backup-test-'));
+    const dest = join(dir, 'snapshot.db');
+
+    try {
+        store.vacuumInto(dest);
+        assert.ok(existsSync(dest));
+
+        const snapshot = new DatabaseSync(dest, { readOnly: true });
+        const row = snapshot.prepare("SELECT status, payload FROM findings WHERE qid = 'Q1'").get();
+        assert.equal(row.status, 'open');
+        assert.equal(JSON.parse(String(row.payload)).wikitext, 'precious');
+        snapshot.close();
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

@@ -29,7 +29,8 @@
     "draft": "node draftCategory.js",
     "web": "node server/index.js",
     "screenshots": "node tools/screenshots.mjs",
-    "record": "node tools/record.mjs"
+    "record": "node tools/record.mjs",
+    "backup": "node tools/backup.mjs"
   },
   "keywords": [
     "wikidata",

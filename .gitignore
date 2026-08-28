@@ -7,6 +7,8 @@ output/
 cache/
 # Findings database — durable state, NOT regenerable. Back it up; don't just delete it.
 data/
+# VACUUM INTO snapshots of data/ (tools/backup.mjs) — disposable, unlike data/ itself
+backups/
 
 # Logs and diagnostics
 *.log
