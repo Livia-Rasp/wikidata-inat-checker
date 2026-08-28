@@ -32,6 +32,7 @@ npm run lint                                # oxlint, correctness category only
 npm run typecheck                           # tsc over jsconfig.json, then web/jsconfig.json
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
 npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
+npm run backup                              # snapshot data/findings.db, prune old ones (see container.md)
 
 docker compose up --build                   # the server in a container, http://localhost:8080
                                             # bind-mounts ./data; server only, no checkers — but
@@ -69,7 +70,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location; also a discovery scope in the app (`/area`) | [area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 | Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 

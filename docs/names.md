@@ -21,7 +21,7 @@ taxon items (P1843), and records what it finds.
    call.
 3. Fetches all vernacular names from iNaturalist (`all_names=true`), filtering out invalid entries,
    scientific-name-locale entries, and names that duplicate the taxon's scientific name or bare
-   genus (see [dev.md's "Genus-as-vernacular leak"](dev.md#genus-as-vernacular-leak-checknamesjs)).
+   genus (see [dev.md's "Genus-as-vernacular leak"](dev.md#genus-as-vernacular-leak-libdiscovernamesjs)).
 4. Compares the two sets, case-insensitive. Names present in iNat but absent from Wikidata's P1843
    become a finding's `missing` list. Unless `--all` is passed, a taxon that already carries *any*
    P1843 value is skipped entirely rather than partially recorded — see [Usage](#usage).
