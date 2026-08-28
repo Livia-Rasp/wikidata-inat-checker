@@ -11,6 +11,7 @@ import {
 } from './enrich.js';
 import { state } from './state.js';
 import { mountShell } from './shell.js';
+import { escapeHtml } from './rows.js';
 
 mountShell('images');
 
@@ -27,9 +28,6 @@ const qid = params.get('qid') || '';
 let sort = 'votes'; // 'votes' (most faved) | 'created_at' (newest)
 
 const $ = (id) => document.getElementById(id);
-function escapeHtml(s) {
-    return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 
 function setHeader() {
     document.title = `${taxonName} — photos`;

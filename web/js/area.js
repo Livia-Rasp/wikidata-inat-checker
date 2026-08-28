@@ -13,6 +13,7 @@
 import { getJson } from './api.js';
 import { createTopup, describe } from './topup.js';
 import { mountShell } from './shell.js';
+import { escapeHtml } from './rows.js';
 
 mountShell('area');
 
@@ -26,10 +27,6 @@ const LAST_AREA_KEY = 'winc-area-last';
 // Matches GET /api/discover/area's own schema ceiling — that route answers synchronously, in the
 // request handler, so its radius is capped for the server's own request timeout, not politeness.
 const PREVIEW_RADIUS_MAX = 50;
-
-function escapeHtml(s) {
-    return (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 
 // ---- the map ----
 
