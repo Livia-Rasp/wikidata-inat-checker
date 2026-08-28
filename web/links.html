@@ -18,16 +18,8 @@
     <a class="page-link" href="search.html?kind=link">Search the backlog →</a>
     <button id="hide-done">Hide done</button>
   </div>
-  <section id="qs-panel">
-    <div class="qs-head">
-      <strong>QuickStatements</strong> — high-confidence matches
-      <span id="qs-count" class="muted"></span>
-      <button id="qs-copy" disabled>Copy</button>
-      <button id="qs-confirm" disabled>Confirm pending</button>
-      <span id="qs-hint" class="muted"></span>
-    </div>
-    <textarea id="qs-text" readonly placeholder="Open matches whose ancestor taxonomy agrees on 3+ ranks, including family or order, appear here automatically — the same bar checkLinks.js --auto uses. Copy, run the batch, then Confirm pending."></textarea>
-  </section>
+  <!-- Filled by worklist.js's createWorklistPage() from per-page config — see web/js/links.js. -->
+  <section id="qs-panel"></section>
   <p id="status"></p>
   <div class="table-scroll">
     <table>

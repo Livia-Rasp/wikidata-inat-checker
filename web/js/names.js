@@ -3,41 +3,16 @@
 // every candidate already carries a confirmed inatId from a P3151-linked WD item, so the only
 // question is which languages are missing, not which iNat taxon is meant.
 //
-// The worklist half reuses rows.js's createRowTable exactly as index.html and links.html do.
+// The worklist itself (paging, hide-done, the QuickStatements panel) is worklist.js's shared
+// controller, configured for this kind — see its own header for why.
 
 import { getJson, postJson } from './api.js';
-import { createRowTable, buildNameQuickStatements } from './rows.js';
-import { createPager, PAGE_SIZE } from './pager.js';
-import { mountShell } from './shell.js';
+import { buildNameQuickStatements } from './rows.js';
 import { clientId } from './clientId.js';
+import { mountShell } from './shell.js';
+import { createWorklistPage } from './worklist.js';
 
 mountShell('name');
-
-const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
-
-let hidingDone = localStorage.getItem('hide-done-names') === '1';
-let offset = 0;
-
-const table = createRowTable({
-    tbody: $('tbody'),
-    postJson,
-    hidingDone: () => hidingDone,
-    onStatus: (msg) => { $('status').textContent = msg; },
-    onChange: refreshQuickStatements,
-});
-
-const pager = createPager({
-    el: $('pager'),
-    scrollTo: $('controls'),
-    onPage: (to) => { offset = to; loadWorklist(); },
-});
-
-function toggleHideDone() {
-    hidingDone = !hidingDone;
-    localStorage.setItem('hide-done-names', hidingDone ? '1' : '');
-    $('hide-done').textContent = hidingDone ? 'Show done' : 'Hide done';
-    document.querySelectorAll('#tbody tr.done').forEach((row) => row.classList.toggle('hide-done', hidingDone));
-}
 
 // ---- QuickStatements panel: every open finding, batched ----
 // Unlike links' auto-eligible subset (a taxonomic-confidence bar), a name finding has no
@@ -54,69 +29,22 @@ async function pendingOpen() {
     return taxa;
 }
 
-function qsLines(pending) {
-    return pending
+const page = createWorklistPage({
+    kind: 'name',
+    hideDoneKey: 'hide-done-names',
+    postJson, getJson,
+    qsLabel: 'every open finding',
+    qsPlaceholder: 'Every open finding\'s missing names appear here automatically, one statement '
+        + 'per language. Copy, run the batch, then Confirm pending.',
+    fetchPending: pendingOpen,
+    qsLines: (pending) => pending
         .filter((t) => t.inatTaxonId && t.payload?.missing?.length)
         .map((t) => buildNameQuickStatements(t.qid, t.inatTaxonId, t.payload.missing))
-        .join('\n');
-}
-
-async function refreshQuickStatements() {
-    const pending = await pendingOpen();
-    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
-    qsText.value = qsLines(pending);
-    $('qs-count').textContent = pending.length ? `${pending.length} taxa` : '';
-    /** @type {HTMLButtonElement} */ ($('qs-copy')).disabled = pending.length === 0;
-    /** @type {HTMLButtonElement} */ ($('qs-confirm')).disabled = pending.length === 0;
-    qsText.dataset.ids = JSON.stringify(pending.map((t) => t.id));
-}
-
-function copyQuickStatements() {
-    const qsText = /** @type {HTMLTextAreaElement} */ ($('qs-text'));
-    const text = qsText.value;
-    if (!text) return;
-    const done = () => { $('qs-hint').textContent = 'Copied. Run the batch, then Confirm pending.'; };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done);
-    else { qsText.select(); document.execCommand('copy'); done(); }
-}
-
-async function confirmPending() {
-    const ids = JSON.parse($('qs-text').dataset.ids || '[]');
-    const results = await table.confirm(ids);
-    const ok = results.filter((r) => r.confirmed).length;
-    $('qs-hint').textContent = results.length ? `${ok} of ${results.length} fully confirmed.` : 'Nothing to confirm.';
-    await Promise.all([loadWorklist(), refreshQuickStatements()]);
-}
-
-// ---- worklist loading ----
-
-async function loadWorklist() {
-    try {
-        const data = await getJson(
-            `api/findings?kind=name&status=open&limit=${PAGE_SIZE}&offset=${offset}&clientId=${encodeURIComponent(clientId())}`);
-        const taxa = data.taxa || [];
-
-        const fallback = pager.fallbackOffset(data);
-        if (fallback !== null) { offset = fallback; return loadWorklist(); }
-
-        $('count').textContent = taxa.length < data.total
-            ? `${data.total} taxa — showing ${offset + 1}–${offset + taxa.length}`
-            : `${data.total} taxa`;
-        if (data.generated) $('generated').textContent = `backlog as of ${new Date(data.generated).toLocaleString()}`;
-        table.render(taxa);
-        pager.render(data);
-        if (hidingDone) $('hide-done').textContent = 'Show done';
-        if (data.total === 0) $('status').textContent = 'Nothing open in the backlog. Search for a clade to find more.';
-    } catch (e) {
-        $('status').textContent = `Could not load the backlog from the server (${e.message}). Is \`npm run web\` still running?`;
-    }
-}
-
-// ---- wiring ----
-$('qs-copy').addEventListener('click', copyQuickStatements);
-$('qs-confirm').addEventListener('click', confirmPending);
-$('hide-done').addEventListener('click', toggleHideDone);
+        .join('\n'),
+    idsOf: (pending) => pending.map((t) => t.id),
+    confirmMessage: (ok, total) => `${ok} of ${total} fully confirmed.`,
+});
 
 // ---- boot ----
-loadWorklist();
-refreshQuickStatements();
+page.load();
+page.refreshQuickStatements();
