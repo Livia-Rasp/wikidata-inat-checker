@@ -4,13 +4,14 @@ The plan for turning the checkers from one-shot report generators into a persist
 worklist served by a small backend. Written 2026-08-14; the decisions behind it are summarised
 below, the ordered work is in [Slices](#slices).
 
-**Status:** slices 0–8 are shipped — the findings database, the verification pass, the Fastify
-backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
+**Status:** slices 0–8 and 8b are shipped — the findings database, the verification pass, the
+Fastify backend, the confirm-gated done state, on-demand scoped discovery, the scheduled top-up, the
 backlog search, a container that runs, the app shell, area as a discovery scope, the links checker
-with a real ambiguous/conflict review UI, and the names checker onto the findings table. Remaining:
-9 (deploying that container, with backups) and 10 (making discovery reachable once it is deployed).
-Each slice ships as its own pull request, and each records below what turned out differently from
-the plan — that is the part worth reading.
+with a real ambiguous/conflict review UI, the names checker onto the findings table, and per-client
+skip scoping. Remaining: 9 (deploying that container, with backups — narrowed 2026-08-26 to redeploy
++ backups only, network exposure for beta testers deliberately still undecided) and 10 (making
+discovery reachable once it is deployed). Each slice ships as its own pull request, and each records
+below what turned out differently from the plan — that is the part worth reading.
 
 Project-level context lives in the Obsidian vault (`Wikidata iNat Checker`); this file is the
 implementation detail, and the **plan of record** for persistence, sequencing and the web app.
@@ -830,6 +831,66 @@ production data unless told to" rule: `node checkNames.js --limit 30` recorded 6
 fixture, and cascading a nav-tile count update into `worklist.png`/`links.png`/`search.png`/
 `area.jpg`/`gallery.jpg` the same way slice 7's own regeneration did.
 
+### 8b. Per-client skip scoping — **done**
+Added 2026-08-26, ahead of slice 9 rather than after it. Slice 9's actual deployment target changed
+mid-planning from a single-operator home server to a home server with **selected beta testers**, which
+made the gap already named in [Known: `skipped` does not survive more than one user](#known-skipped-does-not-survive-more-than-one-user)
+live immediately rather than something to defer until OAuth: a shared, unauthenticated deployment
+with more than one person clicking Skip needed the fix before it needed anything else in slice 9.
+
+Built close to what that section had already sketched, but resolved one thing it left open — schema
+v5 adds `clients` (one row per opaque, client-generated id, `crypto.randomUUID()` from
+`web/js/clientId.js`) and `skips` (one row per `(qid, kind, client_id)`, carrying `reason`, a
+`global` flag, and the `prior_status` the finding had *when that client skipped it*). `findings.status`
+keeps its exact pre-8b meaning and only becomes `'skipped'` once every row in `clients` has a
+matching row in `skips` for that finding, or one skip is `global` ("this will never have a usable
+photo" — a permanent fact, not "not my area"). Discovery's `skipQids()`, the CLI reports and
+`output/drafts.html` needed **zero changes** — they only ever read `status`, whose meaning never
+moved.
+
+Four things worth keeping:
+
+- **`prior_status`, not a bare `'open'`, is what unskip restores.** A skip button also lives on
+  `link`'s ambiguous/conflict review rows, so "restore to open" would have been wrong for a finding
+  that was `ambiguous` or `conflict` when someone skipped it. Captured once, at skip time, and never
+  overwritten by a later re-skip from the same client (`ON CONFLICT ... DO UPDATE` deliberately
+  leaves `prior_status` alone) — a second skip must not launder a status the finding only had because
+  it was *already* sitting in a settled, `'skipped'`-adjacent state from the first one.
+- **A legacy skip (recorded before this slice existed) has no `skips` row to attribute unskip to —
+  and that's fine.** It already flipped `status` directly, the same way `markSkipped` always did, so
+  any client may undo it outright; there is no original "whose judgement was this" to defer to, and
+  inventing one would be worse than admitting there isn't one.
+- **The worklist API hides a client's own not-yet-settled skips without touching anyone else's
+  view or the reported `total`.** `GET /api/findings` takes an optional `clientId` and excludes rows
+  that client has skipped via `NOT EXISTS` against `skips` — `total`/`count` (from `countFindings`,
+  untouched) stay the true figures across every tester, so a personalized page reads as a normal
+  paginated one rather than a mysteriously shrinking backlog.
+- **Undo needed no new fetch or re-render.** A skipped row never actually left `createRowTable`'s
+  DOM — `skip()` already only dims it — so `undoSkip()` just reverses the same classes and clears the
+  message. The one place that pattern doesn't hold is the links review section's conflict-candidate
+  skip, which removes the whole DOM group on skip (mirroring `pick`'s behaviour there); that path
+  gets the `clientId`/`global` wiring for correctness but no inline Undo, a deliberate, smaller scope
+  than the main worklist's.
+
+**Not built, and deliberately out of scope:** a page to review or bulk-undo everything a client has
+ever skipped across sessions — today's Undo only covers a skip still visible on screen. Revisit if
+beta testers report actually wanting it; the `skips` table already has everything such a page would
+need to query, so it is a UI addition, not a schema one.
+
+**Verified.** 399 unit tests (`npm run test:coverage` exits 0), including the coverage/settle table
+exercised directly — two known clients, neither `global`, second one settling it; `any_global` true
+from an earlier skip settling a later plain one; unskip un-settling a coverage-based skip and
+restoring the exact prior status, not a bare `open`; unskip on a legacy row with no `skips` history.
+Live, against a scratch `FINDINGS_DB` seeded with real taxa and driven in Chrome: a lone known
+client's Skip settled a finding immediately (`skipQids` picked it up); registering a second known
+client and skipping again from the browser correctly left it `open` server-side while removing it
+from *that* browser's own reloaded worklist (`GET /api/findings?clientId=...` returning one row where
+the unfiltered query returned two); the "forever" checkbox produced a `global: true` skip and an
+immediate settle; Undo reversed a settled skip and the row came back exactly as before. `links.html`
+and `names.html` both loaded cleanly against the same scratch backlog with no console errors.
+`npm run screenshots` regenerated against a throwaway copy of the real 605-open-finding production
+backlog — `worklist.png`, `links.png` and `names.png` all show the new "forever" checkbox.
+
 ### 9. Deploy that container, with backups
 **Scope narrowed 2026-08-19**, now that slice 5d builds the image and proves it runs. What is left
 here is everything *around* the container rather than the container itself: publishing it, getting
@@ -894,6 +955,14 @@ The ordered plan ends here. Slice 10 is the last thing needed for a deployed ins
 usable rather than draining to a fixed backlog; what follows is deliberately outside it.
 
 ## Known: `skipped` does not survive more than one user
+
+**Fixed in [slice 8b](#8b-per-client-skip-scoping), 2026-08-26** — pulled forward ahead of slice 9
+once its deployment target changed from a single operator to a home server with selected beta
+testers, which made this section's "not fixed now" premise no longer true. Built essentially as
+"the shape that works, and works now" describes below, including the un-skip and reason/global
+capture this section named as prerequisites. Left in place as the design record for *why* it looks
+the way it does — the reasoning here is what a future OAuth-based identity migration still has to
+reckon with (the last bullet below).
 
 Raised 2026-08-16. `Skip` writes `status = 'skipped'` on the finding itself, and `skipped` is a
 sticky status — `skipQids()` excludes it from **every** future discovery run, permanently, with no

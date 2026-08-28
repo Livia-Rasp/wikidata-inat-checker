@@ -40,7 +40,7 @@ transition, the same core set images use.
 |---|---|---|
 | `open` | At least one iNat vernacular name is missing from Wikidata's P1843 | `missing`: `[{locale, name}, ...]` — every language still absent |
 | `done` | Every proposed language is now live (set by [Confirm](#confirm)) | `resolution` records which locales were confirmed |
-| `skipped` | User skip | |
+| `skipped` | Every known client has skipped it, or one skip was marked "forever" (slice 8b — see [links.md#statuses](links.md#statuses)) | |
 | `fixed_upstream` | Every proposed language went live independently of this tool (set by [Verify](#verify)) | `resolution` records which locales, and why |
 | `gone` | The Wikidata item was merged or deleted | |
 

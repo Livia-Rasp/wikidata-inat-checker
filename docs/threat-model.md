@@ -117,6 +117,15 @@ ambiguous link finding) sits at the ordinary write-guard level, not privileged: 
 outbound request at all, purely re-recording which of a finding's own already-known candidates was
 chosen, so it costs nothing an attacker could spend against the operator's API budget.
 
+**`clientId` (slice 8b) carries no trust of its own.** Skip, unskip and the findings list all accept
+a client-generated id used to scope per-client skips (see
+[findings-db-roadmap.md#8b-per-client-skip-scoping](findings-db-roadmap.md#8b-per-client-skip-scoping)).
+It is exactly as spoofable as `reason` or any other field the write guard already lets through —
+forging one lets a caller claim to be a different "known client," at most changing whose worklist a
+skip is scoped to. It is not an identity or auth mechanism, and nothing here treats it as one: the
+worst a forged id buys is the same vandalism-of-a-personal-worklist severity every other write
+endpoint already carries, not a new capability.
+
 ### Privileged routes — discovery
 
 Discovery is the most expensive thing this server can be asked to do: minutes of Wikidata,

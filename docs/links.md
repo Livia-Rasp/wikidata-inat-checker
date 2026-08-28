@@ -55,6 +55,13 @@ latest run's. Six statuses:
 `ambiguous` and `conflict` are *settled* the same way `open`/`done`/`skipped` are: discovery never
 re-processes them. Only `no_match` expires and becomes a candidate again.
 
+**`skipped` is per-client until every known client agrees (slice 8b).** A single Skip no longer
+flips `status` on its own — it only does once every browser profile the app has ever seen (or one
+skip marked "forever") has passed on the same finding, so one tester's judgement can't silently hide
+work from everyone else. Until then the row stays exactly as it was; only the client who skipped it
+stops seeing it on their own worklist. See
+[findings-db-roadmap.md#8b-per-client-skip-scoping](findings-db-roadmap.md#8b-per-client-skip-scoping).
+
 `evidence` is `{matches, mismatches, matchedRanks}` — the rank-by-rank agreement count, not the
 full ancestor chains. `open` findings only ever carry this summary; `ambiguous` and `conflict`
 findings also carry the full `wdChain`/`inatChain` arrays, because the app's review UI renders a
