@@ -142,11 +142,11 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–8 are done; 9–10 remain, and OAuth is
-  deliberately outside the plan. Three known gaps are written up there rather than fixed:
-  **`skipped` is global**, a **CLI run killed outright stays `running`** (only the server
-  reconciles), and the **scheduled top-up retries every interval rather than once a day** when the
-  taxa index is missing (no run row is ever opened for that failure, so the daily-once gate can't
-  see it). **Read it before changing anything about caching, persistence, or the web app.**
+  restructure around `data/findings.db`. Slices 0–8 and 10 are done; 9 remains, and OAuth is
+  deliberately outside the plan. Two known gaps are written up there rather than fixed: a **CLI
+  run killed outright stays `running`** (only the server reconciles), and the **scheduled top-up
+  retries every interval rather than once a day** when the taxa index is missing (no run row is
+  ever opened for that failure, so the daily-once gate can't see it). **Read it before changing
+  anything about caching, persistence, or the web app.**
 - [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
   Wikidata recipes, the reference for building further Commons-upload tools.

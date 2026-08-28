@@ -442,13 +442,14 @@ left late in the day. Two things worth knowing before touching the rest of it:
   `TOPUP_QUIET_MIN_SAMPLE_DAYS`) is treated as "every hour eligible", not "wait" — a fresh
   deployment should not sit idle for a week waiting to earn the right to run.
 - **One shared config, tried per tool in a fixed order.** `tick()` loops `TOOLS = ['images',
-  'links']`; each has its own daily-once gate (`store.latestRun(tool, {triggeredBy:'schedule'})`
-  reads that tool's own history), but only one job can ever be running, so a tick starts at most
-  the first tool that is both eligible and hasn't run today — a skip for one tool falls through to
-  the next rather than ending the tick. `getStatus().ranToday` is therefore per tool
-  (`{images: bool, links: bool}`), not a single flag. There is deliberately no `TOPUP_LINKS_*`
-  config: one `TOPUP_ENABLED` switch and one taxon/iucn scope drives both — Livia's call, over
-  giving links its own independent schedule.
+  'links', 'names']`; each has its own daily-once gate (`store.latestRun(tool,
+  {triggeredBy:'schedule'})` reads that tool's own history), but only one job can ever be running,
+  so a tick starts at most the first tool that is both eligible and hasn't run today — a skip for
+  one tool falls through to the next rather than ending the tick. `getStatus().ranToday` is
+  therefore per tool (`{images: bool, links: bool, names: bool}`), not a single flag. There is
+  deliberately no `TOPUP_LINKS_*`/`TOPUP_NAMES_*` config: one `TOPUP_ENABLED` switch and one
+  taxon/iucn scope drives all three — Livia's call, over giving each tool its own independent
+  schedule.
 
 The daily-once gate reads `runs.triggered_by = 'schedule'`, which means it has the same blind spot
 `discover()`'s own "a bad scope leaves no run behind" design has, one layer further out: a missing
