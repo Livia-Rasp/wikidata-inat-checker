@@ -128,3 +128,38 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Read-only MCP server over the logs `web` writes above — see docs/mcp-server.md. Its own
+  # container rather than a route inside `web`: a log reader must not be able to affect the app
+  # it observes, and the API's own origin must not also grow a tool-calling endpoint.
+  mcp-logs:
+    build: ./mcp-server
+    image: ghcr.io/livia-rasp/wikidata-inat-checker-mcp:latest
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+    # Published on the LAN, unlike `web`'s loopback-only port — the whole point of Streamable
+    # HTTP here is a shell that may later run on a different machine on the network. The token
+    # (MCP_AUTH_TOKEN below) and the Host allowlist stand in for the network-level restriction
+    # `web` gets from staying on 127.0.0.1. Port 3400 is registered in the vault's Ports.md.
+    ports:
+      - "3400:3400"
+
+    volumes:
+      # The same bind mount `web` writes into, mounted read-only here — the second, mount-level
+      # enforcement of this server's read-only contract; the first is that it registers no write
+      # tools at all. See docs/mcp-server.md.
+      - ${WINC_LOGS:-./logs}:/logs:ro
+
+    # Copy mcp-server/.env.example to mcp-server/.env first (gitignored) — MCP_AUTH_TOKEN has no
+    # default, and this fails to come up without one. See mcp-server/.env.example's own comments.
+    env_file:
+      - mcp-server/.env
+
+    environment:
+      LOG_DIR: /logs
+
+    stop_grace_period: 10s
+    mem_limit: 256m
+    memswap_limit: 256m

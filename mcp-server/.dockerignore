@@ -1,0 +1,11 @@
+# Same reasoning as the root .dockerignore: installed inside the image from the lockfile.
+node_modules
+
+.git
+test/
+*.md
+jsconfig.json
+Dockerfile*
+.dockerignore
+.env
+.env.*

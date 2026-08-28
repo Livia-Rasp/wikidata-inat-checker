@@ -25,8 +25,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 7b  wire timed() into the confirm and area routes — slice 2 built it, nothing called it  ✅
 8   mcp-server/: logFiles.js, read.js, stats.js, time.js + fixture tests (no HTTP yet)     ✅
 9   mcp-server/: http.js, server.js, main.js — the MCP protocol layer, six tools           ✅
-10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example                  ← next
-11  .mcp.json registration
+10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example                  ✅
+11  .mcp.json registration                                                                  ← next
 12  .github/workflows/ci.yml: test + build + publish mcp-server's image
 13  docs: threat-model.md, new logging.md + mcp-server.md, CLAUDE.md, README.md
 14  v1.9.0: add structured server logging and a log-reading MCP server
