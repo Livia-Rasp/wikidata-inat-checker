@@ -149,7 +149,7 @@ export default async function findingsRoutes(app, opts) {
     /** Answers 503 rather than 500 when Wikidata is the thing that failed, leaving rows untouched. */
     const confirm = async (ids, reply) => {
         try {
-            return { results: await confirmByKind(store, ids, { fetchFn: opts.fetchFn }) };
+            return { results: await confirmByKind(store, ids, { fetchFn: opts.fetchFn, log: reply.log }) };
         } catch (err) {
             // A confirm that could not reach Wikidata has decided nothing. Saying so is the
             // difference between "try again" and "this server is broken".

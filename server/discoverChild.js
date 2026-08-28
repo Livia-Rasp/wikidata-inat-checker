@@ -46,6 +46,12 @@ process.once('message', async (rawMsg) => {
     try {
         const taxaDb = openTaxaDb();
         store = openFindingsDb(dbFile);
+        // No `log` passed: discover()/discoverLinks()/discoverNames() default it to `console`,
+        // which here writes to this child's own stdout/stderr — piped and unread, since
+        // server/jobs.js forks with `silent: true` precisely so the child's stdio never
+        // interleaves with the parent's NDJSON logs. Intentionally inert, not a bug: the run's
+        // real observability is the IPC progress/error messages below, which server/jobs.js does
+        // log through the parent's real logger.
         const result = await run({
             store, taxaDb, scope, limit, recheckAfter, triggeredBy,
             onProgress: makeReporter(),

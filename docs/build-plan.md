@@ -21,8 +21,8 @@ this repo's plain-ESM-JavaScript, no-build-step convention.
 4   compose.yaml + Dockerfile + .gitignore/.dockerignore: writable logs mount        ✅
 5   lib/utils.js: thread `log` through the SPARQL/CirrusSearch/Commons helpers        ✅
 6   lib/confirm.js, verify.js, discover*.js, areaCandidates.js: thread `log` from opts  ✅
-7   server/routes/*.js + server/app.js: pass req.log/app.log down those call chains      ← next
-8   mcp-server/: logFiles.js, read.js, stats.js, time.js + fixture tests (no HTTP yet)
+7   server/routes/*.js + server/app.js: pass req.log/app.log down those call chains      ✅
+8   mcp-server/: logFiles.js, read.js, stats.js, time.js + fixture tests (no HTTP yet)     ← next
 9   mcp-server/: http.js, server.js, main.js — the MCP protocol layer, six tools
 10  mcp-server/Dockerfile + compose.yaml's mcp-logs service + .env.example
 11  .mcp.json registration

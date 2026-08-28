@@ -247,12 +247,14 @@ export default async function discoverRoutes(app, opts) {
         // page (per_page maxes out at 500, same as this route's own limit ceiling) is enough for
         // any limit this route allows, so Step 1 costs exactly one request regardless of how much
         // more the area actually holds.
+        // fetchAreaSpecies has no log parameter: its one HTTP call (iNat's species_counts) has no
+        // retry logic to log, unlike everything fetchAreaCandidatesFn goes on to call below.
         let totalSpecies = 0;
         const species = await fetchAreaSpeciesFn(area, { maxPages: 1, onTotal: (t) => { totalSpecies = t; } });
         const sample = new Map([...species.entries()].slice(0, q.limit));
 
         const qualified = [];
-        for await (const row of fetchAreaCandidatesFn(area, { species: sample })) {
+        for await (const row of fetchAreaCandidatesFn(area, { species: sample, log: reply.log })) {
             qualified.push({
                 inatId: row.inatId, qid: row.qid, wdUri: row.wdUri,
                 taxonName: row.taxonName, commonName: row.commonName, count: row.count,
