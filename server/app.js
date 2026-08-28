@@ -82,6 +82,8 @@ class ApiOnlyLogController extends LogController {
  *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
  *          topupConfig?: {enabled: boolean} & Omit<import('./scheduledTopup.js').TopupConfig, 'dbFile'>,
  *          scheduledTopup?: any,
+ *          budgetConfig?: {discover: {capacity: number, refillPerHour: number},
+ *                          discover_area: {capacity: number, refillPerHour: number}},
  *          fetchAreaSpeciesFn?: typeof import('../lib/areaCandidates.js').fetchAreaSpecies,
  *          fetchAreaCandidatesFn?: typeof import('../lib/areaCandidates.js').fetchAreaCandidates}} BuildServerOptions
  */
@@ -93,7 +95,7 @@ class ApiOnlyLogController extends LogController {
 export function buildServer({
     store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
     jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
-    topupConfig, scheduledTopup, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
+    topupConfig, scheduledTopup, budgetConfig, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
 }) {
     const app = Fastify({
         logger,
@@ -182,7 +184,12 @@ export function buildServer({
     // never sets TOPUP_ENABLED pays no extra write per request.
     const topup = topupConfig?.enabled
         ? (scheduledTopup ?? createScheduledTopup({
-            store, jobs: runner, config: { ...topupConfig, dbFile }, log: app.log,
+            // discoverBucket is the same 'discover' bucket POST /discover draws from (slice 10) —
+            // the scheduler's bonus-draw path reads it to decide whether unused shared capacity is
+            // worth taking late in the day. Passed through rather than read from env here, so the
+            // scheduler and the route can never silently disagree about the numbers.
+            store, jobs: runner,
+            config: { ...topupConfig, dbFile, discoverBucket: budgetConfig?.discover }, log: app.log,
         }))
         : null;
     if (topup) {
@@ -197,7 +204,7 @@ export function buildServer({
 
     app.register(discoverRoutes, {
         prefix: '/api', store, jobs: runner, dbFile, discoverEnabled, openIndex: sharedIndex,
-        rateLimit, allowedHosts, scheduledTopup: topup, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
+        rateLimit, allowedHosts, scheduledTopup: topup, budgetConfig, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
     });
     // Before the store closes in server/index.js: a child still holding a write handle would
     // outlive the thing that is supposed to own it. The scheduler's own interval must stop first,

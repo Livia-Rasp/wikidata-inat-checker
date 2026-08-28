@@ -2,8 +2,11 @@
 // Topping up the backlog from the app. One run at a time, in a forked child, polled for status.
 //
 // This is the most expensive thing the server can be asked to do — a run spends the operator's
-// Wikimedia and iNaturalist API budget for minutes — so it is `privileged` (loopback peers only,
-// see server/writeGuard.js) and off unless DISCOVER_ENABLED says otherwise.
+// Wikimedia and iNaturalist API budget for minutes — so it is off unless DISCOVER_ENABLED says
+// otherwise, and cost is bounded by an hourly-refilling token bucket (slice 10,
+// docs/threat-model.md's "Discovery budget" section) rather than by a loopback-peer check, which
+// could never be satisfied through a published Docker port. The bucket is shared with the
+// scheduled top-up (server/scheduledTopup.js) — both draw from the same store-backed state.
 import rateLimit from '@fastify/rate-limit';
 import writeGuard from '../writeGuard.js';
 import { IUCN_STATUS_QIDS } from '../../lib/utils.js';
@@ -18,18 +21,63 @@ import { resolveAreaScope, fetchAreaSpecies, fetchAreaCandidates } from '../../l
  */
 const TAXON_PATTERN = '^(\\d{1,12}|[\\p{L}][\\p{L}\\p{M} .×\'-]{0,119})$';
 
-/** Starting a run is far more expensive than reading its status; they do not share a budget. */
+/** Starting a run is far more expensive than reading its status; they do not share a *rate* limit —
+ *  they do now share a *daily budget*, see DEFAULT_BUDGET_CONFIG below. */
 const START_RATE_LIMIT = { max: Number(process.env.RATE_LIMIT_DISCOVER_MAX ?? 6), timeWindow: '1 minute' };
+
+/**
+ * Production sizing for the two token buckets discovery draws from — one per route, since their
+ * per-call cost differs by roughly two orders of magnitude (a POST /discover run: 3-25 iNat
+ * requests plus up to ~142 WDQS batches for an unscoped run; a GET /discover/area call: exactly 1
+ * iNat + 1 WDQS request, verified against lib/areaCandidates.js). `discover`'s capacity is sized
+ * against WDQS goodwill, not iNaturalist's documented 10,000/day ceiling, since WDQS has no stated
+ * numeric limit to budget against at all — see docs/threat-model.md's "Discovery budget" section
+ * for the arithmetic. Overridable via opts.budgetConfig, which server/app.js populates from the
+ * DISCOVER_BUDGET_ and DISCOVER_AREA_BUDGET_ env vars — server/scheduledTopup.js's bonus-draw path
+ * must be given the same `discover` numbers, or the two callers would silently disagree about how
+ * much of the shared bucket is left.
+ */
+const DEFAULT_BUDGET_CONFIG = {
+    discover: { capacity: 24, refillPerHour: 1 },
+    discover_area: { capacity: 120, refillPerHour: 5 },
+};
+
+/**
+ * Draw one token from `bucket` and, if admitted, start the run — refunding the token if
+ * jobs.start()'s single-flight lock rejects it, since then the draw happened but the run never
+ * did. The entry point POST /discover uses instead of calling jobs.start() directly, now that cost
+ * is bounded by budget rather than by checking who is asking.
+ * @param {{store: any, jobs: any, config: object, bucket: string,
+ *          cfg: {capacity: number, refillPerHour: number}}} args
+ */
+function requestRun({ store, jobs, config, bucket, cfg }) {
+    const budget = store.drawDiscoverBudget(bucket, cfg);
+    if (!budget.admitted) return { started: false, reason: 'budget_exhausted', budget };
+    const started = jobs.start(config);
+    if (!started) {
+        store.refundDiscoverBudget(bucket, cfg.capacity);
+        return { started: false, reason: 'already_running' };
+    }
+    return { started: true };
+}
+
+/** Seconds until `bucket` has at least one token again, for a 429's Retry-After header. */
+function retryAfterSeconds(tokensRemaining, refillPerHour) {
+    return Math.max(1, Math.ceil(((1 - tokensRemaining) / refillPerHour) * 3600));
+}
 
 /**
  * @param {import('fastify').FastifyInstance} app
  * @param {{store: any, jobs: any, dbFile: string, discoverEnabled?: boolean,
  *          openIndex?: () => any, scheduledTopup?: any, allowedHosts?: string[], rateLimit?: object,
+ *          budgetConfig?: {discover: {capacity: number, refillPerHour: number},
+ *                          discover_area: {capacity: number, refillPerHour: number}},
  *          fetchAreaSpeciesFn?: typeof fetchAreaSpecies, fetchAreaCandidatesFn?: typeof fetchAreaCandidates}} opts
  */
 export default async function discoverRoutes(app, opts) {
     const {
         store, jobs, dbFile, discoverEnabled = false, openIndex = openTaxaDb, scheduledTopup = null,
+        budgetConfig = DEFAULT_BUDGET_CONFIG,
         fetchAreaSpeciesFn = fetchAreaSpecies, fetchAreaCandidatesFn = fetchAreaCandidates,
     } = opts;
 
@@ -55,7 +103,7 @@ export default async function discoverRoutes(app, opts) {
     }
 
     app.post('/discover', {
-        config: { privileged: true, rateLimit: START_RATE_LIMIT },
+        config: { rateLimit: START_RATE_LIMIT },
         schema: {
             body: {
                 type: 'object',
@@ -135,25 +183,38 @@ export default async function discoverRoutes(app, opts) {
             throw err;
         }
 
-        const started = jobs.start(config);
-        if (!started) {
-            return reply.status(409).send({
-                statusCode: 409, error: 'Conflict', code: 'already_running',
-                message: 'A discovery run is already in progress.',
-                status: jobs.status(),
+        const result = requestRun({ store, jobs, config, bucket: 'discover', cfg: budgetConfig.discover });
+        if (!result.started) {
+            if (result.reason === 'already_running') {
+                return reply.status(409).send({
+                    statusCode: 409, error: 'Conflict', code: 'already_running',
+                    message: 'A discovery run is already in progress.',
+                    status: jobs.status(),
+                });
+            }
+            const retryAfter = retryAfterSeconds(result.budget.tokensRemaining, budgetConfig.discover.refillPerHour);
+            reply.header('retry-after', String(retryAfter));
+            return reply.status(429).send({
+                statusCode: 429, error: 'Too Many Requests', code: 'budget_exhausted',
+                message: `Discovery for '${tool}' has used up today's budget, shared with the `
+                    + `scheduled top-up. Try again in about ${Math.ceil(retryAfter / 60)} minute(s).`,
             });
         }
         return reply.status(202).send(publicStatus(jobs.status(), store, discoverEnabled, scheduledTopup, tool));
     });
 
     // A read, but not an unprivileged one like /search: unlike that route, this one makes real
-    // outbound requests (iNat, then WDQS) — it spends the same "ability to keep using those APIs
-    // at all" budget POST /discover does, just without writing anything. Gated and rate-limited
-    // the same way. Answers synchronously in the request handler (no fork, unlike POST /discover),
-    // which is why radius and limit are bounded tighter than that route's own sanity ceilings —
-    // this has to fit inside the server's request timeout, not just be polite to iNaturalist.
+    // outbound requests (iNat, then WDQS) — it spends its own token bucket the same way POST
+    // /discover spends its, just without a forked job to draw for. Because it's a GET, it needs
+    // `costsBudget: true` to keep the write-guard's Host-allowlist/CSRF checks in play — a plain
+    // GET is normally exempt from those, and dropping the old loopback-peer check with nothing
+    // replacing them would open this route to a background cross-origin request from any page on
+    // the internet. See server/writeGuard.js and docs/threat-model.md's "Discovery budget" section.
+    // Answers synchronously in the request handler (no fork, unlike POST /discover), which is why
+    // radius and limit are bounded tighter than that route's own sanity ceilings — this has to fit
+    // inside the server's request timeout, not just be polite to iNaturalist.
     app.get('/discover/area', {
-        config: { privileged: true, rateLimit: START_RATE_LIMIT },
+        config: { costsBudget: true, rateLimit: START_RATE_LIMIT },
         schema: {
             querystring: {
                 type: 'object',
@@ -186,6 +247,19 @@ export default async function discoverRoutes(app, opts) {
                 });
             }
             throw err;
+        }
+
+        // Drawn only now, after validation — a bad lat/lng/radius never made an outbound request,
+        // so it must not spend a token either.
+        const budget = store.drawDiscoverBudget('discover_area', budgetConfig.discover_area);
+        if (!budget.admitted) {
+            const retryAfter = retryAfterSeconds(budget.tokensRemaining, budgetConfig.discover_area.refillPerHour);
+            reply.header('retry-after', String(retryAfter));
+            return reply.status(429).send({
+                statusCode: 429, error: 'Too Many Requests', code: 'budget_exhausted',
+                message: `Area preview has used up today's budget. Try again in about `
+                    + `${Math.ceil(retryAfter / 60)} minute(s).`,
+            });
         }
 
         // species_counts sorts by observation count descending, so the first page already holds
@@ -233,7 +307,7 @@ export default async function discoverRoutes(app, opts) {
             /** @type {any} */ (req.query).tool ?? 'images'));
 
     app.post('/discover/cancel', {
-        config: { privileged: true, rateLimit: START_RATE_LIMIT },
+        config: { rateLimit: START_RATE_LIMIT },
         schema: {
             body: {
                 type: 'object',

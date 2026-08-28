@@ -328,10 +328,15 @@ is argument parsing and HTML rendering around it. Four things about it are load-
   `cwd: REPO_ROOT`, resolved from the module. That is deliberate — a server started from anywhere
   must still find `output/` and `cache/` where the CLI put them — but it is the one place
   `lib/paths.js`'s "relative to the working directory" stops being the whole truth. It matters in a
-  container: a discovery run writes `cache/cache-commons-cats.json` **inside the image**, not onto
-  the mounted volume. Moot today, since discovery cannot start in a container at all (the
-  privileged routes need a loopback peer address — see [threat-model.md](threat-model.md)), but it
-  is the reason that is worth knowing rather than rediscovering.
+  container: a discovery run would write `cache/cache-commons-cats.json` **inside the image**, not
+  onto the mounted volume — and since slice 10 made discovery genuinely reachable through a
+  published port, this stopped being moot and started being a real failure the first time a
+  container-triggered run found anything actionable, because the container's root is `read_only:
+  true`. Fixed by making that one write best-effort (`lib/utils.js`'s `saveCommonsCatCache`) — see
+  [findings-db-roadmap.md](findings-db-roadmap.md#10-discovery-reachable-from-a-deployed-container)
+  for how it was found. The underlying fact (that write always lands inside the image, never on the
+  mounted volume) is still worth knowing, since anything else that writes to `cache/` from a
+  container-triggered run inherits the same trap.
 - **It runs in a forked child, never in the server process.** `allInatIds()` materialises 1.4M rows —
   ~1.0 s of blocked event loop and a ~650 MB heap spike — `descendantInatIds()` is an unindexed LIKE
   scan (~0.5 s), and `node:sqlite` is synchronous. In-process, every run would freeze the API in
@@ -417,10 +422,13 @@ inputs came from).
 
 ### Scheduled top-up (`server/scheduledTopup.js`)
 
-Calls `jobs.start()` directly, in the server process — never over HTTP — so it is not a `privileged`
-route and the loopback-peer check never applies to it; see
+Calls `jobs.start()` directly, in the server process — never over HTTP — so the write guard never
+applies to it; see
 [threat-model.md](threat-model.md#the-scheduled-top-up-slice-5b--why-it-needs-none-of-the-above).
-Two things worth knowing before touching it:
+Since slice 10, `tick()` also runs `maybeBonusRun()` (pure decision in `evaluateBonusRun()`) once
+every tool's own guaranteed daily run has settled — a once-a-day bonus draw against the same shared
+`discover` token bucket `POST /discover` draws from, taken only if there is real unused capacity
+left late in the day. Two things worth knowing before touching the rest of it:
 
 - **The decision logic is a pure function, `evaluateTopup()`.** It takes `jobsState`,
   `lastScheduledRun`, the cached `quiet` set and `nowMs` as plain values and returns

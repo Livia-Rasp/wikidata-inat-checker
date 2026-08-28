@@ -72,6 +72,10 @@ arrive later behind OAuth.
   | `RATE_LIMIT_WINDOW` | 1 minute | The window for the read *and* write limits — not the discovery one, which hardcodes a minute. |
   | `RATE_LIMIT_WRITE_MAX` | 30 | Tighter limit for confirm/skip/uploads/import. |
   | `RATE_LIMIT_DISCOVER_MAX` | 6 | Tighter still, for starting a discovery run, per fixed minute. |
+  | `DISCOVER_BUDGET_CAPACITY` | 24 | Token-bucket capacity for `POST /discover`, shared with the scheduler's bonus draw (slice 10). |
+  | `DISCOVER_BUDGET_REFILL_PER_HOUR` | 1 | How fast that bucket refills. |
+  | `DISCOVER_AREA_BUDGET_CAPACITY` | 120 | Token-bucket capacity for `GET /discover/area`. |
+  | `DISCOVER_AREA_BUDGET_REFILL_PER_HOUR` | 5 | How fast that bucket refills. |
   | `SCREENSHOT_PORT` | 8099 | Only read by `tools/screenshots.mjs`, which starts its own server. |
   | `TOPUP_ENABLED` | unset | Enables the scheduled top-up (slice 5b) — also needs `DISCOVER_ENABLED`. |
   | `TOPUP_TAXON` / `TOPUP_IUCN` | unset | The scheduled top-up's one fixed scope. |
@@ -83,6 +87,7 @@ arrive later behind OAuth.
   | `TOPUP_QUIET_MIN_SAMPLE_DAYS` | 7 | Below this much request history, every hour is eligible. |
   | `TOPUP_DAILY_DEADLINE_HOUR` | 23 | UTC hour past which today's top-up runs regardless of quiet hours. |
   | `TOPUP_REQUEST_LOG_RETENTION_DAYS` | 60 | Pruning horizon for the request-volume log. |
+  | `TOPUP_BONUS_MIN_BUCKET_FRACTION` | 0.5 | Share of `discover`'s capacity that must still be unused, late in the day, before the scheduler's bonus draw fires (slice 10). |
 
 ## Write endpoints
 
@@ -126,58 +131,131 @@ skip is scoped to. It is not an identity or auth mechanism, and nothing here tre
 worst a forged id buys is the same vandalism-of-a-personal-worklist severity every other write
 endpoint already carries, not a new capability.
 
-### Privileged routes — discovery
+### Discovery budget — POST /discover and GET /discover/area (slice 10)
 
 Discovery is the most expensive thing this server can be asked to do: minutes of Wikidata,
 iNaturalist and Commons traffic under the operator's identity. WDQS bans clients that ignore its
 limits and iNaturalist blocks above 10,000 requests a day, so the thing being protected here is not
 data — it is the **ability to keep using those APIs at all**.
 
-`POST /api/discover`, `/api/discover/cancel` and `GET /api/discover/area` are therefore marked
-`config: { privileged: true }`, which adds two requirements on top of the write guard. The `tool`
-field on `POST /discover` (`'images'` default, `'links'` since slice 7, `'names'` since slice 8)
-picks which pipeline runs but changes neither requirement below — links and names discovery spend
-the same Wikidata/iNaturalist budget images discovery does, so each is exactly as privileged, and
-all three share the same single-flight job slot (see
-[dev.md](dev.md#discovery-libdiscoverjs-libdiscoverlinksjs-serverjobsjs)) rather than each getting
-independent gating:
+Until slice 10 this was gated on a **loopback peer address** — `req.socket.remoteAddress`,
+unforgeable unlike `Host` (`curl -H 'Host: localhost'` forges that from anywhere) — on the theory
+that only the operator's own machine should be able to spend the operator's API budget. That held
+for a local `npm run web`, but a containerised deployment broke it structurally: a request arriving
+through a published Docker port always shows the bridge gateway (`172.x`) as its peer, never real
+`127.x`, and `TRUST_PROXY` could not fix it because the check deliberately read
+`req.socket.remoteAddress` rather than `req.ip`. The practical effect was narrower than "no discovery
+in containers" but just as blocking day to day: **the operator's own browser on the host machine
+could not trigger "Find more" or "Add to worklist" at all**, even with `DISCOVER_ENABLED=1` — the
+check was correct as written, just never satisfiable from outside the container's own network
+namespace. (`docker compose exec` still worked, since a process sharing that namespace genuinely is
+loopback — which is how the backlog stayed fillable at all before this slice.) See
+[findings-db-roadmap.md](findings-db-roadmap.md#10-discovery-reachable-from-a-deployed-container)
+for how this was investigated — Docker-networking-level fixes (`userland-proxy=false`,
+`network_mode: host`) were tried and rejected — before landing on what follows.
 
-1. **A loopback peer address.** Not `Host` — that is client-controlled, and `curl -H 'Host: localhost'`
-   forges it from anywhere. `req.socket.remoteAddress` cannot be forged by the caller, so it is what
-   gates a route whose cost lands on the operator. (The `Host` allowlist keeps its own job: stopping
-   DNS rebinding, where a *browser* sets the header honestly.) **This is the check that still holds
-   when the read view goes public.**
-2. **`DISCOVER_ENABLED`**, or a 403 explaining why. An endpoint that spends API reputation should
-   not be live merely because nobody turned it off.
+**The replacement bounds *how much* discovery can cost instead of checking *who* is asking.** Two
+independent, hourly-refilling token buckets, one per route, sized two orders of magnitude apart
+because their per-call cost is: a `POST /discover` run costs 3–25 iNat requests (`ceil(limit/200)`,
+`limit` 500 default–5000 max) and up to ~142 WDQS `VALUES` batches for an unscoped run
+(`lib/utils.js`'s `fetchWdTaxaByValues`, `batchSize=10000`, against the ~1.4M-row iNat index); a
+`GET /discover/area` call costs exactly **1 iNat + 1 WDQS request**, full stop —
+`fetchAreaSpecies` is hardcoded `maxPages: 1` and `fetchAreaCandidates`'s default `candidatesFn` is
+one batched WDQS call for the ≤500-species sample. (Per-taxon photo/date *enrichment* is a separate,
+much larger cost that never touches this route at all — it fires client-side, straight from the
+browser to `api.inaturalist.org`, the same way `gallery.js`'s thumbnails already do.)
 
-**`GET /api/discover/area` is a read, but privileged rather than unprivileged like search (below) —
-on purpose.** What makes the search routes safe to leave open is that they "make no outbound
-request"; this one makes several (iNat, then WDQS) every time it is called, spending the same
-"ability to keep using those APIs at all" budget `POST /discover` does, just without writing
-anything. It answers synchronously in the request handler rather than forking, so it is additionally
-bounded on `radius` (50km, tighter than `POST /discover`'s 20000km sanity ceiling) and on how many
-species it samples (`limit`, ≤500) — bounds that exist for the server's own 30s `requestTimeout`,
-not for politeness. See [dev.md](dev.md#area-as-a-scope-libareacandidatesjs-get-apidiscoverarea).
+| Bucket | Route | Capacity | Refill/hour | Env vars |
+|---|---|---|---|---|
+| `discover` | `POST /discover`, and the scheduler's own bonus draw | 24 | 1 | `DISCOVER_BUDGET_CAPACITY`, `DISCOVER_BUDGET_REFILL_PER_HOUR` |
+| `discover_area` | `GET /discover/area` | 120 | 5 | `DISCOVER_AREA_BUDGET_CAPACITY`, `DISCOVER_AREA_BUDGET_REFILL_PER_HOUR` |
 
-**Consequence in a container: the check does exactly what it says, which is narrower than "no
-discovery in containers".** The peer address for a request arriving through a published port is the
-bridge gateway (`172.x`), never `127.x` — and `TRUST_PROXY` cannot change that, because the check
-deliberately reads `req.socket.remoteAddress` rather than `req.ip`. So the **Find more** button in
-a browser on the host gets 403 `not_local`, even with `DISCOVER_ENABLED=1`.
+`discover`'s capacity is sized against **WDQS goodwill, not iNaturalist's documented 10,000/day
+ceiling** — no numeric WDQS limit is stated anywhere, by WDQS itself or in this repo, so it is the
+thing actually bounding this number. 24 unscoped runs/day is already 3,408 WDQS batches, a real 24×
+jump over today's single daily scheduled run; "generous" here means comfortably beyond an active
+working session (~1/hour around the clock), not "close to iNat's ceiling" — which would be reckless
+against a limit with no known value. `discover_area` is sized looser because its true cost (2
+requests/call) is two orders of magnitude cheaper — a user panning the map should never feel it.
 
-**From inside the container the peer genuinely is loopback, and a run starts.** Verified against
-the real image: `docker compose exec` issuing the same POST to `127.0.0.1:8080` is accepted with
-202. That is the check working as designed, not a hole in it — "local" means local to the server,
-and a process sharing its network namespace is exactly that.
+**Store-backed (`discover_budget`, schema v6, `lib/db.js`), not in-memory like the rate limiter.**
+`compose.yaml`'s `web` service already carries `com.centurylinklabs.watchtower.enable=true` (slice
+9), so this container gets redeployed on Renovate's ordinary automerge cadence — not rarely. An
+in-memory bucket would quietly reset to full on every such restart; a per-minute rate-limit counter
+can afford that, a daily/hourly budget cannot. **Verified live**: exhausted a
+`DISCOVER_BUDGET_CAPACITY=2` bucket against a real server, restarted it, and the next
+`POST /discover` still answered `429` — the budget survived the restart the way it has to.
+
+A plain windowed `COUNT(*) FROM runs` was considered and rejected — it diverges from real
+token-bucket semantics exactly when a caller drains the bucket after sitting idle: a real bucket has
+a fresh token an hour later; a 24h sliding window still counts yesterday's burst against today for
+the rest of the day. Real refill state (`tokens`, `updated_at`, refilled lazily on each draw under
+`BEGIN IMMEDIATE`, same discipline `migrate()` uses) is what a token bucket actually is.
+
+**`POST /discover` and `POST /discover/cancel` no longer carry `privileged: true` at all** — the
+ordinary write guard (Host allowlist, fetch metadata, JSON content type) plus `DISCOVER_ENABLED`
+plus the budget draw is the whole gate now. Cancelling never spent budget to begin with, so it needs
+nothing further than the ordinary guard. A draw that then loses `jobs.start()`'s single-flight race
+is refunded (`refundDiscoverBudget`) — the token was spent, the run never happened. Exhaustion
+answers `429` with a `Retry-After` header, not `403` — this is a quota, not a permission refusal.
+The `tool` field on `POST /discover` (`'images'` default, `'links'` since slice 7, `'names'` since
+slice 8) picks which pipeline runs but does not change any of the above — links and names discovery
+spend the same budget images discovery does, and all three still share one single-flight job slot
+(see [dev.md](dev.md#discovery-libdiscoverjs-libdiscoverlinksjs-serverjobsjs)).
+
+### `GET /discover/area` needed a different fix, because it is a GET
+
+Dropping `privileged` from a GET is not the same move as dropping it from a POST.
+`server/writeGuard.js`'s guard hook exits early for every safe method (`GET`/`HEAD`/`OPTIONS`)
+*before* the Host allowlist, fetch-metadata and content-type checks ever run — reasonable for an
+ordinary read, which cannot change state or cost anything. `GET /discover/area` is not an ordinary
+read: it makes two real outbound requests on every call. Simply removing its loopback check would
+have left it with **no protection at all** against a background cross-origin `fetch()` fired by any
+page on the internet — worse than the loopback-only posture it replaced, not better.
+
+**Fixed with a second route-config flag, `costsBudget`**, checked *before* the safe-method exit:
+`if (SAFE_METHODS.has(req.method) && !routeConfig?.costsBudget) return;`. A loopback-only bypass
+(let `docker compose exec` skip the check, gate everyone else) was considered and rejected — a
+genuine loopback caller already sends `Host: 127.0.0.1:8080`, already in the allowlist, so a special
+case would only exempt a caller from a check it was always going to pass anyway. `costsBudget`
+generalises better: "spends real external API budget" is its own axis, independent of HTTP verb.
+
+**What actually protects this route now, the same rigor given to every other one above:**
+`Sec-Fetch-Site` is the check that matters for the attack this closes — modern browsers attach it
+even to a cross-origin GET with no custom headers (a CORS "simple request"), so the anonymous page's
+background fetch arrives `cross-site` and gets `403`, the identical mechanism every write already
+relies on. The Host allowlist still does its own narrower job (DNS rebinding). And even a bare
+`curl` — no browser headers at all, "not a CSRF vector," let through on purpose, same as any other
+write — is now bounded by the `discover_area` bucket rather than answering forever: 120 draws before
+every further call gets `429`, not unbounded drainage. `DISCOVER_ENABLED` and the existing 6/minute
+route rate limit both still apply on top, unchanged. Bounded tighter still on `radius` (50km, vs.
+`POST /discover`'s 20000km sanity ceiling) and on how many species it samples (`limit`, ≤500) — for
+the server's own 30s `requestTimeout`, not for politeness. See
+[dev.md](dev.md#area-as-a-scope-libareacandidatesjs-get-apidiscoverarea). **Verified live**: a
+spoofed `Host: evil.example` gets `403 host_not_allowed`; a same-origin request succeeds and
+correctly draws the bucket.
 
 ### The scheduled top-up (slice 5b) — why it needs none of the above
 
 `server/scheduledTopup.js` calls `jobs.start()` directly, in the server process, never over HTTP.
-It is therefore not a `privileged` route and is not subject to the loopback-peer check or the
-write guard at all — there is no request for either to inspect. This is not a gap: the trust
-boundary those checks defend is "did this call originate from the server's own process/network
-namespace", and code running inside `server/index.js` already satisfies that trivially. Gating it
-behind a synthetic internal HTTP call would add a mechanism, not a defence.
+It is not subject to the write guard at all — there is no request for it to inspect. This is not a
+gap: the trust boundary that guard defends is "did this call originate from the server's own
+process", and code running inside `server/index.js` already satisfies that trivially. Gating it
+behind a synthetic internal HTTP call would add a mechanism, not a defence. This is also why it
+needed no change when `POST /discover` dropped its loopback-peer check for the budget mechanism
+above (slice 10) — the scheduler was never gated on peer address to begin with.
+
+**Since slice 10 this module has a second, related job**: `requestRun()` (called from
+`POST /discover`'s handler, not from a timer) is what actually draws the `discover` bucket and
+starts the run — so "the scheduled top-up" is a slight misnomer now, though the name is kept rather
+than churned, since the timer-driven `tick()` this section is about remains its primary reason to
+exist. `tick()` itself also gained one addition: once every tool's own guaranteed daily attempt has
+settled (see below), a **once-a-day bonus draw** (`maybeBonusRun`, `evaluateBonusRun`) takes a run
+from whatever's left of the shared `discover` bucket if on-demand callers have left real surplus
+(`TOPUP_BONUS_MIN_BUCKET_FRACTION`, default `0.5` — over half the day's capacity still unused) and
+it is past `TOPUP_DAILY_DEADLINE_HOUR` — reusing that hour rather than adding a second knob, since
+it is already this scheduler's own signal for "stop waiting and just run." Recorded with
+`triggeredBy: 'schedule-bonus'`, distinguishable from an ordinary `'schedule'` run in `runs`.
 
 What *does* gate it is `TOPUP_ENABLED` (off by default) plus a hard requirement for
 `DISCOVER_ENABLED` too, checked at startup in `server/index.js` — a scheduled run spends the exact
@@ -211,19 +289,20 @@ Two things follow, and the second is a trap:
 
 - Filling the backlog for a containerised deployment is still a job for the CLI, because only the
   CLI may build the taxa index — a run started inside the image fails in milliseconds with
-  `taxa_index_unavailable`. Once the container is actually deployed somewhere rather than run
-  locally, this stops being a workaround and becomes the only way in: nothing outside the
-  container's network namespace can reach `/api/discover` at all. Replacing or supplementing this
-  check with something that survives Docker's NAT is slice 10 in
-  [findings-db-roadmap.md](findings-db-roadmap.md) — sequenced, but not yet designed.
+  `taxa_index_unavailable`, regardless of how it was triggered. **What changed in slice 10**: once
+  the index *is* mounted, on-demand discovery (`POST /discover`) can now be triggered from anywhere
+  the ordinary write guard admits, not only from inside the container's own network namespace — see
+  the "Discovery budget" section above.
 - **Do not size the container's memory on the assumption that discovery cannot run there.** Mount
   the taxa index one day and it can, whereupon a run forks a child that materialises 1.4M rows and
   spikes to ~650 MB. A limit below that gets it OOM-killed, and `SIGKILL` is never reported as a
   cancel, so the failure arrives as a mystery. `compose.yaml` is sized for the spike.
 
 Everything else is unaffected: `GET /api/discover/status` is unprivileged and answers anyone, and
-confirm, skip, uploads and import check only the `Host` allowlist, fetch metadata and content type,
-so they work normally through a published port.
+confirm, skip, uploads, import, `POST /discover` and `POST /discover/cancel` all check only the
+`Host` allowlist, fetch metadata and content type (`POST /discover` also draws its budget — see
+above), so they work normally through a published port. `GET /discover/area` is the one route still
+carrying its own extra check (`costsBudget`, above) beyond that ordinary guard.
 
 Two more limits belong to the same reasoning. The taxon scope is schema-validated as either digits
 or a name — `%` and `_` are LIKE metacharacters and `descendantInatIds` interpolates the id into

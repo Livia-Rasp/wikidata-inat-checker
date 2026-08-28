@@ -77,9 +77,9 @@ const post = (app, url, payload, headers = {}) => app.inject({
     payload: payload ?? {},
 });
 
-/** A GET as the app's own page would make it, from a local peer — privileged routes check the
- *  peer address on every verb, but GET is a safe method so the Host/fetch-metadata checks never
- *  apply to it. */
+/** A GET as the app's own page would make it. `remoteAddress` no longer gates anything here (slice
+ *  10 replaced the loopback-peer check with a token budget) — kept as a parameter only so tests can
+ *  show the peer address genuinely does not matter any more. */
 const get = (app, url, remoteAddress = '127.0.0.1') => app.inject({ method: 'GET', url, remoteAddress });
 
 /** A fetchAreaCandidatesFn stub yielding rows shaped like fetchAreaCandidates's own output. */
@@ -223,21 +223,50 @@ test('discovery is off unless it is switched on', async (t) => {
     assert.deepEqual(jobs.calls, []);
 });
 
-test('a non-local peer cannot spend the operator\'s API budget', async (t) => {
+test('a non-local peer can start a run — cost is bounded by budget now, not by peer address', async (t) => {
     const { app, jobs } = makeApp(t);
     const res = await app.inject({
         method: 'POST',
         url: '/api/discover',
         remoteAddress: '203.0.113.7',
-        // Host is client-controlled, so forging it is trivial — which is exactly why the peer
-        // address, not the Host header, is what gates a privileged route.
         headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' },
         payload: {},
     });
 
-    assert.equal(res.statusCode, 403);
-    assert.equal(res.json().reason, 'not_local');
-    assert.deepEqual(jobs.calls, []);
+    assert.equal(res.statusCode, 202);
+    assert.equal(jobs.calls.length, 1);
+});
+
+test('POST /discover draws from a shared daily budget, and refuses once it is spent', async (t) => {
+    const jobs = fakeJobs();
+    // A tiny bucket, so the test does not need 24 real requests to exhaust the production default.
+    const { app } = makeApp(t, {
+        jobs, budgetConfig: { discover: { capacity: 2, refillPerHour: 1 }, discover_area: { capacity: 120, refillPerHour: 5 } },
+    });
+
+    for (let i = 0; i < 2; i++) {
+        const res = await post(app, '/api/discover', {});
+        assert.equal(res.statusCode, 202, `draw ${i}`);
+        jobs._set({ state: 'idle' }); // pretend each run finished, so the single-flight lock never gates this
+    }
+
+    const refused = await post(app, '/api/discover', {});
+    assert.equal(refused.statusCode, 429);
+    assert.equal(refused.json().code, 'budget_exhausted');
+    assert.ok(refused.headers['retry-after'], 'a 429 needs Retry-After so a caller knows when to come back');
+    assert.equal(jobs.calls.length, 2, 'the refused attempt never reached jobs.start()');
+});
+
+test('a run that loses the single-flight race refunds its drawn token', async (t) => {
+    const jobs = fakeJobs({ state: 'running' }); // already running before the request arrives
+    const { app, store } = makeApp(t, {
+        jobs, budgetConfig: { discover: { capacity: 3, refillPerHour: 1 }, discover_area: { capacity: 120, refillPerHour: 5 } },
+    });
+
+    const res = await post(app, '/api/discover', {});
+    assert.equal(res.statusCode, 409);
+    assert.equal(store.discoverBudgetStatus('discover', { capacity: 3, refillPerHour: 1 }).tokensRemaining, 3,
+        'the draw was refunded — a run that never started must not have spent a token');
 });
 
 // ---- GET /discover/area: a preview, not a run — reads live from iNat/Wikidata but writes nothing ----
@@ -302,11 +331,40 @@ test('an area preview needs discovery switched on too', async (t) => {
     assert.equal(res.json().code, 'discover_disabled');
 });
 
-test('an area preview cannot be triggered by a non-local peer', async (t) => {
-    const { app } = makeApp(t);
+test('a non-local peer can preview an area — cost is bounded by budget now, not by peer address', async (t) => {
+    const { app } = makeApp(t, {
+        fetchAreaSpeciesFn: async () => new Map(),
+        fetchAreaCandidatesFn: areaCandidatesFn([]),
+    });
     const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10', '203.0.113.7');
-    assert.equal(res.statusCode, 403);
-    assert.equal(res.json().reason, 'not_local');
+    assert.equal(res.statusCode, 200);
+});
+
+test('GET /discover/area draws from its own budget, separate from POST /discover\'s', async (t) => {
+    const { app } = makeApp(t, {
+        budgetConfig: { discover: { capacity: 120, refillPerHour: 5 }, discover_area: { capacity: 1, refillPerHour: 1 } },
+        fetchAreaSpeciesFn: async () => new Map(),
+        fetchAreaCandidatesFn: areaCandidatesFn([]),
+    });
+
+    const first = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10');
+    assert.equal(first.statusCode, 200);
+
+    const refused = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=10');
+    assert.equal(refused.statusCode, 429);
+    assert.equal(refused.json().code, 'budget_exhausted');
+    assert.ok(refused.headers['retry-after']);
+});
+
+test('an area preview rejected by schema validation never draws a token', async (t) => {
+    const { app, store } = makeApp(t, {
+        budgetConfig: { discover: { capacity: 120, refillPerHour: 5 }, discover_area: { capacity: 1, refillPerHour: 1 } },
+    });
+    // radius=0 fails the schema (exclusiveMinimum), well before the handler ever calls
+    // resolveAreaScope or draws a token.
+    const res = await get(app, '/api/discover/area?lat=48.147&lng=11.589&radius=0');
+    assert.equal(res.statusCode, 400);
+    assert.equal(store.discoverBudgetStatus('discover_area', { capacity: 1, refillPerHour: 1 }).tokensRemaining, 1);
 });
 
 test('status is readable by anyone, and says whether discovery is even on', async (t) => {
@@ -403,11 +461,13 @@ test('cancelling needs something to cancel, and the right run id', async (t) => 
     assert.equal((await post(app, '/api/discover/cancel', { runId: 9 })).statusCode, 200);
 });
 
-test('cancelling is privileged too', async (t) => {
+test('cancelling from a non-local peer works too — it never spent any budget to begin with', async (t) => {
     const { app } = makeApp(t);
     const res = await app.inject({
         method: 'POST', url: '/api/discover/cancel', remoteAddress: '203.0.113.7',
         headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' }, payload: {},
     });
-    assert.equal(res.statusCode, 403);
+    // Nothing running, so 409 not_running — the point is it's not 403 any more.
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().code, 'not_running');
 });
