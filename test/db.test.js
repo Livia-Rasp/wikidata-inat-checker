@@ -20,6 +20,12 @@ function backdate(db, qid, days) {
     db.prepare('UPDATE findings SET checked_at = ? WHERE qid = ?').run(when, qid);
 }
 
+/** Backdate a discover_budget row's updated_at by `hours`, to test refill without sleeping. */
+function backdateBudget(db, bucket, hours) {
+    const when = new Date(Date.now() - hours * 3_600_000).toISOString();
+    db.prepare('UPDATE discover_budget SET updated_at = ? WHERE bucket = ?').run(when, bucket);
+}
+
 function seed(store, qid, status, payload) {
     store.upsertTaxon({ qid, inatId: `inat-${qid}`, taxonName: `Taxon ${qid}`, iucn: 'VU' });
     store.recordFinding({ qid, kind: 'image', status, payload });
@@ -32,7 +38,7 @@ test('migrate creates the current schema and is idempotent', () => {
     assert.equal(migrate(db), version, 're-running must not throw or bump the version');
 
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
-    for (const t of ['taxa', 'findings', 'runs', 'uploads', 'request_log']) {
+    for (const t of ['taxa', 'findings', 'runs', 'uploads', 'request_log', 'discover_budget']) {
         assert.ok(tables.includes(t), `${t} table exists`);
     }
 });
@@ -547,4 +553,109 @@ test('vacuumInto writes a real, independently-openable snapshot', () => {
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+// Discovery budget (slice 10): hourly-refilling token buckets, store-backed so they survive a
+// restart. CFG is deliberately tiny (not the real 24/1 or 120/5 production defaults) so a test can
+// exhaust or refill a bucket without needing to simulate implausible amounts of time.
+const CFG = { capacity: 3, refillPerHour: 1 };
+
+/** `backdateBudget` sets updated_at to "N hours ago" at the moment it runs, but real wall-clock
+ *  time keeps passing while the test executes — so "one hour later" is really 1h + a few ms, and
+ *  a token bucket refilling continuously (not in discrete hourly ticks) correctly reflects that as
+ *  a few extra millionths of a token. assert.equal on an exact 0 is therefore flaky; this accepts
+ *  anything from exactly empty up to a small fraction of a token. */
+function assertNearlyZero(actual, message) {
+    assert.ok(actual >= 0 && actual < 0.01, `${message} (was ${actual})`);
+}
+
+test('drawDiscoverBudget starts a never-touched bucket full', () => {
+    const { store } = makeStore();
+    const draw = store.drawDiscoverBudget('discover', CFG);
+    assert.equal(draw.admitted, true);
+    assert.equal(draw.tokensRemaining, CFG.capacity - 1);
+});
+
+test('drawDiscoverBudget admits exactly `capacity` draws, then refuses', () => {
+    const { store } = makeStore();
+    for (let i = 0; i < CFG.capacity; i++) {
+        const draw = store.drawDiscoverBudget('discover', CFG);
+        assert.equal(draw.admitted, true, `draw ${i} should be admitted`);
+    }
+    const refused = store.drawDiscoverBudget('discover', CFG);
+    assert.equal(refused.admitted, false);
+    assertNearlyZero(refused.tokensRemaining, 'draining exactly `capacity` draws leaves ~0');
+});
+
+test('drawDiscoverBudget refills at refillPerHour once time has passed', () => {
+    const { db, store } = makeStore();
+    for (let i = 0; i < CFG.capacity; i++) store.drawDiscoverBudget('discover', CFG);
+    assert.equal(store.drawDiscoverBudget('discover', CFG).admitted, false, 'bucket is drained');
+
+    backdateBudget(db, 'discover', 1); // one hour ago
+    const draw = store.drawDiscoverBudget('discover', CFG);
+    assert.equal(draw.admitted, true, 'one hour of refill bought exactly one token');
+    assertNearlyZero(draw.tokensRemaining, 'the one refilled token was just spent');
+});
+
+test('drawDiscoverBudget caps refill at capacity, however long it has been idle', () => {
+    const { db, store } = makeStore();
+    store.drawDiscoverBudget('discover', CFG); // touch it, so a row exists to backdate
+    backdateBudget(db, 'discover', 1000); // absurdly idle
+
+    const status = store.discoverBudgetStatus('discover', CFG);
+    assert.equal(status.tokensRemaining, CFG.capacity, 'refill never exceeds capacity');
+});
+
+test('the idle-then-burst-drain regression: exactly one token back one hour after full drain', () => {
+    // A plain windowed COUNT(*) over recent draws would still see `capacity` draws inside the
+    // trailing 24h a moment later and wrongly refuse the token a real bucket already has —
+    // this is the case a token bucket must get right that a sliding-window log would not.
+    const { db, store } = makeStore();
+    store.drawDiscoverBudget('discover', CFG); // touch it, then let it sit idle and refill to full
+    backdateBudget(db, 'discover', 48);
+    assert.equal(store.discoverBudgetStatus('discover', CFG).tokensRemaining, CFG.capacity);
+
+    for (let i = 0; i < CFG.capacity; i++) store.drawDiscoverBudget('discover', CFG); // burst-drain
+    backdateBudget(db, 'discover', 1); // exactly one hour later
+
+    const draw = store.drawDiscoverBudget('discover', CFG);
+    assert.equal(draw.admitted, true);
+    assertNearlyZero(draw.tokensRemaining, 'the one refilled token was just spent, none left over');
+});
+
+test('refundDiscoverBudget gives back a token a lost single-flight race never spent', () => {
+    const { store } = makeStore();
+    for (let i = 0; i < CFG.capacity; i++) store.drawDiscoverBudget('discover', CFG);
+    assert.equal(store.drawDiscoverBudget('discover', CFG).admitted, false);
+
+    store.refundDiscoverBudget('discover', CFG.capacity);
+    assert.equal(store.drawDiscoverBudget('discover', CFG).admitted, true, 'the refunded token is spendable again');
+});
+
+test('refundDiscoverBudget never pushes tokens above capacity', () => {
+    const { store } = makeStore();
+    store.drawDiscoverBudget('discover', CFG); // bucket is at capacity - 1, nowhere near empty
+    store.refundDiscoverBudget('discover', CFG.capacity);
+    assert.equal(store.discoverBudgetStatus('discover', CFG).tokensRemaining, CFG.capacity);
+});
+
+test('discoverBudgetStatus never draws and never perturbs the bucket', () => {
+    const { store } = makeStore();
+    store.discoverBudgetStatus('discover', CFG);
+    store.discoverBudgetStatus('discover', CFG);
+    store.discoverBudgetStatus('discover', CFG);
+
+    // Still fully at capacity: repeated status checks spent nothing.
+    const draw = store.drawDiscoverBudget('discover', CFG);
+    assert.equal(draw.tokensRemaining, CFG.capacity - 1, 'status checks drew no tokens');
+});
+
+test('discover and discover_area buckets are independent', () => {
+    const { store } = makeStore();
+    for (let i = 0; i < CFG.capacity; i++) store.drawDiscoverBudget('discover', CFG);
+    assert.equal(store.drawDiscoverBudget('discover', CFG).admitted, false, 'discover is drained');
+
+    const area = store.drawDiscoverBudget('discover_area', CFG);
+    assert.equal(area.admitted, true, 'discover_area has its own, untouched budget');
 });
