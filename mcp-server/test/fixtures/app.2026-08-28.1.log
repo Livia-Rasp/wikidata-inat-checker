@@ -1,0 +1,21 @@
+{"level":30,"time":1787911200000,"pid":200,"hostname":"fixture","msg":"serving web/ and /api from data/findings.db"}
+{"level":30,"time":1787911201000,"pid":200,"hostname":"fixture","reqId":"req-a","req":{"method":"GET","url":"/api/findings","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40010},"msg":"incoming request"}
+{"level":30,"time":1787911202000,"pid":200,"hostname":"fixture","reqId":"req-a","res":{"statusCode":200},"responseTime":8.2,"msg":"request completed"}
+{"level":30,"time":1787911203000,"pid":200,"hostname":"fixture","reqId":"req-b","req":{"method":"POST","url":"/api/findings/1/confirm","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40011},"msg":"incoming request"}
+{"level":40,"time":1787911204000,"pid":200,"hostname":"fixture","reqId":"req-b","msg":"SPARQL HTTP 503, retrying in 3s..."}
+{"level":30,"time":1787911205000,"pid":200,"hostname":"fixture","reqId":"req-b","label":"confirmByKind","durationMs":850,"msg":"confirmByKind"}
+{"level":30,"time":1787911206000,"pid":200,"hostname":"fixture","reqId":"req-b","res":{"statusCode":200},"responseTime":860.1,"msg":"request completed"}
+{"level":30,"time":1787911207000,"pid":200,"hostname":"fixture","reqId":"req-c","req":{"method":"POST","url":"/api/findings/2/confirm","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40012},"msg":"incoming request"}
+{"level":40,"time":1787911208000,"pid":200,"hostname":"fixture","reqId":"req-c","err":{"type":"Error","message":"Wikidata API HTTP 503"},"msg":"confirm could not reach Wikidata"}
+{"level":30,"time":1787911209000,"pid":200,"hostname":"fixture","reqId":"req-c","res":{"statusCode":503},"responseTime":30.0,"msg":"request completed"}
+{"level":30,"time":1787911210000,"pid":200,"hostname":"fixture","reqId":"req-d","req":{"method":"GET","url":"/discover/area","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40013},"msg":"incoming request"}
+{"level":30,"time":1787911211000,"pid":200,"hostname":"fixture","reqId":"req-d","label":"fetchAreaSpecies","durationMs":200,"msg":"fetchAreaSpecies"}
+{"level":30,"time":1787911212000,"pid":200,"hostname":"fixture","reqId":"req-d","label":"fetchAreaCandidates","durationMs":1300,"msg":"fetchAreaCandidates"}
+{"level":30,"time":1787911213000,"pid":200,"hostname":"fixture","reqId":"req-d","res":{"statusCode":200},"responseTime":1520.7,"msg":"request completed"}
+{"level":30,"time":1787911214000,"pid":200,"hostname":"fixture","reqId":"req-e","req":{"method":"POST","url":"/api/findings/5/skip","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40014},"msg":"incoming request"}
+{"level":30,"time":1787911215000,"pid":200,"hostname":"fixture","reqId":"req-e","res":{"statusCode":200},"responseTime":5.3,"msg":"request completed"}
+{"level":30,"time":1787911216000,"pid":200,"hostname":"fixture","reqId":"req-f","req":{"method":"GET","url":"/api/findings","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40015},"msg":"incoming request"}
+{"level":50,"time":1787911217000,"pid":200,"hostname":"fixture","reqId":"req-f","err":{"type":"Error","message":"boom","stack":"Error: boom\n    at handler (server/app.js:1:1)"},"url":"/api/findings","msg":"request failed"}
+{"level":30,"time":1787911218000,"pid":200,"hostname":"fixture","reqId":"req-f","res":{"statusCode":500},"responseTime":3.1,"msg":"request completed"}
+{"level":30,"time":1787911219000,"pid":200,"hostname":"fixture","reqId":"req-g","req":{"method":"GET","url":"/api/findings","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40016},"msg":"incoming request"}
+{"level":30,"time":1787911220000,"pid":200,"hostname":"fixture","reqId":"req-g","res":{"statusCode":429},"responseTime":1.0,"msg":"request completed"}

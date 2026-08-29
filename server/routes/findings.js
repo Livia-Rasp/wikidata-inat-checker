@@ -7,6 +7,7 @@ import { STICKY_STATUSES, NEGATIVE_STATUSES } from '../../lib/db.js';
 import { confirmByKind } from '../../lib/confirm.js';
 import { pickCandidate } from '../../lib/pick.js';
 import { registerApiDefaults } from './shared.js';
+import { timed } from '../logger.js';
 
 /** The three finding kinds. Area is a discovery *scope* on `image`, not a fourth kind. */
 const KINDS = ['image', 'name', 'link'];
@@ -149,7 +150,10 @@ export default async function findingsRoutes(app, opts) {
     /** Answers 503 rather than 500 when Wikidata is the thing that failed, leaving rows untouched. */
     const confirm = async (ids, reply) => {
         try {
-            return { results: await confirmByKind(store, ids, { fetchFn: opts.fetchFn }) };
+            return {
+                results: await timed(reply.log, 'confirmByKind',
+                    () => confirmByKind(store, ids, { fetchFn: opts.fetchFn, log: reply.log })),
+            };
         } catch (err) {
             // A confirm that could not reach Wikidata has decided nothing. Saying so is the
             // difference between "try again" and "this server is broken".

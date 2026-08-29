@@ -1,0 +1,3 @@
+{"level":30,"time":1787824800000,"pid":100,"hostname":"fixture","msg":"serving web/ and /api from data/findings.db"}
+{"level":30,"time":1787824801000,"pid":100,"hostname":"fixture","reqId":"req-old-1","req":{"method":"GET","url":"/api/findings","host":"localhost:8080","remoteAddress":"127.0.0.1","remotePort":40001},"msg":"incoming request"}
+{"level":30,"time":1787824802000,"pid":100,"hostname":"fixture","reqId":"req-old-1","res":{"statusCode":200},"responseTime":12.5,"msg":"request completed"}

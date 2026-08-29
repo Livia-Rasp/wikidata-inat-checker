@@ -12,6 +12,7 @@ import { openTaxaDb, TaxaIndexUnavailable, taxaIndexIsStale } from '../../lib/ge
 import { resolveTaxonScope, DiscoveryError } from '../../lib/discover.js';
 import { resolveAreaScope, fetchAreaSpecies, fetchAreaCandidates } from '../../lib/areaCandidates.js';
 import { TAXON_PATTERN, registerApiDefaults } from './shared.js';
+import { timed } from '../logger.js';
 
 /** Starting a run is far more expensive than reading its status; they do not share a *rate* limit —
  *  they do now share a *daily budget*, see DEFAULT_BUDGET_CONFIG below. */
@@ -247,17 +248,23 @@ export default async function discoverRoutes(app, opts) {
         // page (per_page maxes out at 500, same as this route's own limit ceiling) is enough for
         // any limit this route allows, so Step 1 costs exactly one request regardless of how much
         // more the area actually holds.
+        // fetchAreaSpecies has no log parameter: its one HTTP call (iNat's species_counts) has no
+        // retry logic to log, unlike everything fetchAreaCandidatesFn goes on to call below.
         let totalSpecies = 0;
-        const species = await fetchAreaSpeciesFn(area, { maxPages: 1, onTotal: (t) => { totalSpecies = t; } });
+        const species = await timed(reply.log, 'fetchAreaSpecies',
+            () => fetchAreaSpeciesFn(area, { maxPages: 1, onTotal: (t) => { totalSpecies = t; } }));
         const sample = new Map([...species.entries()].slice(0, q.limit));
 
-        const qualified = [];
-        for await (const row of fetchAreaCandidatesFn(area, { species: sample })) {
-            qualified.push({
-                inatId: row.inatId, qid: row.qid, wdUri: row.wdUri,
-                taxonName: row.taxonName, commonName: row.commonName, count: row.count,
-            });
-        }
+        const qualified = await timed(reply.log, 'fetchAreaCandidates', async () => {
+            const rows = [];
+            for await (const row of fetchAreaCandidatesFn(area, { species: sample, log: reply.log })) {
+                rows.push({
+                    inatId: row.inatId, qid: row.qid, wdUri: row.wdUri,
+                    taxonName: row.taxonName, commonName: row.commonName, count: row.count,
+                });
+            }
+            return rows;
+        });
         qualified.sort((a, b) => b.count - a.count);
 
         return {

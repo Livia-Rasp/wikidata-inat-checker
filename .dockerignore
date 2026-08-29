@@ -19,6 +19,7 @@
 data/
 output/
 cache/
+logs/
 *.db
 *.db-wal
 *.db-shm

@@ -64,6 +64,7 @@ arrive later behind OAuth.
   | `PORT` | `8080` | Listen port. |
   | `FINDINGS_DB` | `data/findings.db` | Which database to open. Honoured by the checkers too, so a container can mount its volume anywhere. |
   | `LOG_LEVEL` | `info` | Pino level. |
+  | `LOG_RETENTION_DAYS` | `7` | Rotated log files (`logs/`) kept before pino-roll deletes the oldest. See [logging.md](logging.md). |
   | `ALLOW_REMOTE_WRITES` | unset | Permits a non-loopback bind. Setting it *is* the decision. |
   | `ALLOWED_HOSTS` | loopback names | Extra `Host` values the write guard accepts. |
   | `DISCOVER_ENABLED` | unset | Enables the discovery routes at all. |
@@ -88,6 +89,10 @@ arrive later behind OAuth.
   | `TOPUP_DAILY_DEADLINE_HOUR` | 23 | UTC hour past which today's top-up runs regardless of quiet hours. |
   | `TOPUP_REQUEST_LOG_RETENTION_DAYS` | 60 | Pruning horizon for the request-volume log. |
   | `TOPUP_BONUS_MIN_BUCKET_FRACTION` | 0.5 | Share of `discover`'s capacity that must still be unused, late in the day, before the scheduler's bonus draw fires (slice 10). |
+
+  This scope is `server/`'s own knobs. `mcp-server/` (the log-reading MCP server) is a separate
+  process with its own env vars (`MCP_AUTH_TOKEN`, `LOG_DIR`, `PORT`, `BIND_HOST`,
+  `ALLOWED_HOSTS`) and its own threat model — see [mcp-server.md](mcp-server.md).
 
 ## Write endpoints
 

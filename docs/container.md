@@ -57,13 +57,22 @@ The image is built, started and smoke-tested in CI before it is pushed, so a pub
 always served a request and shut down cleanly. See
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
+## The log-reading MCP server
+
+`compose.yaml` also defines `mcp-logs` — a separate, read-only container over the same `./logs`
+bind mount `web` writes into, exposing six log-query tools to an MCP client (Claude Code, or any
+other) over Streamable HTTP. Full design, its own env vars and its own threat model are in
+[mcp-server.md](mcp-server.md); `mcp-server/.env.example` has the copy-and-fill instructions.
+Published the same way as `web`'s own image, to `ghcr.io/livia-rasp/wikidata-inat-checker-mcp`.
+
 ## Redeploying automatically
 
-The `web` service in `compose.yaml` carries `com.centurylinklabs.watchtower.enable=true`, but this
-repo does **not** run its own Watchtower — it relies on the one `vue-commons-gallery` already runs
-on the home server it shares, polling GHCR for any labelled container. One poller per host, not one
-per project. If that other repo's Watchtower isn't running on wherever this gets deployed, the label
-alone buys nothing; redeploys then need `docker compose pull && docker compose up -d` by hand.
+Both the `web` and `mcp-logs` services in `compose.yaml` carry
+`com.centurylinklabs.watchtower.enable=true`, but this repo does **not** run its own Watchtower —
+it relies on the one `vue-commons-gallery` already runs on the home server it shares, polling GHCR
+for any labelled container. One poller per host, not one per project. If that other repo's
+Watchtower isn't running on wherever this gets deployed, the label alone buys nothing; redeploys
+then need `docker compose pull && docker compose up -d` by hand.
 
 **Never `docker compose up --build` on the server itself** — that rebuilds from whatever source
 happens to be checked out there, not the image CI already built and smoke-tested. `build: .` in

@@ -34,7 +34,11 @@ npm run screenshots                         # regenerate docs/screenshots/ (need
 npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
 npm run backup                              # snapshot data/findings.db, prune old ones (see container.md)
 
-docker compose up --build                   # the server in a container — see docs/container.md
+docker compose up --build                   # the server + the log-reading MCP server, in containers
+
+cd mcp-server && npm test                   # the log-reading MCP server's own suite
+cd mcp-server && npm start                  # run it directly (needs LOG_DIR + MCP_AUTH_TOKEN)
+# see docs/container.md
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -71,6 +75,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
 | Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
+| Log-reading MCP server | `mcp-server/` | six read-only tools over `server/`'s rotated logs | [logging.md](docs/logging.md) · [mcp-server.md](docs/mcp-server.md) |
 | Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
 
 ## Source layout
@@ -87,11 +92,17 @@ Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — 
 - **`server/`** — the Fastify app: `app.js` (`buildServer({store})`, which never listens and
   never closes the store it is handed), `routes/` (findings, search, discover),
   `writeGuard.js`, `jobs.js` + `discoverChild.js` (discovery runs in a **forked child**),
+  `logger.js` (structured logging — dual stdout/rotated-file pino, `timed()` step tracing),
   `index.js` (opens the DB, binds 127.0.0.1 by default, owns shutdown).
 - **`web/`** — the browser upload app, plain HTML/JS/CSS, served by `server/`. Three pages:
   `index.html` (worklist), `taxon.html` (one taxon's photos), `search.html` (backlog search).
+- **`mcp-server/`** — a standalone read-only MCP server over `server/`'s rotated logs, its own
+  npm package (own `package.json`/lockfile/`node_modules`, own `jsconfig.json`) rather than part
+  of the root workspace — it shares no code with `lib/`/`server/`, only reads NDJSON off a
+  directory. Plain ESM JavaScript like the rest of this repo, no build step. See
+  [docs/mcp-server.md](docs/mcp-server.md).
 - **`test/`** — `node:test` unit suite. No network, sub-second. Add cases when touching the
-  pure logic it covers.
+  pure logic it covers. (`mcp-server/test/` is separate — its own package, its own suite.)
 - **`tools/`** — repo maintenance, not product. `screenshots.mjs` regenerates the docs images and
   `record.mjs` the demo GIF; `cdp.mjs` holds what both need (CDP client, throwaway DB copy,
   server and browser startup). The recording's confirm step runs against live Wikidata and is
@@ -99,13 +110,16 @@ Entry scripts (`check*.js`, `draftCategory.js`) stay at the repository root — 
 
 ## Generated artifacts
 
-All gitignored and created on first write; `lib/paths.js` centralises the paths. Two are
+All gitignored and created on first write; `lib/paths.js` centralises the paths. Three are
 disposable, one is not:
 
 - **`output/`** — the HTML/QS deliverables. Safe to delete; a re-run regenerates them.
 - **`cache/`** — cross-run caches (`cache-commons-cats.json`). Safe to delete; re-runs then
   re-scan from scratch. Images, links and names keep no cache file — all three moved to
   `data/findings.db`.
+- **`logs/`** — rotated NDJSON server logs (`server/logger.js`). Safe to delete; regenerates as
+  the server runs. `.gitkeep` stays tracked so the directory pre-exists in a fresh checkout — see
+  [docs/logging.md](docs/logging.md).
 - **`data/findings.db` — NOT safe to delete.** The accumulated backlog and everything worked
   through, which nothing can reconstruct. See [images.md](docs/images.md).
 
@@ -141,6 +155,10 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
 - [`docs/threat-model.md`](docs/threat-model.md) — the threat model for `server/`, every header, limit
   and environment variable, and what is deliberately not done. **Read it before adding any
   endpoint that writes or talks to an authenticated API.**
+- [`docs/logging.md`](docs/logging.md) — what `server/logger.js` logs and why, the `log = console`
+  convention through `lib/`, and `timed()`'s step tracing. [`docs/mcp-server.md`](docs/mcp-server.md)
+  — the standalone MCP server that reads those logs, its own threat model. **Read both before
+  changing what gets logged, or adding a tool to `mcp-server/`.**
 - [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
   restructure around `data/findings.db`. Slices 0–8 and 10 are done; 9 remains, and OAuth is
   deliberately outside the plan. Two known gaps are written up there rather than fixed: a **CLI

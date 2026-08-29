@@ -6,8 +6,20 @@ import {
     parseArgs, parseLimit, parseIucnArg, shuffle,
     IUCN_STATUS_QIDS, IUCN_QID_TO_CODE,
     reqInit, HEADERS, FETCH_TIMEOUT_MS, SPARQL_TIMEOUT_MS,
+    fetchWithRetry,
 } from '../lib/utils.js';
 import { UsageError } from '../lib/cli.js';
+
+/** Records every call, keyed by level, without doing anything else. */
+function fakeLog() {
+    const calls = { warn: [], error: [] };
+    return { calls, warn: (...a) => calls.warn.push(a), error: (...a) => calls.error.push(a) };
+}
+
+/** fetchWithRetry only ever reads `.status`/`.ok`, so a plain object stands in for a Response. */
+function fakeResponse(status, ok) {
+    return /** @type {Response} */ ({ status, ok });
+}
 
 test('chunk splits into fixed-size groups, remainder last', () => {
     assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
@@ -235,4 +247,64 @@ test('a request actually aborts when its budget runs out', async () => {
     const init = reqInit(10);
     await new Promise(r => setTimeout(r, 30));
     assert.equal(init.signal.aborted, true, 'a stalled connection must not hang a run forever');
+});
+
+// ---- fetchWithRetry: the shared retry+backoff primitive sparql()/sparqlTSV()/sparqlPost() and
+// fetchEntitiesBatched()'s default path all funnel through — one place worth exercising the
+// retry-then-log behaviour, since every caller above just supplies a label and forwards its log.
+
+test('fetchWithRetry retries a retryable HTTP status, logging via log.warn each time', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const log = fakeLog();
+    let calls = 0;
+    const doFetch = async () => {
+        calls++;
+        return calls === 1 ? fakeResponse(503, false) : fakeResponse(200, true);
+    };
+    const promise = fetchWithRetry(doFetch, 2, 'Test', log);
+    // doFetch's own await must resolve, and fetchWithRetry must reach its setTimeout call,
+    // before there is anything for tick() to advance — otherwise tick() fires before the timer
+    // exists and the test hangs waiting for a timer that was scheduled too late to be caught.
+    await new Promise((r) => setImmediate(r));
+    await t.mock.timers.tick(6000); // sparqlRetryDelay(503, 2) === (4 - 2) * 3000
+    const res = await promise;
+    assert.equal(res.status, 200);
+    assert.equal(calls, 2);
+    assert.equal(log.calls.warn.length, 1);
+    assert.match(log.calls.warn[0][0], /Test HTTP 503, retrying/);
+});
+
+test('fetchWithRetry retries a hung connection (TimeoutError), logging via log.warn', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const log = fakeLog();
+    let calls = 0;
+    const doFetch = async () => {
+        calls++;
+        if (calls === 1) {
+            const err = new Error('the operation was aborted');
+            err.name = 'TimeoutError';
+            throw err;
+        }
+        return fakeResponse(200, true);
+    };
+    const promise = fetchWithRetry(doFetch, 2, 'Test', log);
+    await new Promise((r) => setImmediate(r));
+    await t.mock.timers.tick(6000); // sparqlRetryDelay(null, 2) === (4 - 2) * 3000
+    const res = await promise;
+    assert.equal(res.status, 200);
+    assert.equal(log.calls.warn.length, 1);
+    assert.match(log.calls.warn[0][0], /Test request timed out, retrying/);
+});
+
+test('fetchWithRetry gives up once retries are exhausted, throwing without a retry log', async () => {
+    const log = fakeLog();
+    const doFetch = async () => fakeResponse(503, false);
+    await assert.rejects(() => fetchWithRetry(doFetch, 0, 'Test', log), /Test HTTP 503/);
+    assert.equal(log.calls.warn.length, 0, 'retries === 0 never enters the retry branch');
+});
+
+test('fetchWithRetry defaults log to console, so existing callers are unaffected', async () => {
+    const doFetch = async () => fakeResponse(200, true);
+    const res = await fetchWithRetry(doFetch, 3);
+    assert.equal(res.status, 200);
 });

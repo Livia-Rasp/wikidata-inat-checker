@@ -30,6 +30,18 @@ jobs:
       # lower them to make a red build green.
       - run: npm run test:coverage
 
+      # mcp-server/ is a fully standalone package (its own package.json and lockfile — see
+      # docs/mcp-server.md) — checked separately rather than folded into the root's own
+      # lint/typecheck/test, since `npm ci` above never touches its node_modules at all.
+      - working-directory: mcp-server
+        run: npm ci
+      - working-directory: mcp-server
+        run: npm run lint
+      - working-directory: mcp-server
+        run: npm run typecheck
+      - working-directory: mcp-server
+        run: npm test
+
   # Build the image so it cannot rot unnoticed — a dependency bump or a Node version move would
   # otherwise only surface the next time someone deployed — then publish it from pushes to main.
   #
@@ -52,13 +64,13 @@ jobs:
       - name: The container starts, serves, and stops cleanly
         run: |
           set -euo pipefail
-          mkdir -p /tmp/winc-data
+          mkdir -p /tmp/winc-data /tmp/winc-logs
           # Run as whoever created that directory, not as the image's `node` (uid 1000). A bind
           # mount keeps host ownership, and the runner is not uid 1000 — this is the failure the
           # first version of this job hit, and the reason it is worth testing here: on a developer
           # box whose uid happens to be 1000 the mismatch is invisible.
           docker run -d --name winc --init --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
-            -p 127.0.0.1:8080:8080 -v /tmp/winc-data:/app/data \
+            -p 127.0.0.1:8080:8080 -v /tmp/winc-data:/app/data -v /tmp/winc-logs:/app/logs \
             -e HOST=0.0.0.0 -e ALLOW_REMOTE_WRITES=1 -e FINDINGS_DB=/app/data/findings.db \
             wikidata-inat-checker
 
@@ -72,6 +84,11 @@ jobs:
           curl -fsS -o /dev/null http://127.0.0.1:8080/
           curl -fsS 'http://127.0.0.1:8080/api/findings?limit=1' | grep -q '"taxa"'
           test -f /tmp/winc-data/findings.db
+
+          # The same read_only-root-plus-bind-mount question the data assertion above answers,
+          # now for server/logger.js's rotated file — a regression here is exactly the
+          # permissions mismatch mcp-server would silently find nothing to read.
+          test -n "$(find /tmp/winc-logs -name 'app.*.log' -print -quit)"
 
           docker stop winc
           # Exit 0, not 137: the app must handle SIGTERM itself rather than be killed when the
@@ -109,5 +126,59 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           for TAG in latest "$VERSION" "${{ github.sha }}"; do
             docker tag wikidata-inat-checker "$IMAGE:$TAG"
+            docker push "$IMAGE:$TAG"
+          done
+
+  # mcp-server's own image — same build/smoke/publish shape as `docker` above, kept as its own
+  # job (not a step there) because the two images are independent: a change to one must not block
+  # publishing the other, and a reader checking "did the log server's build pass" shouldn't have
+  # to read through the app's own smoke test first.
+  docker-mcp:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t wikidata-inat-checker-mcp mcp-server
+
+      - name: The container starts, answers /healthz, and stops cleanly
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/winc-mcp-logs
+          # /healthz needs neither the token nor an allowed Host, by design (http.js) — this
+          # smoke test only proves the container boots and serves, not the auth model, which
+          # mcp-server's own unit suite (the `test` job) already covers without a real network.
+          docker run -d --name winc-mcp --init --user "$(id -u):$(id -g)" \
+            -p 127.0.0.1:3400:3400 -v /tmp/winc-mcp-logs:/logs:ro \
+            -e LOG_DIR=/logs -e MCP_AUTH_TOKEN="ci-smoke-test-token-not-a-real-secret" \
+            wikidata-inat-checker-mcp
+
+          for _ in $(seq 30); do
+            curl -fs -o /dev/null http://127.0.0.1:3400/healthz 2>/dev/null && break || sleep 1
+          done
+          curl -fsS http://127.0.0.1:3400/healthz | grep -q '"status":"ok"'
+
+          docker stop winc-mcp
+          test "$(docker inspect winc-mcp --format '{{.State.ExitCode}}')" = 0
+
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER/wikidata-inat-checker-mcp"
+          VERSION=$(node -p "require('./mcp-server/package.json').version")
+          for TAG in latest "$VERSION" "${{ github.sha }}"; do
+            docker tag wikidata-inat-checker-mcp "$IMAGE:$TAG"
             docker push "$IMAGE:$TAG"
           done

@@ -8,6 +8,7 @@
 // the store it was handed; server/index.js owns that lifetime.
 //
 // Threat model and the reasoning behind each header in docs/threat-model.md.
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
@@ -77,7 +78,7 @@ class ApiOnlyLogController extends LogController {
 }
 
 /**
- * @typedef {{store: any, logger?: any, rateLimit?: object, staticOptions?: object,
+ * @typedef {{store: any, logger?: any, loggerInstance?: import('pino').Logger, rateLimit?: object, staticOptions?: object,
  *          allowedHosts?: string[], fetchFn?: (qids: string[]) => Promise<object>,
  *          jobs?: any, dbFile?: string, discoverEnabled?: boolean, openIndex?: () => any,
  *          topupConfig?: {enabled: boolean} & Omit<import('./scheduledTopup.js').TopupConfig, 'dbFile'>,
@@ -93,12 +94,18 @@ class ApiOnlyLogController extends LogController {
  * @returns {import('fastify').FastifyInstance}
  */
 export function buildServer({
-    store, logger = false, rateLimit, staticOptions, allowedHosts, fetchFn,
+    store, logger = false, loggerInstance, rateLimit, staticOptions, allowedHosts, fetchFn,
     jobs, dbFile = 'data/findings.db', discoverEnabled = false, openIndex,
     topupConfig, scheduledTopup, budgetConfig, fetchAreaSpeciesFn, fetchAreaCandidatesFn,
 }) {
     const app = Fastify({
+        // Two different options because Fastify treats them differently: `logger` is a config
+        // object Fastify builds a pino instance from, `loggerInstance` is an already-built one
+        // (what server/logger.js's createLogger() returns) — passing a real instance as `logger`
+        // throws FST_ERR_LOG_INVALID_LOGGER_CONFIG. Tests keep using the `logger: false` default;
+        // server/index.js is the only caller that sets `loggerInstance`.
         logger,
+        loggerInstance,
         logController: new ApiOnlyLogController(),
         // Set while the API was still read-only, so the write endpoints inherited a ceiling
         // rather than each choosing one. Nothing here posts anything large; a big body is abuse.
@@ -112,12 +119,27 @@ export function buildServer({
             ignoreDuplicateSlashes: true,
             maxParamLength: 64, // nothing here has a long parameter; the only one, :id, is an integer
         },
+        // A caller-supplied request id makes a request traceable end to end through the MCP log
+        // reader's logs_request tool. Fastify performs no validation on this header's value — an
+        // untrusted caller could pick an id that collides with another request's — but the worst
+        // case is a confusing log, not a security exposure, and the write guard/rate limiter never
+        // key on req.id. genReqId only supplies the *fallback* used when the header is absent;
+        // Fastify's own default there is an incrementing `req-1`, `req-2`, ... — fine within one
+        // process, but not globally unique the way the MCP server's cross-request tools want.
+        requestIdHeader: 'x-request-id',
+        genReqId: () => randomUUID(),
         onProtoPoisoning: 'error',
         onConstructorPoisoning: 'error',
         // Fastify's default is removeAdditional: true, which silently *drops* an unknown query
         // parameter instead of refusing it — so a typo like ?kinds=image would quietly return the
         // default worklist as if it had been asked for. Reject it instead.
         ajv: { customOptions: { removeAdditional: false } },
+    });
+
+    // Echoes req.id back so a caller (or the MCP log reader's logs_request tool, working from a
+    // ticket a caller reported) can find this exact request's log lines without grepping by time.
+    app.addHook('onSend', async (req, reply) => {
+        reply.header('x-request-id', req.id);
     });
 
     app.register(helmet, {

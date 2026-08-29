@@ -544,6 +544,28 @@ test('an unknown page 404s instead of falling back to the index', async (t) => {
 
 // ---- security headers ----
 
+// ---- request id ----
+
+test('an x-request-id sent by the caller is echoed back verbatim', async (t) => {
+    const { app } = makeApp(t);
+    const res = await app.inject({ url: '/api/findings', headers: { 'x-request-id': 'ticket-42' } });
+    assert.equal(res.headers['x-request-id'], 'ticket-42');
+});
+
+test('an absent x-request-id gets a generated id echoed back, not left unset', async (t) => {
+    const { app } = makeApp(t);
+    const res = await app.inject('/api/findings');
+    assert.ok(res.headers['x-request-id'], 'a request id must always come back');
+    assert.notEqual(res.headers['x-request-id'], '');
+});
+
+test('two requests with no caller-supplied id get two different generated ids', async (t) => {
+    const { app } = makeApp(t);
+    const a = await app.inject('/api/findings');
+    const b = await app.inject('/api/findings');
+    assert.notEqual(a.headers['x-request-id'], b.headers['x-request-id']);
+});
+
 test('security headers cover both the API and the static app', async (t) => {
     const { app } = makeApp(t);
     for (const url of ['/', '/api/findings']) {

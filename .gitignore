@@ -10,10 +10,15 @@ data/
 # VACUUM INTO snapshots of data/ (tools/backup.mjs) — disposable, unlike data/ itself
 backups/
 
-# Logs and diagnostics
+# Logs and diagnostics. logs/.gitkeep stays tracked (nothing above ignores the directory itself,
+# only *.log within it) so the directory pre-exists in a fresh checkout — a bind mount to a
+# directory that doesn't exist yet gets auto-created by the Docker daemon as root, which the
+# container's unprivileged node user then can't write to. See docs/logging.md.
 *.log
 npm-debug.log*
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+# ...except mcp-server's own test fixtures, which are committed NDJSON, not runtime output.
+!mcp-server/test/fixtures/*.log
 
 # Environment and local tool settings
 .env

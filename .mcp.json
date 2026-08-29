@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "winc-logs": {
+      "type": "http",
+      "url": "${WINC_LOGS_MCP_URL:-http://localhost:3400/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${WINC_LOGS_MCP_TOKEN}"
+      }
+    }
+  }
+}
