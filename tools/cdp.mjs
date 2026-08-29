@@ -141,11 +141,13 @@ export async function startServer(dbPath, port, origin) {
 /**
  * Start headless Chromium with a throwaway profile and attach to a blank tab.
  *
- * The theme is pinned to dark rather than left to the headless browser's ambient default, so a
- * capture stays deterministic across machines and Chromium versions. A fresh profile has no
- * localStorage theme tag, so web/js/shell.js falls back to prefers-color-scheme, which this forces.
+ * The theme is pinned explicitly (`dark` by default) rather than left to the headless browser's
+ * ambient default, so a capture stays deterministic across machines and Chromium versions. A
+ * fresh profile has no localStorage theme tag, so web/js/shell.js falls back to
+ * prefers-color-scheme, which this forces. Use setTheme() to flip it mid-session without
+ * restarting the browser, e.g. to capture both a dark and a light pass.
  */
-export async function startBrowser(chromeBin, profileDir, debugPort, onEvent = null) {
+export async function startBrowser(chromeBin, profileDir, debugPort, onEvent = null, theme = 'dark') {
     const browser = spawn(chromeBin, [
         '--headless=new', '--no-sandbox', '--hide-scrollbars', '--force-device-scale-factor=1',
         `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, 'about:blank',
@@ -164,8 +166,13 @@ export async function startBrowser(chromeBin, profileDir, debugPort, onEvent = n
     const cdp = await connect(target.webSocketDebuggerUrl, onEvent);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
-    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+    await setTheme(cdp, theme);
     return { browser, cdp };
+}
+
+/** Flip the emulated `prefers-color-scheme` on an already-connected page. */
+export async function setTheme(cdp, theme) {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
 }
 
 /** A temp working directory plus the teardown that always has to go with it. */

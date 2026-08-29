@@ -12,7 +12,10 @@ and hands you the exact Wikitext or QuickStatements each fix needs.
 > **Built with AI pair-programming.** The architecture, the SPARQL inversion, the
 > confirm-before-done design and the threat model are mine.
 
-![The taxon gallery: an image-less taxon's CC-licensed iNaturalist photos, each with its license, photographer, a pre-filled Commons upload link and a Wikidata-image pick](docs/screenshots/gallery.jpg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/gallery-dark.jpg">
+  <img src="docs/screenshots/gallery-light.jpg" alt="The taxon gallery: an image-less taxon's CC-licensed iNaturalist photos, each with its license, photographer, a pre-filled Commons upload link and a Wikidata-image pick">
+</picture>
 
 <sub>Photos of *Bulbophyllum radicans* by Lachlan Copeland (CC BY-SA) and Lucas Christofides
 (CC BY), via iNaturalist. Shown here as the app renders them.</sub>
