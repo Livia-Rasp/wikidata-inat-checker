@@ -18,8 +18,13 @@ import { mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { findingsDbPath } from '../lib/paths.js';
 import {
-    sleep, die, findChrome, waitFor, copyFindingsDb, startServer, startBrowser, makeWorkspace,
+    sleep, die, findChrome, waitFor, copyFindingsDb, startServer, startBrowser, setTheme, makeWorkspace,
 } from './cdp.mjs';
+
+// Captured once per theme, so the docs can show whichever matches the reader's own GitHub theme
+// via a <picture> element — see docs/screenshots/README.md. `file` below is a base name; each
+// theme's pass writes `<base>-<theme>.<ext>`.
+const THEMES = ['dark', 'light'];
 
 const SOURCE_DB = findingsDbPath();
 const OUT_DIR = 'docs/screenshots';
@@ -138,45 +143,52 @@ async function main() {
     owned.server = await startServer(dbCopy, PORT, ORIGIN);
     console.log(`  ✓ server on :${PORT}`);
 
-    // Dark is the deliberate choice for these docs, made when slice 6 added the theme toggle, and
-    // startBrowser pins it so a regeneration elsewhere cannot silently flip every screenshot.
-    const { browser, cdp } = await startBrowser(chrome.bin, join(work, 'profile'), 9333);
+    // One browser, both themes: setTheme() flips prefers-color-scheme between passes rather than
+    // restarting Chromium, since nothing else about the capture changes.
+    const { browser, cdp } = await startBrowser(chrome.bin, join(work, 'profile'), 9333, null, THEMES[0]);
     owned.browser = browser;
     owned.cdp = cdp;
 
     mkdirSync(OUT_DIR, { recursive: true });
-    for (const t of TARGETS) {
-        // Tall viewport while measuring, so the element the crop is derived from is laid out and
-        // in view; the clip below is what actually decides the image height.
-        await cdp.send('Emulation.setDeviceMetricsOverride', {
-            width: WIDTH, height: 2400, deviceScaleFactor: SCALE, mobile: false,
-        });
-        await cdp.send('Page.navigate', { url: t.url });
-        await waitFor(cdp, t.ready, t.file, t.timeoutMs);
-        await sleep(400); // let layout and web fonts settle before the shutter
+    for (const theme of THEMES) {
+        await setTheme(cdp, theme);
+        for (const t of TARGETS) {
+            // Tall viewport while measuring, so the element the crop is derived from is laid out
+            // and in view; the clip below is what actually decides the image height.
+            await cdp.send('Emulation.setDeviceMetricsOverride', {
+                width: WIDTH, height: 2400, deviceScaleFactor: SCALE, mobile: false,
+            });
+            await cdp.send('Page.navigate', { url: t.url });
+            await waitFor(cdp, t.ready, `${t.file} (${theme})`, t.timeoutMs);
+            await sleep(400); // let layout and web fonts settle before the shutter
 
-        // `top` lets a target start its clip below the page's actual top (links.png skips the
-        // worklist rows sitting above the review section it exists to document) rather than
-        // always capturing from y=0.
-        const [measuredTop, measuredBottom] = await Promise.all([
-            t.top ? cdp.send('Runtime.evaluate', { expression: `Math.floor(${t.top})`, returnByValue: true }) : null,
-            cdp.send('Runtime.evaluate', { expression: `Math.ceil(${t.crop})`, returnByValue: true }),
-        ]);
-        const top = Math.max(0, Number(measuredTop?.result?.value) || 0);
-        const bottom = Number(measuredBottom.result?.value) || 800;
-        const height = Math.min(bottom - top, 3000);
+            // `top` lets a target start its clip below the page's actual top (links.png skips the
+            // worklist rows sitting above the review section it exists to document) rather than
+            // always capturing from y=0.
+            const [measuredTop, measuredBottom] = await Promise.all([
+                t.top ? cdp.send('Runtime.evaluate', { expression: `Math.floor(${t.top})`, returnByValue: true }) : null,
+                cdp.send('Runtime.evaluate', { expression: `Math.ceil(${t.crop})`, returnByValue: true }),
+            ]);
+            const top = Math.max(0, Number(measuredTop?.result?.value) || 0);
+            const bottom = Number(measuredBottom.result?.value) || 800;
+            const height = Math.min(bottom - top, 3000);
 
-        const shot = await cdp.send('Page.captureScreenshot', {
-            format: t.format || 'png',
-            ...(t.quality ? { quality: t.quality } : {}),
-            // Beyond the emulated viewport whenever `top` pushes the clip past it (2400px) — without
-            // this, content below the viewport's own height is never laid out for capture at all.
-            captureBeyondViewport: true,
-            clip: { x: 0, y: top, width: WIDTH, height, scale: t.scale || SCALE },
-        });
-        const out = join(OUT_DIR, t.file);
-        writeFileSync(out, Buffer.from(shot.data, 'base64'));
-        console.log(`  → ${out}  ${WIDTH}×${height}  ${(statSync(out).size / 1024).toFixed(0)} KB`);
+            const shot = await cdp.send('Page.captureScreenshot', {
+                format: t.format || 'png',
+                ...(t.quality ? { quality: t.quality } : {}),
+                // Beyond the emulated viewport whenever `top` pushes the clip past it (2400px) —
+                // without this, content below the viewport's own height is never laid out at all.
+                captureBeyondViewport: true,
+                clip: { x: 0, y: top, width: WIDTH, height, scale: t.scale || SCALE },
+            });
+            // `worklist.png` → `worklist-dark.png` / `worklist-light.png`, so a <picture> element
+            // in the docs can pick whichever matches the reader's own GitHub theme.
+            const dot = t.file.lastIndexOf('.');
+            const themed = `${t.file.slice(0, dot)}-${theme}${t.file.slice(dot)}`;
+            const out = join(OUT_DIR, themed);
+            writeFileSync(out, Buffer.from(shot.data, 'base64'));
+            console.log(`  → ${out}  ${WIDTH}×${height}  ${(statSync(out).size / 1024).toFixed(0)} KB`);
+        }
     }
 
     console.log('\n  Screenshots regenerated. Commit them alongside the change that made them stale.');

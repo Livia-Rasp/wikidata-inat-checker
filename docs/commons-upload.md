@@ -13,7 +13,10 @@ behind it are in the [design & research record](commons-upload-dev.md).
 The screenshots below go stale the same way prose does whenever `web/` changes — see
 [screenshots/README.md](screenshots/README.md) for how they're kept current.
 
-![The worklist](screenshots/worklist.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/worklist-dark.png">
+  <img src="screenshots/worklist-light.png" alt="The worklist">
+</picture>
 
 ## Usage
 
@@ -36,7 +39,10 @@ Then open <http://localhost:8080/>:
    Ancestors widen, the clades below narrow, and the nine Red List chips compose with either.
    When a clade is thin the page *offers* to fetch more of exactly it — and only ever on a click.
 
-   ![The backlog search](screenshots/search.png)
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="screenshots/search-dark.png">
+     <img src="screenshots/search-light.png" alt="The backlog search">
+   </picture>
 
 1c. **Area** (`area.html`) — click a map (or type coordinates) to pick a point and a radius; the
    radius circle follows either way. **Preview** answers fast and for free: it looks at the
@@ -46,7 +52,10 @@ Then open <http://localhost:8080/>:
    checking every species in the area rather than just the most-observed sample, and records what
    it finds into the shared backlog above.
 
-   ![The area picker: a map with a marker and radius circle, and a preview table of species missing a Wikidata image nearby](screenshots/area.jpg)
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="screenshots/area-dark.jpg">
+     <img src="screenshots/area-light.jpg" alt="The area picker: a map with a marker and radius circle, and a preview table of species missing a Wikidata image nearby">
+   </picture>
 
 1d. **Links** (`links.html`) — the same worklist shape as the main view, but for Wikidata taxa
    with a name and no iNaturalist link (P3151): Confirm checks live Wikidata for the P3151
@@ -59,7 +68,10 @@ Then open <http://localhost:8080/>:
    only **Skip**, since resolving one is a judgement call outside the app. See
    [links.md](links.md) for the checker this page is a worklist over.
 
-   ![The links review section: an ambiguous Wikidata genus name next to two candidate iNat taxa, their taxonomy compared rank by rank](screenshots/links.png)
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="screenshots/links-dark.png">
+     <img src="screenshots/links-light.png" alt="The links review section: an ambiguous Wikidata genus name next to two candidate iNat taxa, their taxonomy compared rank by rank">
+   </picture>
 
 1e. **Names** (`names.html`) — the same worklist shape again, for Wikidata taxa missing one or
    more iNaturalist vernacular names (P1843): Confirm checks live Wikidata for every proposed
@@ -69,13 +81,19 @@ Then open <http://localhost:8080/>:
    statements automatically. See [names.md](names.md) for the checker this page is a worklist
    over.
 
-   ![The names worklist: a taxon's row listing several missing vernacular-name languages alongside their sourced QuickStatements block](screenshots/names.png)
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="screenshots/names-dark.png">
+     <img src="screenshots/names-light.png" alt="The names worklist: a taxon's row listing several missing vernacular-name languages alongside their sourced QuickStatements block">
+   </picture>
 
 2. Click **View photos ↗** on a row to open that taxon's photo gallery in a new tab.
 3. **Gallery** — all of the taxon's research-grade, Commons-compatibly-licensed
    (CC0 / CC BY / CC BY-SA) iNaturalist photos, with a **Most faved / Newest** sort toggle.
 
-   ![The taxon gallery](screenshots/gallery.jpg)
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="screenshots/gallery-dark.jpg">
+     <img src="screenshots/gallery-light.jpg" alt="The taxon gallery">
+   </picture>
 
 4. Click **Upload to Commons ↗** under a photo. The Commons `Special:Upload` form opens
    pre-filled; review it and click Upload there. Then tick **Mark as uploaded** on the card.
