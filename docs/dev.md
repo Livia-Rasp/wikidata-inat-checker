@@ -137,13 +137,9 @@ checkLinksStats.js
 
 ### Area checker (`checkArea.js`)
 ```
-checkArea.js (args: --lat --lng --radius)
-  └─ iNat /v1/observations/species_counts (paginated, location-filtered, research-grade)
-       → [{taxonId, taxonName, commonName, count}]
-  └─ SPARQL VALUES → Wikidata: P3151 lookup + FILTER NOT EXISTS P18
-       → Map<inatId, {wdUri, wdName}>            (items with no image)
-  └─ iNat /v1/observations (batched 20 taxa/call, ordered by votes): up to 3 sample photos each
-  └─ report/generateAreaHTML.js: writes output/area.html
+checkArea.js (args: --lat --lng --radius) — a thin CLI wrapper; the real logic is
+lib/areaCandidates.js's fetchAreaSpecies / fetchAreaCandidates / fetchAreaEnrichment,
+described in full under "Area as a scope" below.
 ```
 
 ## Output, cache and data locations (`lib/paths.js`)
