@@ -73,3 +73,39 @@ jobs:
           # The config is the file in the repo. Stated explicitly so a future global default
           # cannot quietly take precedence.
           RENOVATE_ONBOARDING_CONFIG_FILE_NAME: renovate.json5
+
+      # Renovate has repeatedly (tracked against issue #27) pushed a branch and then, a few
+      # hundred ms later, aborted with "Repository has changed during renovation" before it ever
+      # opened the PR for that branch — with no corresponding change to `main` in that window, so
+      # not a real race with our own activity. The root cause is unconfirmed (several unresolved
+      # upstream reports describe the same symptom for different reasons: stale platform cache,
+      # eventual-consistency reads, permissions — see issue #27's notes), but the push itself
+      # always succeeds, so the branch is complete and correct — it is just stranded without a
+      # PR. `if: always()` so this still runs on that abort (the Renovate step itself reports
+      # success either way).
+      #
+      # Scoped to any `renovate/*` branch with zero PRs ever raised against it — that is exactly
+      # the signature of this failure, and nothing else leaves a renovate/* branch in that state
+      # (Renovate opens the PR immediately after pushing, in the same run, when it doesn't hit
+      # this abort). Uses RENOVATE_TOKEN rather than GITHUB_TOKEN for the same reason the
+      # Renovate step does: a PR opened with the default token has its CI run held for approval.
+      - name: Open PRs for Renovate branches stranded by the abort above
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo='${{ github.repository }}'
+          for branch in $(gh api "repos/$repo/branches" --paginate --jq '.[].name | select(startswith("renovate/"))'); do
+            existing=$(gh pr list --repo "$repo" --head "$branch" --base main --state all --json number --jq 'length')
+            if [ "$existing" -eq 0 ]; then
+              title=$(gh api "repos/$repo/branches/$branch" --jq '.commit.commit.message' | head -n1)
+              echo "Opening PR for stranded branch $branch: $title"
+              body=$(printf '%s\n' \
+                'Opened automatically. Renovate pushed this branch but then aborted with "Repository has changed' \
+                'during renovation" before it could open the PR itself (see issue #27 — root cause unconfirmed).' \
+                'The branch content comes straight from Renovate; only the PR itself was created by hand, by this' \
+                'workflow step.')
+              gh pr create --repo "$repo" --head "$branch" --base main --title "$title" --body "$body"
+            fi
+          done
