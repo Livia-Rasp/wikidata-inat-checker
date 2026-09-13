@@ -24,6 +24,8 @@ and hands you the exact Wikitext or QuickStatements each fix needs.
 
 | | |
 |---|---|
+| **11,939** | iNaturalist links (P3151) added to Wikidata from the links checker's QuickStatements, June 2026 |
+| **1,018** | CC-licensed iNaturalist photos uploaded to Commons through the app, June 2026 |
 | **1.4M** | active iNaturalist taxa indexed locally, as SQLite |
 | **1,043** | Wikidata taxon items reconciled against that index so far |
 | **400** | image gaps found that can actually be closed: a CC-licensed photo exists |
@@ -35,7 +37,9 @@ Nothing is marked done because a human said so. The app queues the edits and you
 server then asks live Wikidata whether both halves landed, the image (P18) and the Commons
 category sitelink. Only then does a finding close.
 
-<sub>Figures from the author's own findings database, August 2026.</sub>
+<sub>Edit and upload figures counted from the author's Wikidata contributions and Commons upload log,
+June 2026, retrieved September 2026. The rest come from the author's own findings database, August
+2026.</sub>
 
 ## Quick start
 
