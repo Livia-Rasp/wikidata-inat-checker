@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # node:sqlite is fully stable from Node 26, which is the package.json engines floor.
           # The tests build only in-memory SQLite fixtures, so no taxa.db download.
