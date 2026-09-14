@@ -53,7 +53,7 @@ jobs:
       # not keep these pins fresh by itself — bumping them is a manual job, and the version is in
       # the trailing comment so it is at least legible.
       - name: Renovate
-        uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
+        uses: renovatebot/github-action@39b914146caeff8cd512e61c8992f1d5913af85c # v46.2.5
         with:
           # NOT the default GITHUB_TOKEN. Pull requests opened with it get their workflow runs
           # held in an approval-required state (GitHub changed this in June 2026 — before that
