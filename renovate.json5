@@ -14,17 +14,28 @@
   ],
 
   // Deliberately NOT config:best-practices, which the sibling repo uses. It brings
-  // `helpers:pinGitHubActionDigests` and `docker:pinDigests`, which would rewrite
-  // .github/workflows/ci.yml on the first run — and a token that may edit workflows is a
-  // meaningfully bigger grant than one that may not. Digest pinning on
-  // node:26.7.0-trixie-slim would also open a PR every time the official image rebuilds,
-  // which is the loudest possible setting on a repo this size.
+  // `helpers:pinGitHubActionDigests` and `docker:pinDigests`. Digest pinning on
+  // node:26.7.0-trixie-slim would open a PR every time the official image rebuilds, which is
+  // the loudest possible setting on a repo this size.
+  //
+  // This used to also be about the token: pinning rewrites .github/workflows/, and Workflows
+  // write was treated as a grant to avoid. That was never achievable — any Action version bump
+  // edits a workflow file, pinned or not — so the token has it anyway. See docs/threat-model.md.
 
   timezone: 'Europe/Berlin',
 
-  // Monday morning, and a wide window on purpose: Renovate warns that a narrow one can be
-  // missed entirely when a run does not happen to land inside it.
-  schedule: ['* 2-8 * * 1'],
+  // All of Monday, not Monday morning. GitHub starts scheduled workflows late — the 07:00
+  // Berlin trigger in renovate.yml has begun anywhere from 07:38 to 13:24 — and a run that
+  // lands outside the window looks at everything and pushes nothing. The old `2-8` window was
+  // missed three Mondays running (2026-08-31 to 2026-09-14); updates only got through because
+  // their dashboard boxes had been ticked by hand. The weekly cron is the real rate limit.
+  schedule: ['* * * * 1'],
+
+  // `:maintainLockFilesWeekly` brings its own schedule — `schedule:weekly`, which is before
+  // 4 AM on Monday — so it would be missed by a late run exactly as above. Same window.
+  lockFileMaintenance: {
+    schedule: ['* * * * 1'],
+  },
 
   // Seven dependencies behind a weekly schedule is not much traffic; the schedule is
   // already the rate limit, so the hourly one only gets in the way.

@@ -512,14 +512,32 @@ happen.
   ever automerge.
 - **The token is not `GITHUB_TOKEN`.** Pull requests opened with it have their workflow runs held
   in an approval-required state, so CI would need a click per PR and automerge could never be
-  satisfied unattended. A fine-grained PAT or GitHub App token with **Contents** write, **Pull
-  requests** write and **Dependabot alerts** read is enough — *not* Workflows write, because this
-  config deliberately does not extend `config:best-practices` and so never rewrites anything under
-  `.github/workflows/`.
+  satisfied unattended. A fine-grained PAT or GitHub App token needs **Contents**, **Pull
+  requests**, **Issues** and **Workflows** write, and **Dependabot alerts** read. Neither of the
+  two write grants people tend to leave off is optional, and both fail with the workflow still
+  reporting success, so the Renovate step's log is the only place either shows:
+  - **Issues write** is what keeps the Dependency Dashboard current. Without it Renovate can still
+    *create* the issue but never update it — `WARN: Could not ensure issue`, `403 … Resource not
+    accessible by personal access token` on `PATCH …/issues/<n>` — so the dashboard silently
+    freezes at whatever the first run wrote. It went unnoticed from 2026-08-21 until 2026-09-14:
+    the runs in between aborted before reaching the dashboard step, so they never hit the 403.
+  - **Workflows write** is needed by *any* update to a GitHub Action, not only by digest pinning:
+    bumping `actions/checkout@v4` to `@v7` in `ci.yml`, or the SHA-pinned actions in
+    `renovate.yml`, is an edit under `.github/workflows/`, and GitHub rejects the push without it
+    (`Workflows update rejection - aborting branch`). A branch in a group dies with it, so npm
+    updates grouped alongside an Action were stranded too. It is a real widening: the token can
+    now change CI itself, including the job that publishes the image. The mitigation is the SHA
+    pin on the Renovate action — the only third-party code that ever holds this token.
 - **Running the workflow by hand outside the schedule window does not open PRs**, and that is not a
   failure. Renovate populates the Dependency Dashboard and lists the updates under "Awaiting
   Schedule"; the config's `schedule` decides when branches are actually pushed. The dashboard has
   a checkbox per entry to force one through early. Live since 2026-08-20.
+- **The schedule window is all of Monday, on purpose.** GitHub starts scheduled workflows hours
+  late (07:38 to 13:24 Berlin for a 07:00 trigger), so the original `2-8` morning window was
+  missed three weeks running and nothing moved without a ticked checkbox. The cron is now early
+  (01:17 UTC) and the window — including lock-file maintenance, which has its own — is the whole
+  day. A run that starts outside the window still reports success, so "the dashboard lists
+  everything as Awaiting Schedule after a scheduled run" is the symptom to look for.
 - **Node is grouped.** It is pinned in four machine-readable places that must agree — `.nvmrc`,
   `engines`, `node-version` in CI, and the Dockerfile's `FROM` — so one release arrives as one PR.
   It is never automerged, because a Node major also needs prose and a badge changed by hand.

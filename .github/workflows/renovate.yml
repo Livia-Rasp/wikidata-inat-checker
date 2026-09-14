@@ -10,10 +10,15 @@
 name: Renovate
 
 on:
-  # Monday morning, matching the weekly window in renovate.json5. This only decides how often
+  # Early Monday, inside the all-Monday window in renovate.json5. This only decides how often
   # Renovate gets to look; the config decides what it may do when it does.
+  #
+  # 01:17 UTC (03:17 Berlin in summer) because GitHub starts scheduled runs late — up to six and a
+  # half hours so far — so starting early keeps even a badly delayed run on Monday. Off the hour
+  # because GitHub's own docs name the top of the hour as the busiest time, when scheduled runs
+  # are most likely to be delayed or dropped.
   schedule:
-    - cron: '0 5 * * 1'
+    - cron: '17 1 * * 1'
   # So a run can be forced without waiting a week — needed when first setting this up, and when a
   # CVE lands and the dashboard should be refreshed now.
   #
@@ -49,9 +54,9 @@ jobs:
       # SHA-pinned rather than tag-pinned: this step runs with a token that can write to the
       # repository, so a moved tag would be a direct path to arbitrary code holding those rights.
       #
-      # Note renovate.json5 deliberately does not extend `config:best-practices`, so Renovate will
-      # not keep these pins fresh by itself — bumping them is a manual job, and the version is in
-      # the trailing comment so it is at least legible.
+      # Renovate keeps these pins fresh: the github-actions manager reads a `@<sha> # vX.Y.Z` pin
+      # and updates the digest and the comment together. That edits this file, so it is one of the
+      # reasons the token needs Workflows write — see below.
       - name: Renovate
         uses: renovatebot/github-action@39b914146caeff8cd512e61c8992f1d5913af85c # v46.2.5
         with:
@@ -61,8 +66,11 @@ jobs:
           # never be satisfied without a human clicking approve on every PR, which defeats the
           # point. This needs a fine-grained PAT or a GitHub App token.
           #
-          # Contents and Pull requests write is enough. Workflows write is NOT needed here,
-          # because this config does not pin GitHub Actions to SHAs — see renovate.json5.
+          # Needs Contents, Pull requests, Issues and Workflows write, plus Dependabot alerts read.
+          # Issues write keeps the Dependency Dashboard (#27) current — without it the issue can be
+          # created but never updated. Workflows write is needed by any Action update at all,
+          # digest pinning or not: every one is an edit under .github/workflows/. Missing either
+          # still leaves this step green, so check its log. See docs/threat-model.md.
           token: ${{ secrets.RENOVATE_TOKEN }}
         env:
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
