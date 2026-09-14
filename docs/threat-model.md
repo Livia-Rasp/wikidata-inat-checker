@@ -513,14 +513,25 @@ happen.
 - **The token is not `GITHUB_TOKEN`.** Pull requests opened with it have their workflow runs held
   in an approval-required state, so CI would need a click per PR and automerge could never be
   satisfied unattended. A fine-grained PAT or GitHub App token needs **Contents**, **Pull
-  requests**, **Issues** and **Workflows** write, and **Dependabot alerts** read. Neither of the
-  two write grants people tend to leave off is optional, and both fail with the workflow still
-  reporting success, so the Renovate step's log is the only place either shows:
+  requests**, **Issues**, **Workflows** and **Commit statuses** write, and **Dependabot alerts**
+  read. None of the three write grants people tend to leave off is optional, and all three fail
+  with the workflow still reporting success, so the Renovate step's log is the only place any of
+  them shows:
+  - **Commit statuses write** lets Renovate mark each branch it pushes with a
+    `renovate/stability-days` status, which the 14-day release-age floor above produces. Without
+    it the `POST …/statuses/<sha>` 403s, and Renovate's GitHub platform code turns *any* failure
+    to set a status into `Repository has changed during renovation - aborting`. That message is
+    wrong: nothing changed. The run stops straight after pushing the first branch that gets a
+    status (lock-file maintenance, with no release timestamps, does not) — before that branch's PR,
+    before any later branch, and before the dashboard — so each run strands one branch and does
+    nothing after it. Only `logLevel: debug` shows the real cause (`Caught error setting branch
+    status - aborting`, `x-accepted-github-permissions: statuses=write`). This was the abort seen
+    from 2026-08-24 on; granted and confirmed working 2026-09-14.
   - **Issues write** is what keeps the Dependency Dashboard current. Without it Renovate can still
     *create* the issue but never update it — `WARN: Could not ensure issue`, `403 … Resource not
     accessible by personal access token` on `PATCH …/issues/<n>` — so the dashboard silently
     freezes at whatever the first run wrote. It went unnoticed from 2026-08-21 until 2026-09-14:
-    the runs in between aborted before reaching the dashboard step, so they never hit the 403.
+    most runs in between hit the Commit statuses abort first and never reached the dashboard step.
   - **Workflows write** is needed by *any* update to a GitHub Action, not only by digest pinning:
     bumping `actions/checkout@v4` to `@v7` in `ci.yml`, or the SHA-pinned actions in
     `renovate.yml`, is an edit under `.github/workflows/`, and GitHub rejects the push without it
