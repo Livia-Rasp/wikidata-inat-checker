@@ -66,11 +66,14 @@ jobs:
           # never be satisfied without a human clicking approve on every PR, which defeats the
           # point. This needs a fine-grained PAT or a GitHub App token.
           #
-          # Needs Contents, Pull requests, Issues and Workflows write, plus Dependabot alerts read.
-          # Issues write keeps the Dependency Dashboard (#27) current — without it the issue can be
-          # created but never updated. Workflows write is needed by any Action update at all,
-          # digest pinning or not: every one is an edit under .github/workflows/. Missing either
-          # still leaves this step green, so check its log. See docs/threat-model.md.
+          # Needs Contents, Pull requests, Issues, Workflows and Commit statuses write, plus
+          # Dependabot alerts read. Issues write keeps the Dependency Dashboard (#27) current —
+          # without it the issue can be created but never updated. Workflows write is needed by any
+          # Action update at all, digest pinning or not: every one is an edit under
+          # .github/workflows/. Commit statuses write is for the `renovate/stability-days` status;
+          # without it Renovate misreports the failure as "Repository has changed during
+          # renovation" and aborts after one branch. Missing any of them still leaves this step
+          # green, so check its log. See docs/threat-model.md.
           token: ${{ secrets.RENOVATE_TOKEN }}
         env:
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
@@ -82,15 +85,18 @@ jobs:
           # cannot quietly take precedence.
           RENOVATE_ONBOARDING_CONFIG_FILE_NAME: renovate.json5
 
-      # Renovate has repeatedly (tracked against issue #27) pushed a branch and then, a few
-      # hundred ms later, aborted with "Repository has changed during renovation" before it ever
-      # opened the PR for that branch — with no corresponding change to `main` in that window, so
-      # not a real race with our own activity. The root cause is unconfirmed (several unresolved
-      # upstream reports describe the same symptom for different reasons: stale platform cache,
-      # eventual-consistency reads, permissions — see issue #27's notes), but the push itself
-      # always succeeds, so the branch is complete and correct — it is just stranded without a
-      # PR. `if: always()` so this still runs on that abort (the Renovate step itself reports
-      # success either way).
+      # A safety net, no longer a workaround. From 2026-08-24 Renovate repeatedly pushed a branch
+      # and then, a few hundred ms later, aborted with "Repository has changed during renovation"
+      # before opening the PR for it. Nothing had changed. The cause, found with a debug run on
+      # 2026-09-14: the token lacked Commit statuses write, so setting the
+      # `renovate/stability-days` status on the pushed commit 403'd — and Renovate's GitHub
+      # platform code rethrows *any* status failure as that repository-changed error. Granting
+      # the permission fixed it; the first run after opened all its PRs itself.
+      #
+      # Kept because the signature is cheap to catch and easy to reintroduce: a token rotated
+      # without that grant strands a branch per run again, and the push itself always succeeds,
+      # so the branch is complete and correct — just without a PR. `if: always()` so this still
+      # runs on that abort (the Renovate step itself reports success either way).
       #
       # Scoped to any `renovate/*` branch with zero PRs ever raised against it — that is exactly
       # the signature of this failure, and nothing else leaves a renovate/* branch in that state
@@ -118,7 +124,8 @@ jobs:
               echo "Opening PR for stranded branch $branch: $title"
               body=$(printf '%s\n' \
                 'Opened automatically. Renovate pushed this branch but then aborted with "Repository has changed' \
-                'during renovation" before it could open the PR itself (see issue #27 — root cause unconfirmed).' \
+                'during renovation" before it could open the PR itself. That abort usually means RENOVATE_TOKEN has' \
+                'lost Commit statuses write — see docs/threat-model.md.' \
                 'The branch content comes straight from Renovate; only the PR itself was created by hand, by this' \
                 'workflow step.')
               gh pr create --repo "$repo" --head "$branch" --base main --title "$title" --body "$body"
