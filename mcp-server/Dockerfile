@@ -5,7 +5,7 @@
 # here needs a compiler toolchain to drop. Built with `mcp-server` itself as the build context
 # (compose.yaml's `build: ./mcp-server`) since this package has its own package.json/lockfile and
 # needs nothing from the repo root.
-FROM node:26.7.0-trixie-slim
+FROM node:26.9.0-trixie-slim
 
 ENV NODE_ENV=production \
     HOME=/home/node

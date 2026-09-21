@@ -13,7 +13,7 @@
 # CI on it. That is a poor trade for ~120 MB.
 #
 # The tag is pinned to a patch because Node 26 is not LTS until 2026-10-28 and moves quickly.
-FROM node:26.7.0-trixie-slim
+FROM node:26.9.0-trixie-slim
 
 # HOME is load-bearing, not decoration: lib/getInatTaxaDb.js resolves its cache directory through
 # os.homedir(), which throws for a UID with no passwd entry and no HOME. There is no environment
