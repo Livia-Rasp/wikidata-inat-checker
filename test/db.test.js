@@ -14,6 +14,14 @@ function backdate(db, qid, days) {
     db.prepare('UPDATE findings SET checked_at = ? WHERE qid = ?').run(when, qid);
 }
 
+/** A request_log hour bucket ('YYYY-MM-DDTHH') `days` before now, at UTC hour `hour`. Buckets must
+ *  be relative to the clock, never literal dates: quietHoursOfDay only counts buckets inside its
+ *  lookback window, so a hardcoded date silently ages out of the window and fails the test later. */
+function hourBucketDaysAgo(days, hour) {
+    const day = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+    return `${day}T${String(hour).padStart(2, '0')}`;
+}
+
 /** Backdate a discover_budget row's updated_at by `hours`, to test refill without sleeping. */
 function backdateBudget(db, bucket, hours) {
     const when = new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -494,12 +502,12 @@ test('recordRequest defaults to the current hour when no bucket is given', () =>
 
 test('quietHoursOfDay ranks hours by average traffic, with no data treated as zero', () => {
     const { store } = makeStore();
-    // Hours 10 and 11 are busy every day in the window; every other hour never appears.
-    for (const day of ['2026-08-20', '2026-08-21', '2026-08-22']) {
-        store.recordRequest(`${day}T10`);
-        store.recordRequest(`${day}T10`);
-        store.recordRequest(`${day}T10`);
-        store.recordRequest(`${day}T11`);
+    // Hours 10 and 11 are busy on each of the last three days; every other hour never appears.
+    for (const daysAgo of [1, 2, 3]) {
+        store.recordRequest(hourBucketDaysAgo(daysAgo, 10));
+        store.recordRequest(hourBucketDaysAgo(daysAgo, 10));
+        store.recordRequest(hourBucketDaysAgo(daysAgo, 10));
+        store.recordRequest(hourBucketDaysAgo(daysAgo, 11));
     }
 
     const { hours, sampleDays } = store.quietHoursOfDay({ lookbackDays: 30, quietHoursCount: 22 });
