@@ -53,7 +53,7 @@ const CONNECT_HOSTS = [
 /**
  * Where iNat photos actually live — *not* the same list as CONNECT_HOSTS. gallery.js rewrites the
  * API's photo.url, and openly-licensed photos are served from the open-data bucket (see
- * docs/commons-upload-dev.md). Miss it and every thumbnail is blocked while the page still "works".
+ * docs/threat-model.md). Miss it and every thumbnail is blocked while the page still "works".
  */
 const IMG_HOSTS = [
     'inaturalist-open-data.s3.amazonaws.com',

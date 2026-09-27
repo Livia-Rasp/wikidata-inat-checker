@@ -118,7 +118,7 @@ For each place the taxon is endemic to, candidate categories are tried most-spec
 - **group word**, from the taxon's ancestry. A specific class word (`birds`, `mammals`, `amphibians`, `reptiles`, `fish`) when one applies, otherwise the kingdom word (`fauna`, `flora`, `fungi`), with `species` as a final fallback. So a bird endemic to Australia gets `Endemic birds of Australia`, while a frog with no `Endemic amphibians of …` category falls back to `Endemic fauna of …`.
 - **place**, from the P183 value's English label, trying both `… of <place>` and `… of the <place>`.
 
-Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons. The usual cause of the latter is a Wikidata label that differs from the Commons place name, like "Taiwan Island" against "Taiwan". Existence results are cached in `cache/cache-commons-cats.json`. Implementation: [docs/commons-integration.md](commons-integration.md) and [docs/dev.md](dev.md).
+Nothing is emitted when the taxon has no P183, or when no matching category exists on Commons. The usual cause of the latter is a Wikidata label that differs from the Commons place name, like "Taiwan Island" against "Taiwan". Existence results are cached in `cache/cache-commons-cats.json`. Implementation: [docs/dev.md](dev.md).
 
 ## Generating a single category draft
 

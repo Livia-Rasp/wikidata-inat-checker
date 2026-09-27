@@ -8,7 +8,8 @@ ready-made description (see [What the file description contains](#what-the-file-
 You review and submit the form yourself. **Nothing is uploaded automatically.**
 
 The design rationale, the inat2wiki prior art it builds on, and the technical research
-behind it are in the [design & research record](commons-upload-dev.md).
+behind it are in the maintainer's planning notes (*Wikidata iNat Checker – Commons Upload
+Design*). How the code fits together and how to test it are [below](#how-it-fits-together).
 
 The screenshots below go stale the same way prose does whenever `web/` changes — see
 [screenshots/README.md](screenshots/README.md) for how they're kept current.
@@ -276,8 +277,103 @@ never confirm.
 - `web/` still has no code dependency on the rest of the repo beyond that one HTTP contract. That
   boundary was originally kept so the app could be spun out into its own repository; **the spin-out
   was dropped as theoretical** when the Fastify backend landed, and the boundary is now worth
-  keeping only because it stays cheap. See [commons-upload-dev.md](commons-upload-dev.md) for the
-  architecture and [findings-db-roadmap.md](findings-db-roadmap.md#decisions) for that decision.
+  keeping only because it stays cheap.
+
+**Implementation map:** `checkImages.js` records findings in `data/findings.db`, and
+`server/routes/findings.js` serves them as `GET /api/findings` — the data contract. The app is
+three pages over one set of modules:
+
+| File | Role |
+|---|---|
+| `web/index.html` + `js/main.js` | the worklist: rows, confirm/skip, the QuickStatements panel |
+| `web/taxon.html` + `js/gallery.js` | one taxon's photo gallery and its enrichment |
+| `web/search.html` + `js/search.js` | the backlog search |
+| `js/rows.js` | renders and wires one backlog row for *both* table pages — `createRowTable` takes its tbody rather than an id, so two pages can hold one each |
+| `js/pager.js` | pages both table pages 100 rows at a time |
+| `js/topup.js` | starts, polls and cancels a discovery run |
+| `js/commonsUpload.js` | the `Special:Upload` prefill-URL builder, ported from inat2wiki (see `web/README.md` for attribution) |
+| `js/enrich.js` | place hierarchy, taxon ancestry, geographic and author categories |
+| `js/api.js` + `js/state.js` | this app's own backend, and the in-memory mirror of the uploads/picks it holds |
+| `js/cache.js` | the enrichment lookup caches in `localStorage`, plus the legacy readers the one-time import uses |
+
+Shared taxon-name parsing lives in `report/htmlShared.js` (`extractTaxonName`).
+
+## Testing the enrichment & the app (not covered by `npm test`)
+
+`npm test` covers the Node side — `lib/`, `report/` and `server/`, all without network. It does
+**not** reach `web/js/*`: those are plain ES modules that call live APIs, so they are verified by
+hand. Two harness patterns cover them, both runnable from throwaway scripts (keep them in a temp/scratch dir, not the
+repo — see the project's "verify in a temp dir" note). Node ≥18 has a global `fetch`; Node ≥21
+has a global `WebSocket` (used for the Chrome DevTools Protocol below).
+
+### Node harness — exercise `enrich.js` + `commonsUpload.js` directly
+
+The modules are browser-oriented but run in Node with two shims:
+
+- **Stub `localStorage`** before importing, so `web/js/cache.js`'s `Cache`/`localStorage` calls work
+  (the `Cache` ctor already swallows a missing `localStorage`, but a stub gives real caching):
+  ```js
+  const store = new Map();
+  globalThis.localStorage = { getItem:(k)=>store.has(k)?store.get(k):null,
+    setItem:(k,v)=>store.set(k,v), removeItem:(k)=>store.delete(k) };
+  ```
+- **Inject a `User-Agent`** into `fetch` *only in Node* — Nominatim rejects key-less, refererless
+  requests, but in a browser you must NOT set it (forbidden header; the page Referer is used):
+  ```js
+  const real = globalThis.fetch;
+  globalThis.fetch = (u, o={}) => real(u, { ...o, headers:{ ...(o.headers||{}),
+    'User-Agent':'wikidata-inat-checker dev test (you@example.com)' } });
+  ```
+
+Then mirror `gallery.js`'s `enrich()` exactly to get the real generated wikitext:
+`resolvePlaceIds(obs.place_ids)` → `placeHierarchy` → `mergeGeocodedPlaces(h, await geocodePlaces(obs))`
+→ `Promise.all([findGeoCategories(obs.taxon.id, h), findAuthorCategories(obs.user.id)])` →
+`buildDescription({ observation, photo, taxonName, location: locationString(h), country: h.country, extraCategories })`.
+
+**Use representative inputs:** load real targets from `GET /api/findings` (image-less, mostly
+*threatened* taxa) and fetch their observations — NOT common species. Common species have rich
+Commons presence that hides the real behaviour (e.g. they show a `<Species> in <Place>` /
+species-category overlap that does **not** occur for sparse rare taxa, and they hide the
+obscured-coordinate path because their points aren't obscured). Include at least one obscured
+record (`geoprivacy`/`taxon_geoprivacy === 'obscured'`, `public_positional_accuracy` ~30 km) to
+confirm `geocodePlaces` returns `[]`.
+
+**Oddity-scanner false positives to expect** (when auto-grepping generated categories): tautonyms
+(`Vulpes vulpes`, `Cardinalis cardinalis`) look like a doubled word; and any name containing the
+substring `nan` (Anta**nan**arivo, Boswellia **nan**a) trips a naïve case-insensitive `NaN` check.
+
+### Headless-Chrome harness — the browser-only paths
+
+The Node harness can't verify ES-module loading, CORS from a real origin, Nominatim via **Referer**
+(the only way it's identified in-browser), or the DOM. Drive Chrome over CDP — no Puppeteer needed:
+
+1. `google-chrome --headless=new --no-sandbox --remote-debugging-port=9333 --user-data-dir=<tmp> about:blank`.
+2. Poll `http://127.0.0.1:9333/json/version`; open a tab with **`PUT /json/new?about:blank`**.
+3. Connect a global `WebSocket` to the tab's `webSocketDebuggerUrl`; `Runtime.enable` + `Log.enable`
+   + `Page.enable` **before** `Page.navigate` so early errors are caught.
+4. Collect `Runtime.exceptionThrown`, `Runtime.consoleAPICalled` (type `error`), `Log.entryAdded`
+   (level `error`). Then `Runtime.evaluate({ expression, returnByValue:true, awaitPromise:true })`.
+   **Response nesting gotcha:** the value is at `msg.result.result.value` (and `result.exceptionDetails`).
+
+Useful in-page assertions: main view → `#tbody tr` count == the API's `count`, `#qs-panel` present;
+gallery → `.card` count, every `a.upload` href contains `wpUploadDescription`, decode it
+(`new URL(href).searchParams.get('wpUploadDescription')`) and regex out `[[Category:…]]`, and read
+`localStorage['winc-cache-geocode']` — a non-empty geocode cache proves **Nominatim ran from the
+browser** (Referer accepted, no CORS error). A clean run shows zero collected errors.
+
+### What the testing has to cover (regression checklist)
+
+- Two-axis result with **no nesting** (`findGeoCategories` ≤2 cats; neither a subcategory of the
+  other) — and dedup when they coincide.
+- **Obscured/coarse** coordinates → `geocodePlaces` skips geocoding (no fabricated town/county,
+  and threatened localities stay at country level by design).
+- **Exact non-US places** resolve via Wikidata (`Lago Agrio Canton`, `Sucumbíos Province`) on the
+  open-coordinate path; the canonical name is preferred over the heuristic.
+- **Diacritics** (`Québec` → `Flora of Quebec`), **disambiguation** pages rejected
+  (`Victoria`/`Washington`/`Georgia`), **place floor** (no continent categories).
+- Plain-place uses Commons' **disambiguated** naming (`<X> County, <State>`, `<Town>, <State>`),
+  never the bare iNat name. Known residual: ambiguous non-disambig pages (a Bermuda parish
+  `Smiths`) still slip through.
 
 ## Attribution
 

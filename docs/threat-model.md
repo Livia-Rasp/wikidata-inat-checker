@@ -1,35 +1,14 @@
 # Threat model for `server/`
 
 > This is an **engineering design record**, not a vulnerability-disclosure policy: it explains what
-> the server defends against, why every header and limit is set the way it is, and what is
-> deliberately left undone. To report a security problem in this project, open an issue.
+> the server defends against and why every header and limit is set the way it is. To report a
+> security problem in this project, open an issue.
 
 Read it before adding any endpoint that changes state or talks to an authenticated API. Written
 2026-08-14 with the Fastify server, extended 2026-08-15 when the first write endpoints landed.
-
-## What this app is, from a security standpoint
-
-The repository used to ship CLI tools plus a zero-dependency static file server, and the only thing
-on a network was the browser talking to public APIs. That changed when the backend arrived:
-`server/` is a long-running HTTP service holding an open handle on `data/findings.db`.
-
-Three things follow.
-
-1. **The database is the asset, not the data it contains.** Every finding describes public
-   Wikidata/iNaturalist facts — there is nothing confidential to exfiltrate. But `data/findings.db`
-   is the one piece of state in this repo that **cannot be regenerated**: it accumulates a worklist
-   across runs, including which taxa were deliberately skipped. Losing or corrupting it is the
-   damage worth preventing.
-2. **Consumption is the realistic attack.** A synchronous SQLite driver means every request blocks
-   the event loop, and the browser app spends the operator's IP against the iNaturalist, Commons and
-   Wikidata APIs. Bounding requests matters more than protecting response contents.
-3. **Write access is now here, and it is why the write guard exists.** `POST /api/findings/:id/confirm`,
-   `/skip`, and the uploads and import endpoints change stored state. They change *this app's*
-   state only — no external edit is made, and nothing is destroyed: the worst an attacker achieves
-   is marking findings skipped or planting rows in `uploads`, which is vandalism of a personal
-   worklist rather than of Wikidata. That severity rises sharply **whenever OAuth lands**, when the
-   same origin gains a token that can edit Commons and Wikidata directly — which is one reason that
-   work is now outside the roadmap's ordered plan rather than merely at the end of it.
+The posture behind it — what the app is from a security standpoint, and what is deliberately not
+done — moved on 2026-09-27 to the maintainer's planning notes (*Wikidata iNat Checker – Threat
+Model*); this page keeps what the code does.
 
 ## Deployment posture today
 
@@ -129,7 +108,7 @@ chosen, so it costs nothing an attacker could spend against the operator's API b
 
 **`clientId` (slice 8b) carries no trust of its own.** Skip, unskip and the findings list all accept
 a client-generated id used to scope per-client skips (see
-[findings-db-roadmap.md#8b-per-client-skip-scoping](findings-db-roadmap.md#8b-per-client-skip-scoping)).
+[links.md#statuses](links.md#statuses)).
 It is exactly as spoofable as `reason` or any other field the write guard already lets through —
 forging one lets a caller claim to be a different "known client," at most changing whose worklist a
 skip is scoped to. It is not an identity or auth mechanism, and nothing here treats it as one: the
@@ -154,9 +133,8 @@ in containers" but just as blocking day to day: **the operator's own browser on 
 could not trigger "Find more" or "Add to worklist" at all**, even with `DISCOVER_ENABLED=1` — the
 check was correct as written, just never satisfiable from outside the container's own network
 namespace. (`docker compose exec` still worked, since a process sharing that namespace genuinely is
-loopback — which is how the backlog stayed fillable at all before this slice.) See
-[findings-db-roadmap.md](findings-db-roadmap.md#10-discovery-reachable-from-a-deployed-container)
-for how this was investigated — Docker-networking-level fixes (`userland-proxy=false`,
+loopback — which is how the backlog stayed fillable at all before this slice.) The roadmap's
+slice 10 write-up (*Wikidata iNat Checker – Findings DB Roadmap*) records how this was investigated — Docker-networking-level fixes (`userland-proxy=false`,
 `network_mode: host`) were tried and rejected — before landing on what follows.
 
 **The replacement bounds *how much* discovery can cost instead of checking *who* is asking.** Two
@@ -413,38 +391,6 @@ would be discovered by users rather than by tests.
 - **Static serving is narrow.** Root is resolved from the module, not from the working directory;
   `serveDotFiles: false`; directory listing off; no SPA fallback (a fallback would turn every typo
   into a plausible-looking wrong page); `web/data/` is not served at all.
-
-## What is deliberately not done
-
-- **No authentication.** When the server was read-only this document said the posture must not
-  survive the first write endpoint without *either* authentication or an enforced loopback-only
-  bind. The second option was taken, deliberately: the bind is now enforced rather than defaulted,
-  and the write guard above covers the rest. A
-  shared token was considered and rejected as the wrong shape — a static browser app cannot hold a
-  secret, and a per-deployment token is not the per-user identity OAuth becomes, so building it
-  would have meant building the wrong thing first.
-  **This is what expires when OAuth lands**, when the same origin gains a token that can edit
-  Commons and Wikidata: at that point CSRF protection stops being enough on its own, because the
-  attacker's target is no longer this app's worklist but the operator's edit rights. That work is
-  deliberately outside the roadmap's ordered plan, so this posture is good for the whole of the
-  initial deployment and no further.
-- **No TLS.** Whatever fronts this deployment terminates it. That decision is also why `hsts` is off
-  here.
-- **No CORS plugin.** The app and the API are same-origin, so CORS is never consulted. If a separate
-  origin ever needs access it gets an explicit allowlist — never a wildcard, and never a wildcard
-  together with credentials.
-- **No read-only database handle.** `{ readOnly: true }` would have been the theoretically right
-  property for a read-only service, and it was considered and dropped: a read-only connection to a
-  WAL database fails when the `-shm` file does not exist and cannot be created, and fails outright
-  on a database that has not been created yet. The write endpoints then arrived and needed the
-  handle anyway.
-- **No CSRF tokens, sessions or per-user accounts.** Token-based CSRF protection needs server-side
-  state and a session to bind the token to; fetch metadata needs neither and cannot be forged by
-  page script, so it is both stronger and simpler here. Accounts arrive with OAuth, whenever that
-  happens, registering **this app's own** consumer rather than sharing one with the sibling projects.
-- **Uploads are never verified against Commons.** The `uploads` table records what the app was told
-  was uploaded; the app only ever pre-fills the upload form, so until the app performs the upload
-  itself, every row there is the operator's own claim and nothing depends on it being true.
 
 ## Concurrency and data safety
 

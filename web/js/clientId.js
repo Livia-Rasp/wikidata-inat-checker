@@ -1,6 +1,6 @@
 // An opaque, per-browser-profile id — not an identity or auth mechanism, just a label so the
 // server can tell "every known client has now skipped this" apart from "one person passed on it".
-// See docs/findings-db-roadmap.md's multi-user skip section (slice 8b) for why this exists: a
+// See docs/links.md's "Statuses" section (slice 8b) for why this exists: a
 // single global `skipped` status let one tester's Skip silently hide a taxon from everyone else.
 const KEY = 'winc-client-id';
 

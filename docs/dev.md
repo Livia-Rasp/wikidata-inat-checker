@@ -2,7 +2,7 @@
 
 The implementation reference: how the modules fit together, and why the non-obvious decisions are what they are. Written to be read on demand when debugging or extending a tool, not front to back — the section headings name the module each part belongs to.
 
-Its companion is [threat-model.md](threat-model.md) — the threat model for `server/`, why each header, limit and validation rule is there, and what is deliberately not done. Anything touching the HTTP surface belongs in that document, not this one.
+Its companion is [threat-model.md](threat-model.md) — the threat model for `server/`, why each header, limit and validation rule is there. Anything touching the HTTP surface belongs in that document, not this one.
 
 ## Module wiring
 
@@ -113,8 +113,7 @@ discoverLinks()
 shape: the sibling `xgboost-inat-wikidata-match` repo's `build_gold_labeling_kit.py` scrapes it
 with BeautifulSoup (`id="row-{qid}"`, `td.wd-col`, `td.taxon-col`, `class="candidate-row"`) to
 build its gold-labelling sample. Changing that markup without checking that script still parses it
-would silently break another project's reproducibility — see
-[links.md#beyond-this-checker-a-confidence-model](links.md#beyond-this-checker-a-confidence-model).
+would silently break another project's reproducibility.
 
 **Picking an ambiguous candidate (`lib/pick.js`).** `pickCandidate(store, id, inatId)` is how a
 human resolves an `ambiguous` finding in the app (`POST /findings/:id/pick`) — purely local, no
@@ -328,9 +327,7 @@ is argument parsing and HTML rendering around it. Four things about it are load-
   onto the mounted volume — and since slice 10 made discovery genuinely reachable through a
   published port, this stopped being moot and started being a real failure the first time a
   container-triggered run found anything actionable, because the container's root is `read_only:
-  true`. Fixed by making that one write best-effort (`lib/utils.js`'s `saveCommonsCatCache`) — see
-  [findings-db-roadmap.md](findings-db-roadmap.md#10-discovery-reachable-from-a-deployed-container)
-  for how it was found. The underlying fact (that write always lands inside the image, never on the
+  true`. Fixed by making that one write best-effort (`lib/utils.js`'s `saveCommonsCatCache`) — found during slice 10. The underlying fact (that write always lands inside the image, never on the
   mounted volume) is still worth knowing, since anything else that writes to `cache/` from a
   container-triggered run inherits the same trap.
 - **It runs in a forked child, never in the server process.** `allInatIds()` materialises 1.4M rows —
@@ -451,8 +448,8 @@ The daily-once gate reads `runs.triggered_by = 'schedule'`, which means it has t
 `discover()`'s own "a bad scope leaves no run behind" design has, one layer further out: a missing
 taxa index throws in `discoverChild.js` **before** `discover()` opens a run row at all, so that
 particular failure is invisible to the gate and gets retried every `TOPUP_CHECK_INTERVAL_MINUTES`
-rather than once a day. Written up in
-[findings-db-roadmap.md](findings-db-roadmap.md#5b-scheduled-top-up--done) as accepted, not fixed.
+rather than once a day. Accepted, not fixed — the reasoning is in
+[threat-model.md](threat-model.md#the-scheduled-top-up-slice-5b--why-it-needs-none-of-the-above).
 
 ### Searching the backlog (`lib/backlogIndex.js`)
 

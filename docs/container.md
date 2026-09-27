@@ -109,5 +109,5 @@ docker compose start
 Network exposure for anyone beyond the operator — a VPN/Tailscale hop, a reverse proxy with access
 control, or staying loopback-only — is still an open question (slice 9, narrowed 2026-08-26). This
 page's instructions assume the same posture as before: loopback-only, one operator. See
-[findings-db-roadmap.md](findings-db-roadmap.md) for the state of the plan, and
+[build-plan.md](build-plan.md) for the state of the plan, and
 [threat-model.md](threat-model.md) for what that posture protects against.

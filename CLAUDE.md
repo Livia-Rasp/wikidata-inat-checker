@@ -3,7 +3,11 @@
 Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 Project-level ToDos live in the Obsidian vault, not here — query them with `vault_tasks` /
-`vault_overview` (`winged-eye-obsidian` MCP, read-only; never write to the vault).
+`vault_overview` (`winged-eye-obsidian` MCP, read-only). **Plans, research and security posture
+are vault plan notes** under `Plans/Wikidata iNat Checker/`, titled `Wikidata iNat Checker – <Topic>`
+(the Findings DB Roadmap, Threat Model, Commons Integration, Commons Upload Design, Link Confidence
+Model); `vault_search` finds them. Edit plan notes directly as part of the work they plan, and
+commit them in the vault separately; never write any other vault note.
 
 Keep this file short. Details belong in `docs/`, linked from here.
 
@@ -73,7 +77,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | iNat links stats | `checkLinksStats.js` | per-IUCN match/ambig breakdown (no HTML) | [links.md](docs/links.md) |
 | Area checker | `checkArea.js` | image-less taxa observed near a location; also a discovery scope in the app (`/area`) | [area.md](docs/area.md) |
 | Category draft | `draftCategory.js` | Commons category draft for given taxon QID(s) | [images.md](docs/images.md#generating-a-single-category-draft) |
-| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) |
+| Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 | Log-reading MCP server | `mcp-server/` | six read-only tools over `server/`'s rotated logs | [logging.md](docs/logging.md) · [mcp-server.md](docs/mcp-server.md) |
 | Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
@@ -153,18 +157,18 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   gotchas, the findings store, discovery, search, confirm-vs-verify, SPARQL/CirrusSearch
   patterns, Commons Taxonavigation rules. **Read on demand when debugging or extending.**
 - [`docs/threat-model.md`](docs/threat-model.md) — the threat model for `server/`, every header, limit
-  and environment variable, and what is deliberately not done. **Read it before adding any
-  endpoint that writes or talks to an authenticated API.**
+  and environment variable; what is deliberately not done is the vault's *Threat Model* plan note.
+  **Read both before adding any endpoint that writes or talks to an authenticated API.**
 - [`docs/logging.md`](docs/logging.md) — what `server/logger.js` logs and why, the `log = console`
   convention through `lib/`, and `timed()`'s step tracing. [`docs/mcp-server.md`](docs/mcp-server.md)
   — the standalone MCP server that reads those logs, its own threat model. **Read both before
   changing what gets logged, or adding a tool to `mcp-server/`.**
-- [`docs/findings-db-roadmap.md`](docs/findings-db-roadmap.md) — the plan of record for the
-  restructure around `data/findings.db`. Slices 0–8 and 10 are done; 9 remains, and OAuth is
-  deliberately outside the plan. Two known gaps are written up there rather than fixed: a **CLI
-  run killed outright stays `running`** (only the server reconciles), and the **scheduled top-up
-  retries every interval rather than once a day** when the taxa index is missing (no run row is
-  ever opened for that failure, so the daily-once gate can't see it). **Read it before changing
-  anything about caching, persistence, or the web app.**
-- [`docs/commons-integration.md`](docs/commons-integration.md) — app-agnostic Commons/iNat/
-  Wikidata recipes, the reference for building further Commons-upload tools.
+- [`docs/build-plan.md`](docs/build-plan.md) — the slice ladder for the restructure around
+  `data/findings.db`; each slice's plan and write-up is the vault's *Findings DB Roadmap*. Only 9b
+  (beta-tester access) remains, and OAuth is deliberately outside the plan. **Read the roadmap
+  before changing anything about caching, persistence, or the web app.**
+- [`docs/todo.md`](docs/todo.md) — known defects: a **CLI run killed outright stays `running`**
+  (only the server reconciles). The other known gap, the **scheduled top-up retrying every
+  interval** when the taxa index is missing, is accepted and written up in `threat-model.md`.
+- The vault's *Commons Integration* — app-agnostic Commons/iNat/Wikidata recipes, the reference
+  for building further Commons-upload tools.
