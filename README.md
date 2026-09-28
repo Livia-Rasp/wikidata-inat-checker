@@ -74,7 +74,10 @@ tests and the container smoke test pass. See the
 The whole loop: pick a taxon off the worklist, choose one of its CC-licensed iNaturalist photos as
 the Wikidata image, watch the two QuickStatements appear, then confirm.
 
-![The upload loop: the worklist, a taxon's photo gallery, picking a photo as the Wikidata image, the generated QuickStatements, and a confirm that comes back green](docs/screenshots/demo.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/demo-dark.gif">
+  <img src="docs/screenshots/demo-light.gif" alt="The upload loop: the worklist, a taxon's photo gallery, picking a photo as the Wikidata image, the generated QuickStatements, and a confirm that comes back green">
+</picture>
 
 The confirm in that recording is real. It asks live Wikidata whether both the image (P18) and the
 Commons-category sitelink are there, and only then does the row leave the backlog. The recording is

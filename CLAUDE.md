@@ -35,7 +35,7 @@ npm run test:coverage                       # …with the CI coverage floor enfo
 npm run lint                                # oxlint, correctness category only
 npm run typecheck                           # tsc over jsconfig.json, then web/jsconfig.json
 npm run screenshots                         # regenerate docs/screenshots/ (needs Chromium)
-npm run record                              # re-record demo.gif (needs Chromium + ffmpeg)
+npm run record                              # re-record demo-{dark,light}.gif (needs Chromium + ffmpeg)
 npm run backup                              # snapshot data/findings.db, prune old ones (see container.md)
 
 docker compose up --build                   # the server + the log-reading MCP server, in containers
