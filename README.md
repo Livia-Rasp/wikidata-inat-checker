@@ -178,6 +178,7 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 | [mcp-server.md](docs/mcp-server.md) | The standalone MCP server that reads those logs: its six tools, its own threat model. |
 | [container.md](docs/container.md) | Running the server (and the log-reading MCP server) in Docker, and what still needs the CLI. |
 | [build-plan.md](docs/build-plan.md) · [todo.md](docs/todo.md) | The ordered slice ladder for the persistent-database restructure, and the known defects. |
+| [decisions.md](docs/decisions.md) | Repository-level decisions no other page records: the public image and its badge, what going public changed, logging, the style checks. |
 | [commons-upload.md](docs/commons-upload.md) | The upload app: what it does, how it fits together, and how to test it. |
 
 Plans, research and the design history behind these pages are kept in the maintainer's own

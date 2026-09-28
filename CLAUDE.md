@@ -153,6 +153,8 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
 
 ## Read before you change
 
+- [`docs/decisions.md`](docs/decisions.md) — repository-level decisions no other page records.
+  **Read before proposing to reverse one.**
 - [`docs/dev.md`](docs/dev.md) — module wiring, the SQLite taxa index and the `node:sqlite`
   gotchas, the findings store, discovery, search, confirm-vs-verify, SPARQL/CirrusSearch
   patterns, Commons Taxonavigation rules. **Read on demand when debugging or extending.**
