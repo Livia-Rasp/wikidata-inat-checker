@@ -58,7 +58,7 @@ jobs:
       # and updates the digest and the comment together. That edits this file, so it is one of the
       # reasons the token needs Workflows write — see below.
       - name: Renovate
-        uses: renovatebot/github-action@37beffda261423addd537c33f2d126df7f6ffbab # v46.2.6
+        uses: renovatebot/github-action@dcfba84a42d1b5d5e49bf131b1bf53511851a123 # v46.3.1
         with:
           # NOT the default GITHUB_TOKEN. Pull requests opened with it get their workflow runs
           # held in an approval-required state (GitHub changed this in June 2026 — before that
