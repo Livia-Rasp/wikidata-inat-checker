@@ -145,7 +145,8 @@ export async function startServer(dbPath, port, origin) {
  * ambient default, so a capture stays deterministic across machines and Chromium versions. A
  * fresh profile has no localStorage theme tag, so web/js/shell.js falls back to
  * prefers-color-scheme, which this forces. Use setTheme() to flip it mid-session without
- * restarting the browser, e.g. to capture both a dark and a light pass.
+ * restarting the browser, e.g. to capture both a dark and a light pass. The recording instead
+ * starts a fresh browser per theme, because its pass leaves state in the profile.
  */
 export async function startBrowser(chromeBin, profileDir, debugPort, onEvent = null, theme = 'dark') {
     const browser = spawn(chromeBin, [

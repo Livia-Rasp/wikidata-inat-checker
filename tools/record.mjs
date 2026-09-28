@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-check
-// Records docs/screenshots/demo.gif — `npm run record`.
+// Records docs/screenshots/demo-{dark,light}.gif — `npm run record`.
 //
 // The screenshots show four pages standing still. What they cannot show is the thing the app is
 // actually for: that a photo goes from iNaturalist to Commons to Wikidata, and that the app
@@ -27,7 +27,7 @@ import {
 
 const SOURCE_DB = findingsDbPath();
 const OUT_DIR = 'docs/screenshots';
-const OUT_FILE = join(OUT_DIR, 'demo.gif');
+const THEMES = ['dark', 'light'];
 const PORT = Number(process.env.RECORD_PORT) || 8098;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 
@@ -177,15 +177,13 @@ async function main() {
     console.log(`  ✓ ${chrome.version}`);
 
     const { dir: work, owned } = makeWorkspace('winc-record-');
-    const dbCopy = join(work, 'record.db');
-    const framesDir = join(work, 'frames');
-    mkdirSync(framesDir, { recursive: true });
+    const pickDb = join(work, 'pick.db');
 
-    const open = copyFindingsDb(SOURCE_DB, dbCopy);
-    console.log(`  ✓ ${open} open findings (working on a copy, not ${SOURCE_DB})`);
+    const open = copyFindingsDb(SOURCE_DB, pickDb);
+    console.log(`  ✓ ${open} open findings (working on copies, not ${SOURCE_DB})`);
 
     console.log('  … asking Wikidata which backlog taxon is already complete');
-    const subject = await pickConfirmable(dbCopy);
+    const subject = await pickConfirmable(pickDb);
     if (!subject) {
         die('No open finding currently has both a P18 and a Commons-category sitelink on Wikidata.\n  ' +
             'The recording ends on a confirm that succeeds, and this one would fail, so it is not\n  ' +
@@ -193,10 +191,42 @@ async function main() {
     }
     console.log(`  ✓ ${subject.name} (${subject.qid}) — P18 and Category:${subject.category} are both live`);
 
+    // One recording per theme, of the same taxon. Each pass starts from nothing: its confirm
+    // closes the finding in its database copy, and its P18 pick and queued QuickStatements live
+    // in its browser profile, so a second pass on the first one's state would open on a worklist
+    // that no longer has the row it is about.
+    for (const theme of THEMES) {
+        await recordPass(chrome.bin, work, owned, subject, theme);
+        await stopOwned(owned);
+    }
+    console.log('\n  Recordings regenerated. Commit them alongside the change that made them stale.');
+}
+
+/**
+ * Kill the server and browser a pass started, and wait until both have actually exited — the
+ * next pass binds the same ports.
+ */
+async function stopOwned(owned) {
+    try { owned.cdp?.close(); } catch { /* already gone */ }
+    await Promise.all([owned.browser, owned.server].filter(Boolean).map((p) =>
+        p.exitCode !== null || p.signalCode !== null
+            ? undefined
+            : new Promise((res) => { p.once('exit', res); p.kill(); })));
+    owned.cdp = owned.browser = owned.server = null;
+}
+
+/** Record the whole loop once, in one theme, into docs/screenshots/demo-<theme>.gif. */
+async function recordPass(chromeBin, work, owned, subject, theme) {
+    console.log(`\n  ${theme}`);
+    const dbCopy = join(work, `record-${theme}.db`);
+    const framesDir = join(work, `frames-${theme}`);
+    mkdirSync(framesDir, { recursive: true });
+    copyFindingsDb(SOURCE_DB, dbCopy);
+
     owned.server = await startServer(dbCopy, PORT, ORIGIN);
     console.log(`  ✓ server on :${PORT}`);
 
-    const { browser, cdp } = await startBrowser(chrome.bin, join(work, 'profile'), 9334);
+    const { browser, cdp } = await startBrowser(chromeBin, join(work, `profile-${theme}`), 9334, null, theme);
     owned.browser = browser;
     owned.cdp = cdp;
     await cdp.send('Emulation.setDeviceMetricsOverride',
@@ -208,7 +238,7 @@ async function main() {
     // Each step announces itself. A recording run is minutes long and mostly silent, and the
     // gallery step in particular waits on throttled third-party enrichment, so without this a
     // slow step and a hung one look identical.
-    const step = (n, what) => console.log(`  … ${n}/5 ${what}`);
+    const step = (n, what) => console.log(`  … ${theme} ${n}/5 ${what}`);
 
     // Load the first page before the shutter opens. A capture in flight when a navigation commits
     // is dropped by the browser, and the opening frame would otherwise always race the first
@@ -284,14 +314,14 @@ async function main() {
 
     console.log(`  ✓ ${frames} frames`);
     mkdirSync(OUT_DIR, { recursive: true });
-    await encode(framesDir, OUT_FILE);
+    const out = join(OUT_DIR, `demo-${theme}.gif`);
+    await encode(framesDir, out);
 
-    const kb = statSync(OUT_FILE).size / 1024;
-    console.log(`  → ${OUT_FILE}  ${WIDTH}×${HEIGHT}  ${kb.toFixed(0)} KB`);
+    const kb = statSync(out).size / 1024;
+    console.log(`  → ${out}  ${WIDTH}×${HEIGHT}  ${kb.toFixed(0)} KB`);
     if (kb > 5 * 1024) {
         console.log('  ! Over 5 MB. Drop FPS or WIDTH before trading away legibility.');
     }
-    console.log('\n  Recording regenerated. Commit it alongside the change that made it stale.');
 }
 
 await main();
