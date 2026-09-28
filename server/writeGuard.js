@@ -19,7 +19,7 @@
 // Discovery (POST /discover, GET /discover/area) used to add a fourth check on top of these three —
 // a loopback TCP peer address, since it spends the operator's Wikimedia/iNaturalist API budget, not
 // just stored state. That check could never be satisfied through a published Docker port (slice 10,
-// docs/findings-db-roadmap.md), so it is gone: cost is now bounded by an hourly-refilling token
+// docs/threat-model.md), so it is gone: cost is now bounded by an hourly-refilling token
 // bucket in the route handler (lib/db.js's drawDiscoverBudget), not by checking who is asking. The
 // one thing that survives from that mechanism is `costsBudget` below — GET /discover/area still
 // needs *this* guard's protection even though GET is normally exempt, because unlike an ordinary

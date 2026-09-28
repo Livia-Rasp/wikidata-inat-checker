@@ -173,13 +173,15 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 | Document | What it covers |
 |---|---|
 | [dev.md](docs/dev.md) | The implementation reference: module wiring, the taxa index, the findings store, discovery, search, the SPARQL and CirrusSearch patterns. |
-| [threat-model.md](docs/threat-model.md) | What the server defends against and why, including what is deliberately *not* done. A design record, not a disclosure policy. |
+| [threat-model.md](docs/threat-model.md) | What the server defends against and why: every header, limit and environment variable. A design record, not a disclosure policy. |
 | [logging.md](docs/logging.md) | What the server logs, and why — the dual stdout/rotated-file setup, correlation ids, `timed()` step tracing. |
 | [mcp-server.md](docs/mcp-server.md) | The standalone MCP server that reads those logs: its six tools, its own threat model. |
 | [container.md](docs/container.md) | Running the server (and the log-reading MCP server) in Docker, and what still needs the CLI. |
-| [findings-db-roadmap.md](docs/findings-db-roadmap.md) | The plan of record for the persistent-database restructure: the slices, the schema, and the decisions that were reversed during the build. |
-| [commons-integration.md](docs/commons-integration.md) | App-agnostic Commons/iNat/Wikidata recipes, written to be reusable outside this project. |
-| [commons-upload.md](docs/commons-upload.md) · [commons-upload-dev.md](docs/commons-upload-dev.md) | The upload app: what it does, and the design record behind it. |
+| [build-plan.md](docs/build-plan.md) · [todo.md](docs/todo.md) | The ordered slice ladder for the persistent-database restructure, and the known defects. |
+| [commons-upload.md](docs/commons-upload.md) | The upload app: what it does, how it fits together, and how to test it. |
+
+Plans, research and the design history behind these pages are kept in the maintainer's own
+planning notes, outside this repository. Git history keeps the versions that were published here.
 
 ## License
 

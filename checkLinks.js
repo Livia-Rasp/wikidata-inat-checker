@@ -7,7 +7,7 @@
 // output/links-ambiguous.html keeps its exact row/column shape (id="row-{qid}", td.wd-col,
 // td.taxon-col, class="candidate-row") on purpose: the sibling xgboost-inat-wikidata-match repo's
 // build_gold_labeling_kit.py scrapes it with BeautifulSoup for its gold-labeling sample. See
-// docs/findings-db-roadmap.md's slice 7 write-up.
+// docs/dev.md's links checker section.
 import fs from 'fs';
 import { openFindingsDb } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';

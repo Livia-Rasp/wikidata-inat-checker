@@ -46,7 +46,7 @@ latest run's. Six statuses:
 | Status | Meaning | Payload |
 |---|---|---|
 | `open` | Exactly one same-named iNat taxon, not claimed elsewhere — a proposed P3151 statement | `inatId`, `rank`, `evidence` (rank-agreement summary), `autoEligible` |
-| `ambiguous` | Two or more same-named iNat taxa — needs a human pick | `wdChain`, `candidates[]` (each with `inatId`, `rank`, `evidence`, its own `inatChain`, and reserved `score`/`scoredBy` — see [Beyond this checker](#beyond-this-checker-a-confidence-model)) |
+| `ambiguous` | Two or more same-named iNat taxa — needs a human pick | `wdChain`, `candidates[]` (each with `inatId`, `rank`, `evidence`, its own `inatChain`, and reserved `score`/`scoredBy`, unset until a confidence model fills them) |
 | `conflict` | The matched iNat id is already claimed by a *different* Wikidata item, with no known P13177 link between them | `inatId`, `rank`, `evidence`, `wdChain`, `inatChain`, `existingWdItem`, `existingTaxonName` |
 | `no_match` | The taxon name isn't in the local iNat index at all | none — expires after `--recheck-after` days (default 90), like `no_photos`/`no_draft` for images |
 | `done` | Live Wikidata now carries the proposed P3151 (set by [Confirm](#confirm)) | `resolution` records what was confirmed |
@@ -59,8 +59,8 @@ re-processes them. Only `no_match` expires and becomes a candidate again.
 flips `status` on its own — it only does once every browser profile the app has ever seen (or one
 skip marked "forever") has passed on the same finding, so one tester's judgement can't silently hide
 work from everyone else. Until then the row stays exactly as it was; only the client who skipped it
-stops seeing it on their own worklist. See
-[findings-db-roadmap.md#8b-per-client-skip-scoping](findings-db-roadmap.md#8b-per-client-skip-scoping).
+stops seeing it on their own worklist. The design record is slice 8b's write-up in the
+maintainer's planning notes (*Wikidata iNat Checker – Findings DB Roadmap*).
 
 `evidence` is `{matches, mismatches, matchedRanks}` — the rank-by-rank agreement count, not the
 full ancestor chains. `open` findings only ever carry this summary; `ambiguous` and `conflict`
@@ -122,7 +122,7 @@ findings:
 whose `build_gold_labeling_kit.py` scrapes `output/links-ambiguous.html`'s exact row structure
 (`id="row-{qid}"`, `td.wd-col`, `td.taxon-col`, `class="candidate-row"`) to build its gold-labelling
 sample. Changing that markup shape without checking that script still parses it would silently
-break another project's reproducibility. See [Beyond this checker](#beyond-this-checker-a-confidence-model).
+break another project's reproducibility.
 
 ## output/links.html columns
 
@@ -191,8 +191,7 @@ extra either way (no network call), so they are always recorded regardless of th
 The ancestor-chain fetch for clean matches is the expensive part skipped here: one SPARQL batch
 per 100 matches, up to 2 in flight, and at a `--limit` in the tens of thousands it dominates a run.
 
-**This is how the sibling `xgboost-inat-wikidata-match` repo sources its gold-labelling sample** —
-see [Beyond this checker](#beyond-this-checker-a-confidence-model). It cuts a large-`--limit` run
+**This is how the sibling `xgboost-inat-wikidata-match` repo sources its gold-labelling sample.** It cuts a large-`--limit` run
 from well over an hour to single-digit minutes, and avoids most of the exposure to WDQS's
 intermittent truncated and slow responses.
 
@@ -211,34 +210,6 @@ whichever candidate is itself a known ancestor of the item. This does not resolv
 fork in Wikidata's graph — where several candidate parents are each genuinely part of the item's
 closure, the choice among them is deterministic but not necessarily canonical — but it eliminates
 the nondeterministic overwrite and the dead-end truncation, which was the concrete defect.
-
-## Beyond this checker: a confidence model
-
-**Not built. To do, tracked for a future slice.** A separate repo,
-[`xgboost-inat-wikidata-match`](https://github.com/Livia-Rasp/xgboost-inat-wikidata-match), trains
-an XGBoost classifier that ranks ambiguous iNat candidates by confidence — 98.7% top-1 accuracy on
-a hand-labelled gold set, against 20.9% for exact-name matching alone. Its own `docs/future-work.md`
-names "close the loop back into the Node tool" as the next step, currently blocked on threshold
-work: at the precision bar this task needs, the model ranks well but doesn't yet decide, so the
-honest output today is a ranking a human still reviews, not an auto-accept.
-
-The findings-DB migration was deliberately shaped to make that integration easier when it happens,
-without needing a schema change:
-
-- Every `ambiguous` candidate already carries reserved `score` and `scoredBy` fields, currently
-  always `null` — a scoring pass would fill them in and record which model version produced them.
-- The full `wdChain`/`inatChain` evidence a model would want as features is already on the finding
-  (see [Statuses](#statuses)), reachable via `GET /api/findings?kind=link&status=ambiguous`
-  instead of scraping HTML.
-- `output/links-ambiguous.html` keeps being generated in the exact shape
-  `build_gold_labeling_kit.py` already parses, so the gold-labelling workflow that trains the model
-  is unaffected either way.
-
-What integrating it would still need, roughly: a scoring pass (Node, calling into the Python
-model, or a small service) that reads open `ambiguous` findings and writes `score`/`scoredBy` back
-via a new endpoint or a direct DB write; a decision in the app for what a score changes about the
-review UI (a sort order, a threshold-based auto-suggestion, nothing that writes P3151 without a
-human, given the model's own stated precision ceiling). None of this is scheduled yet.
 
 ## Typical workflow
 

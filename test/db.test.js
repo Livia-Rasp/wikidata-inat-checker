@@ -536,7 +536,7 @@ test('pruneRequestLog deletes only buckets older than the retention window', () 
 
 test('vacuumInto writes a real, independently-openable snapshot', () => {
     // VACUUM INTO writes a target file regardless of whether the source is :memory: — the whole
-    // reason it was chosen for backups (docs/findings-db-roadmap.md) over a filesystem copy is
+    // reason it was chosen for backups (docs/container.md) over a filesystem copy is
     // that it produces a consistent snapshot without needing the source connection closed first.
     const { store } = makeStore();
     seed(store, 'Q1', 'open', { wikitext: 'precious' });

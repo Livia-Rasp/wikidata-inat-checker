@@ -1,9 +1,9 @@
 // @ts-check
 // Slice 5b: a scheduled discovery top-up. Runs once a day, preferring a quiet hour derived from
 // measured request volume, but with a deadline catch-up that ignores quiet hours rather than let
-// a whole day pass with no run at all. A bigger backlog never blocks a run — see
-// docs/findings-db-roadmap.md's 5b section for why that's a deliberate departure from the roadmap's
-// original "only when the backlog is below a threshold" draft.
+// a whole day pass with no run at all. A bigger backlog never blocks a run — a deliberate
+// departure from the roadmap's original "only when the backlog is below a threshold" draft,
+// reasoned in slice 5b's write-up in the maintainer's planning notes.
 //
 // This is just another caller of jobs.start(), in-process — the same single-flight lock and job
 // runner server/routes/discover.js uses. That is also why it needs no privilege mechanism of its
