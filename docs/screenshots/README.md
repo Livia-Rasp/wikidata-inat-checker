@@ -20,7 +20,7 @@ always the one the capture happened to pin.
 | File | Page |
 |---|---|
 | `worklist-{dark,light}.png` | `web/index.html` — the backlog table and the QuickStatements panel |
-| `links-{dark,light}.png` | `web/links.html` — the ambiguous/conflict review section (the worklist half looks like `worklist.png`'s, so the shot skips straight to what's new) |
+| `links-{dark,light}.png` | `web/links.html` — the ambiguous/conflict review section (the worklist half looks like the worklist shot's, so the shot skips straight to what's new) |
 | `names-{dark,light}.png` | `web/names.html` — the worklist, one row (a name row's height varies with how many languages are missing, so even one is routinely taller than an images/links row) |
 | `search-{dark,light}.png` | `web/search.html` — clade search, scoped to Orchidaceae |
 | `area-{dark,light}.jpg` | `web/area.html` — the map picker, scoped to 15km around Munich |
@@ -46,10 +46,10 @@ says so, rather than recording a confirm that fails.
 That also means the subject changes over time, as taxa get fixed upstream. That is fine. The point
 being demonstrated is the loop, not the species.
 
-`area.jpg` needs live network access to OpenStreetMap's tile servers at capture time — the map
+`area-{dark,light}.jpg` needs live network access to OpenStreetMap's tile servers at capture time — the map
 itself is vendored (`web/vendor/leaflet/`), but the tiles it draws are always fetched fresh, the
 same as every other page's iNat/Wikidata calls. It is a JPEG rather than a PNG for the same reason
-`gallery.jpg` is: map tiles are photographic-density raster content that PNG compresses badly (2.9
+the gallery shots are: map tiles are photographic-density raster content that PNG compresses badly (2.9
 MB as one, versus a few hundred KB as a JPEG).
 
 **Theme is pinned explicitly for each pass**, via a CDP `Emulation.setEmulatedMedia` call before
@@ -71,7 +71,7 @@ wrong. The capture waits for each page's *meaningful* ready state rather than me
 gallery, in particular, renders its cards with grey "Preparing…" buttons and fills them in as
 enrichment resolves, so an early shutter documents an app that looks broken.
 
-The photographs shown in `gallery.jpg` are other people's work, reproduced under their licences —
+The photographs shown in `gallery-{dark,light}.jpg` are other people's work, reproduced under their licences —
 currently *Bulbophyllum radicans* by Lachlan Copeland (CC BY-SA) and Lucas Christofides (CC BY),
 via iNaturalist. The app renders the licence and photographer on every card, so the attribution
 travels with the image; keep it that way if you change the taxon.
