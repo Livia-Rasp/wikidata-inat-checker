@@ -4,15 +4,17 @@
 docker compose up --build     # then open http://localhost:8080
 ```
 
-The image runs the server only. No checkers run inside it, and only the CLI may build the taxa
-index that discovery needs — a run started inside the image fails in milliseconds without it.
-Discovery itself, once that index exists, works normally through the published port (slice 10) —
-see "Two limits worth knowing" below for what that means in practice. The reasons for both are in
-[threat-model.md](threat-model.md).
+`docker compose up` runs the server only. The server never builds the taxa index that discovery
+needs — a run started without it fails in milliseconds — but the same image can: the checkers
+run from it through the `cli` service, below. Discovery itself, once that index exists, works
+normally through the published port (slice 10) — see "Two limits worth knowing" below for what
+that means in practice. The reasons for both are in [threat-model.md](threat-model.md).
 
 It bind-mounts `./data`, so the container and your host share one database. Run `npm run images`
 on the host and the new findings appear without a restart. The published port is bound to the
 host's loopback, so `docker compose up` does not put an unauthenticated API on your network.
+Serving a LAN from a host that has only Docker is the same file plus a `.env`:
+[deployment.md](deployment.md).
 
 ## If your uid is not 1000
 
@@ -37,9 +39,29 @@ same-origin) any of these routes get, but is otherwise ordinary now too. All thr
 
 **The iNaturalist taxa index is not in the image.** That is ~236 MB of derived data, and only the
 CLI may build it. Without it, discovery fails immediately (`taxa_index_unavailable`) but the app
-still serves everything else — search falls back to name matching rather than failing. Fill the
-backlog with the CLI first (`node checkImages.js` etc., against the same bind-mounted `./data`),
-and once the index exists, discovery through the app works normally.
+still serves everything else — search falls back to name matching rather than failing. The
+server looks for it in `./taxa-index` (`WINC_TAXA`), mounted read-only, and a checker run through
+the `cli` service puts it there; once it exists, discovery through the app works normally with no
+restart.
+
+That directory is deliberately not `~/.cache/wikidata-inat-checker`, where a checker run on the
+host keeps its index: Docker creates a missing bind-mount source as root, so defaulting to the
+host's cache would break the host CLI on any machine that had not built an index yet. To share
+one index between both, set `WINC_TAXA=$HOME/.cache/wikidata-inat-checker`.
+
+## The checkers, from the image
+
+```sh
+docker compose run --rm cli checkImages.js --iucn CR --limit 500
+docker compose run --rm cli verifyFindings.js
+docker compose run --rm cli tools/backup.mjs
+```
+
+`cli` is the same image with `node` as its entrypoint, behind a compose profile so `up` never
+starts it. It mounts `data/`, `output/`, `cache/`, `backups/` and the taxa index read-write —
+create the first four before the first run, or Docker creates them as root. It exists for a host
+with no Node; where Node 26 is installed, `npm run images` against the same `./data` does the
+same thing. `tools/backup.mjs` is the one file from `tools/` the image carries.
 
 ## The published image
 
@@ -85,8 +107,9 @@ npm run backup                 # writes backups/findings-<timestamp>.db, prunes 
 npm run backup -- --keep 30    # a different retention count
 ```
 
-Runs from the **host**, against `data/findings.db` directly — not inside the container, which has a
-read-only root filesystem and no cron. This is the same two-process-one-file arrangement the CLI
+Runs beside the server, against `data/findings.db` directly — from the host, or on a host without
+Node as `docker compose run --rm -T cli tools/backup.mjs`. Either way the timer is the host's:
+the container has no cron. This is the same two-process-one-file arrangement the CLI
 checkers already use: `VACUUM INTO` takes a read lock and produces a consistent snapshot regardless
 of what else is writing to the file at the time, so it's safe to run on a timer without stopping
 anything first. Add it to the host's crontab once this is actually deployed somewhere:
@@ -106,8 +129,8 @@ docker compose start
 
 ## Not yet decided
 
-Network exposure for anyone beyond the operator — a VPN/Tailscale hop, a reverse proxy with access
-control, or staying loopback-only — is still an open question (slice 9, narrowed 2026-08-26). This
-page's instructions assume the same posture as before: loopback-only, one operator. See
-[build-plan.md](build-plan.md) for the state of the plan, and
-[threat-model.md](threat-model.md) for what that posture protects against.
+Access for anyone beyond the operator — a VPN/Tailscale hop, a reverse proxy with access control,
+or per-tester tunnels — is still an open question (slice 9b). What is decided is the step before
+it: one operator, on the LAN, over plain http ([deployment.md](deployment.md)). This page's
+defaults are still loopback-only. See [build-plan.md](build-plan.md) for the state of the plan,
+and [threat-model.md](threat-model.md) for what each posture protects against.

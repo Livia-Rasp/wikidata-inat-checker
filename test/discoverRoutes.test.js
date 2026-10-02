@@ -79,7 +79,9 @@ const post = (app, url, payload, headers = {}) => app.inject({
 /** A GET as the app's own page would make it. `remoteAddress` no longer gates anything here (slice
  *  10 replaced the loopback-peer check with a token budget) — kept as a parameter only so tests can
  *  show the peer address genuinely does not matter any more. */
-const get = (app, url, remoteAddress = '127.0.0.1') => app.inject({ method: 'GET', url, remoteAddress });
+const get = (app, url, remoteAddress = '127.0.0.1') => app.inject({
+    method: 'GET', url, remoteAddress, headers: { 'x-requested-with': 'fetch' },
+});
 
 /** A fetchAreaCandidatesFn stub yielding rows shaped like fetchAreaCandidates's own output. */
 function areaCandidatesFn(rows) {

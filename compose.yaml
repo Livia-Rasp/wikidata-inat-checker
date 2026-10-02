@@ -6,15 +6,22 @@
 # convenience only — the *server* must never run `docker compose up --build` itself, since that
 # rebuilds from whatever source happens to be checked out there rather than the image CI already
 # built and smoke-tested. Backing the database up is tools/backup.mjs (`npm run backup`), run from
-# the host on a timer; see docs/container.md. Network exposure for anyone beyond the operator is
-# still undecided (slice 9, narrowed 2026-08-26) — this file does not change that.
+# a timer; see docs/container.md.
+#
+# Loopback-only unless told otherwise. The home-server deployment is this same file plus a
+# gitignored `.env` beside it (template: .env.example) that sets WINC_BIND and WINC_ALLOWED_HOSTS —
+# see docs/deployment.md. With no `.env`, nothing here reaches the network. Access for anyone
+# beyond the operator is still undecided (slice 9b).
 #
 # No top-level `version:` — it has been obsolete since Compose v2 and only earns a warning.
 
 services:
   web:
     build: .
-    image: ghcr.io/livia-rasp/wikidata-inat-checker:latest
+    # WINC_TAG is the rollback lever: set it to a version or commit-sha tag in `.env` and
+    # Watchtower leaves the container alone, since that tag no longer moves. See
+    # docs/deployment.md.
+    image: ghcr.io/livia-rasp/wikidata-inat-checker:${WINC_TAG:-latest}
 
     # tini as PID 1. Not for the usual reason: the app already signals its own discovery child
     # (server/app.js's onClose hook SIGTERMs it with a 5 s escalation). This is for reaping any
@@ -49,10 +56,12 @@ services:
     tmpfs:
       - /tmp
 
-    # Bound to the host's loopback, so publishing the port does not also publish the app to the
-    # LAN. The API is unauthenticated; see docs/threat-model.md.
+    # Bound to the host's loopback by default, so publishing the port does not also publish the
+    # app to the LAN. The API is unauthenticated; see docs/threat-model.md. WINC_BIND=0.0.0.0 (or
+    # one LAN address) is the deliberate act of serving the network, and it is the only
+    # network-level control there is: Docker's published ports bypass ufw.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${WINC_BIND:-127.0.0.1}:8080:8080"
 
     # The DIRECTORY, never the .db file. A single-file bind mount is pinned to an inode, so a
     # checkpoint restart or a VACUUM INTO would silently detach the container's view from the
@@ -74,6 +83,15 @@ services:
       # needing `docker volume inspect` first. See docs/logging.md.
       - ${WINC_LOGS:-./logs}:/app/logs
 
+      # The iNaturalist taxa index, where lib/getInatTaxaDb.js looks for it (HOME is /home/node).
+      # Read-only here: the server never builds it, only the `cli` service below does. Empty until
+      # that has run once, and then discovery answers `taxa_index_unavailable` while everything
+      # else works. taxa-index/.gitkeep is tracked for the reason logs/.gitkeep is — Docker would
+      # otherwise create the directory as root. Repo-local by default rather than ~/.cache, so a
+      # first `docker compose up` cannot root-create the directory the host CLI writes to; point
+      # WINC_TAXA at ~/.cache/wikidata-inat-checker to share one index with the host CLI.
+      - ${WINC_TAXA:-./taxa-index}:/home/node/.cache/wikidata-inat-checker:ro
+
     environment:
       # A container is reached from outside its own network namespace, so the default 127.0.0.1
       # bind would be unreachable through the published port. server/index.js refuses a
@@ -83,12 +101,24 @@ services:
       ALLOW_REMOTE_WRITES: "1"
       FINDINGS_DB: /app/data/findings.db
 
-      # ALLOWED_HOSTS is deliberately NOT set. The write guard already accepts the loopback
-      # names, and the app is reached as localhost:8080, so the Host header is `localhost`.
-      # Set it only when a reverse proxy puts a different name in front, together with
-      # TRUST_PROXY set to that proxy's address:
-      #   ALLOWED_HOSTS: "inat.example"
-      #   TRUST_PROXY: "127.0.0.1"
+      # Empty by default: the write guard already accepts the loopback names, and the app is
+      # reached as localhost:8080. A LAN deployment lists every name and address a browser will
+      # use for this host (no port), or every write is refused with `host_not_allowed`:
+      #   WINC_ALLOWED_HOSTS=<host name>,<host address>
+      ALLOWED_HOSTS: "${WINC_ALLOWED_HOSTS:-}"
+
+      # TRUST_PROXY is deliberately NOT set. Nothing proxies this: a LAN client reaching the
+      # published port keeps its own source address, so the rate limiter already buckets per
+      # client. Set it, to the proxy's address, only when a reverse proxy goes in front.
+
+      # Discovery and the daily top-up, both off unless the `.env` turns them on. An empty value
+      # is the same as unset (server/index.js). Both spend Wikidata and iNaturalist API budget,
+      # and neither does anything until the taxa index above exists.
+      DISCOVER_ENABLED: "${DISCOVER_ENABLED:-}"
+      TOPUP_ENABLED: "${TOPUP_ENABLED:-}"
+      TOPUP_TAXON: "${TOPUP_TAXON:-}"
+      TOPUP_IUCN: "${TOPUP_IUCN:-}"
+      TOPUP_LIMIT: "${TOPUP_LIMIT:-}"
 
       # LOG_LEVEL and LOG_RETENTION_DAYS are also deliberately NOT set — server/logger.js's
       # defaults (info, 7 days) are fine for this deployment. See docs/threat-model.md.
@@ -98,14 +128,10 @@ services:
 
     # Sized for a discovery run, not for the idle server (which sits around 45 MB).
     #
-    # It is tempting to set this low, because discovery cannot be *started from the host* — the
-    # privileged routes need a loopback peer and bridge NAT never gives one. That reasoning is a
-    # trap: from inside the container the peer really is loopback, so
-    # `docker compose exec web node -e "fetch('http://127.0.0.1:8080/api/discover', …)"` starts a
-    # run quite happily. Today it dies immediately because the taxa index is not in the image —
-    # but the moment anyone mounts that index (a checker service, slice 9), a run would fork a
-    # child that materialises 1.4M rows and spikes to ~650 MB. Under a 512m cap the kernel kills
-    # it, and `SIGKILL` is deliberately never reported as a cancel, so it surfaces as a mystery.
+    # A run forks a child that materialises 1.4M taxa rows and spikes to ~650 MB. Under a 512m
+    # cap the kernel kills it, and `SIGKILL` is deliberately never reported as a cancel, so it
+    # surfaces as a mystery. This was once set to 512m on the reasoning that discovery could not
+    # run in a container at all; it can, as soon as the taxa index is mounted.
     #
     # A limit caps, it does not reserve: costing nothing while unused is the whole point.
     mem_limit: 1500m
@@ -128,6 +154,46 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # The command-line tools, from the same image, for a host that has Docker and no Node:
+  #
+  #   docker compose run --rm cli checkImages.js --iucn CR --limit 500
+  #   docker compose run --rm cli verifyFindings.js
+  #   docker compose run --rm cli tools/backup.mjs
+  #
+  # Behind a profile, so `docker compose up` never starts it. This is the only thing that may
+  # build the taxa index (minutes, ~190 MB downloaded) — the first checker run does it, and `web`
+  # then finds it through its own read-only mount of the same directory. It shares data/ with the
+  # running server, which is the two-process case lib/db.js was written for.
+  #
+  # No Watchtower label: there is no long-running container to replace, and each `run` uses
+  # whatever image is current. No ports, no restart policy.
+  cli:
+    profiles: ["cli"]
+    build: .
+    image: ghcr.io/livia-rasp/wikidata-inat-checker:${WINC_TAG:-latest}
+    entrypoint: ["node"]
+    init: true
+    user: "${WINC_UID:-1000}:${WINC_GID:-1000}"
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # Every directory a checker writes (lib/paths.js), and the taxa index read-write. All of them
+    # must exist on the host first and belong to WINC_UID — see docs/deployment.md.
+    volumes:
+      - ${WINC_DATA:-./data}:/app/data
+      - ./output:/app/output
+      - ./cache:/app/cache
+      - ./backups:/app/backups
+      - ${WINC_TAXA:-./taxa-index}:/home/node/.cache/wikidata-inat-checker
+
+    environment:
+      FINDINGS_DB: /app/data/findings.db
+
+    # The same spike as a discovery run in `web`, plus the index build.
+    mem_limit: 1500m
+    memswap_limit: 1500m
 
   # Read-only MCP server over the logs `web` writes above — see docs/mcp-server.md. Its own
   # container rather than a route inside `web`: a log reader must not be able to affect the app

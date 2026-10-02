@@ -39,10 +39,11 @@ npm run record                              # re-record demo-{dark,light}.gif (n
 npm run backup                              # snapshot data/findings.db, prune old ones (see container.md)
 
 docker compose up --build                   # the server + the log-reading MCP server, in containers
+docker compose run --rm cli checkImages.js --limit 500   # any entry script, from the image (no Node on the host)
 
 cd mcp-server && npm test                   # the log-reading MCP server's own suite
 cd mcp-server && npm start                  # run it directly (needs LOG_DIR + MCP_AUTH_TOKEN)
-# see docs/container.md
+# see docs/container.md; the home server is docs/deployment.md
 ```
 
 **Changing anything under `web/` means re-running `npm run screenshots`** and committing the
@@ -80,7 +81,7 @@ Server environment variables and why each exists: [docs/threat-model.md](docs/th
 | Upload app | `web/` + `server/` | assisted iNat→Commons upload; the worklist, links, search and area pages | [commons-upload.md](docs/commons-upload.md) |
 | Server | `server/index.js` | serves `web/`, the findings API, the writes, search, discovery | [threat-model.md](docs/threat-model.md) |
 | Log-reading MCP server | `mcp-server/` | six read-only tools over `server/`'s rotated logs | [logging.md](docs/logging.md) · [mcp-server.md](docs/mcp-server.md) |
-| Container | `Dockerfile`, `compose.yaml` | the server in Docker; the published GHCR image | [container.md](docs/container.md) |
+| Container | `Dockerfile`, `compose.yaml` | the server and the checkers in Docker; the published GHCR image; the LAN deployment (`.env`) | [container.md](docs/container.md) · [deployment.md](docs/deployment.md) |
 
 ## Source layout
 
@@ -127,8 +128,9 @@ disposable, one is not:
 - **`data/findings.db` — NOT safe to delete.** The accumulated backlog and everything worked
   through, which nothing can reconstruct. See [images.md](docs/images.md).
 
-The ~236 MB iNat taxa index lives separately under `~/.cache/wikidata-inat-checker/`; it is
-derived, dropped and rebuilt, so never confuse it with `data/`.
+The ~236 MB iNat taxa index lives separately under `~/.cache/wikidata-inat-checker/` (in a
+container: `taxa-index/`, gitignored but for its `.gitkeep`); it is derived, dropped and rebuilt,
+so never confuse it with `data/`.
 
 ## Key Wikidata properties
 
@@ -167,7 +169,8 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   changing what gets logged, or adding a tool to `mcp-server/`.**
 - [`docs/build-plan.md`](docs/build-plan.md) — the slice ladder for the restructure around
   `data/findings.db`; each slice's plan and write-up is the vault's *Findings DB Roadmap*. Only 9b
-  (beta-tester access) remains, and OAuth is deliberately outside the plan. **Read the roadmap
+  (beta-tester access) remains, and OAuth is deliberately outside the plan. The deployment that
+  precedes it — one operator, LAN, plain http — is [`docs/deployment.md`](docs/deployment.md). **Read the roadmap
   before changing anything about caching, persistence, or the web app.**
 - [`docs/todo.md`](docs/todo.md) — known defects: a **CLI run killed outright stays `running`**
   (only the server reconciles). The other known gap, the **scheduled top-up retrying every

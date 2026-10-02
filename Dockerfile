@@ -42,8 +42,11 @@ COPY --chown=node:node . .
 # -wal and -shm beside it, and a read-only directory breaks WAL even for readers. /app/logs is
 # where server/logger.js's rotated files land — pino-roll's own mkdir:true would create it lazily,
 # but as root the first time the read_only root filesystem (compose.yaml) forces it to already
-# exist before the process starts.
-RUN mkdir -p /app/data /app/logs && chown node:node /app/data /app/logs
+# exist before the process starts. The rest are what the `cli` compose service mounts: the
+# checkers' output/ and cache/, backups/ for tools/backup.mjs, and the taxa index under HOME.
+RUN mkdir -p /app/data /app/logs /app/output /app/cache /app/backups \
+        /home/node/.cache/wikidata-inat-checker \
+    && chown -R node:node /app/data /app/logs /app/output /app/cache /app/backups /home/node/.cache
 USER node
 
 EXPOSE 8080

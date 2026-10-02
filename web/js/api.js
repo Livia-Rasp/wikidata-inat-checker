@@ -20,9 +20,14 @@ function httpError(res, payload) {
     return err;
 }
 
-/** @param {string} path */
+/**
+ * `x-requested-with` is what GET /api/discover/area requires in place of fetch metadata, which a
+ * browser does not send to a plain-http LAN origin (server/writeGuard.js). Sent on every read
+ * rather than on that one call, so a later budget-spending GET cannot forget it.
+ * @param {string} path
+ */
 export async function getJson(path) {
-    const res = await fetch(path, { cache: 'no-store' });
+    const res = await fetch(path, { cache: 'no-store', headers: { 'x-requested-with': 'fetch' } });
     let payload = null;
     try { payload = await res.json(); } catch { /* an empty or non-JSON error body */ }
     if (!res.ok) throw httpError(res, payload);

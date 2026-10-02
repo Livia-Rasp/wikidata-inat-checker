@@ -146,7 +146,33 @@ test('a same-origin GET /discover/area still succeeds', async (t) => {
     });
     const res = await app.inject({
         method: 'GET', url: '/api/discover/area?lat=1&lng=1&radius=1',
-        headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin' },
+        headers: { host: 'localhost:8080', 'sec-fetch-site': 'same-origin', 'x-requested-with': 'fetch' },
     });
     assert.equal(res.statusCode, 200);
+});
+
+test('GET /discover/area needs X-Requested-With, because plain http sends no fetch metadata', async (t) => {
+    // Served from a LAN address over http, the browser sends this route neither Sec-Fetch-Site
+    // (withheld from non-trustworthy URLs) nor Origin (not sent on a no-cors GET). A cross-site
+    // <img> therefore looks exactly like curl, and "neither header" must not be enough here.
+    const { app } = makeApp(t, {
+        discoverEnabled: true, dbFile: ':memory:', allowedHosts: ['192.0.2.10'],
+        fetchAreaSpeciesFn: async () => new Map(),
+        fetchAreaCandidatesFn: async function* () {},
+    });
+    const area = (headers) => app.inject({
+        method: 'GET', url: '/api/discover/area?lat=1&lng=1&radius=1',
+        headers: { host: '192.0.2.10:8080', ...headers },
+    });
+
+    const bare = await area({});
+    assert.equal(bare.statusCode, 403);
+    assert.equal(bare.json().reason, 'missing_request_header');
+
+    assert.equal((await area({ 'x-requested-with': 'fetch' })).statusCode, 200);
+
+    // The header is an extra requirement, not a pass: a cross-site caller that somehow sent it
+    // is still refused by the checks before it.
+    const crossSite = await area({ 'x-requested-with': 'fetch', origin: 'http://evil.example' });
+    assert.equal(crossSite.json().reason, 'cross_origin');
 });

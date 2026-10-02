@@ -43,7 +43,7 @@ filter.
 
 ## Streamable HTTP, not stdio
 
-Same reasoning as the reference. The app runs on the server-pc; the shell asking these questions
+Same reasoning as the reference. The app runs on the home server; the shell asking these questions
 may be on that same box today and a different LAN machine later. A stdio server assumes a shared
 filesystem and dies at that move — so: Streamable HTTP with a bearer token, the remote-default
 transport both the MCP spec and Claude Code expect. The same client config in `.mcp.json` works
@@ -57,7 +57,8 @@ message to deliver, so a session would only be state to leak and expire.
 
 `mcp-logs` in `compose.yaml`, built from `mcp-server/Dockerfile`, published to
 `ghcr.io/livia-rasp/wikidata-inat-checker-mcp` and redeployed by the same Watchtower as `web` — see
-[container.md](container.md). A route inside `server/app.js` would have been less infrastructure,
+[container.md](container.md), and [deployment.md](deployment.md) for its `.env` on the home server
+and the two variables a client machine sets to reach it. A route inside `server/app.js` would have been less infrastructure,
 and was rejected for the same two reasons the reference gives: a log reader must not be able to
 affect the app it observes, and the app's own origin must not also grow a tool-calling endpoint.
 The separation also makes the read-only contract enforceable from outside the code, via the `:ro`
