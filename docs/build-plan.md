@@ -21,7 +21,8 @@ Roadmap*); what the shipped code does is in [dev.md](dev.md). Unordered defects 
 8b  per-client skip scoping (pulled forward ahead of 9)                       ✅
 9a  deploy that container: the redeploy label and backups                     ✅
 10  discovery reachable from a deployed container                             ✅
-9b  beta-tester access: the port binding, `ALLOWED_HOSTS`, `TRUST_PROXY`    ← next
+11  a LAN deployment for one operator: `.env`, the `cli` service, the runbook ✅
+9b  beta-tester access: who gets in, and through what                       ← next
 ─── outside the ordered plan ───
     OAuth upload and direct editing — not scheduled, on purpose
 ```
@@ -36,12 +37,19 @@ Roadmap*); what the shipped code does is in [dev.md](dev.md). Unordered defects 
 - **9 split into 9a and 9b (2026-08-26).** What does not depend on how testers connect shipped; what
   does waits on that decision.
 
+- **11 ahead of 9b (2026-10-02).** Nothing had been used for real since the ladder began, and the
+  tester decision is easier to make from a running deployment than from a plan. So the
+  operator-only half went first: the port binding and `ALLOWED_HOSTS` became `.env` settings, the
+  image learned to run the checkers and the backup for a host without Node, and the one gap plain
+  http opens was closed. [deployment.md](deployment.md) is the runbook.
+
 ## 9b — beta-tester access
 
 **An open question, not yet a slice.** How testers reach the app — a VPN/Tailscale hop, an exposed
-instance behind an access-control layer, or per-tester SSH tunnels — decides the port binding,
-`ALLOWED_HOSTS` and `TRUST_PROXY`, which move together. Its decision rule gets written before any of
-it is built.
+instance behind an access-control layer, or per-tester SSH tunnels. Slice 11 took the mechanics
+out of it (the binding and `ALLOWED_HOSTS` are settings now), so what is left is the decision
+itself: who may reach an unauthenticated API, and whether an https origin and `TRUST_PROXY` come
+with the answer. Its decision rule gets written before any of it is built, and what the first
+weeks of slice 11's deployment show is an input to it.
 
-**Not in this slice:** OAuth, Toolforge, and getting the container onto the physical home server,
-which is a manual step outside any coding session.
+**Not in this slice:** OAuth and Toolforge.

@@ -30,10 +30,25 @@ arrive later behind OAuth.
   machine running it and not from the network. Moving that to `0.0.0.0:8080` publishes an
   unauthenticated API to the LAN, and is exactly the decision this variable exists to make
   deliberate.
-- **`ALLOWED_HOSTS` is deliberately unset in the container.** Reached as `localhost:8080`, the
-  `Host` header is a loopback name the write guard already accepts. It is needed only when a
-  reverse proxy puts a different name in front — and then `TRUST_PROXY` is needed too, or the rate
-  limiter buckets every client together.
+- **`ALLOWED_HOSTS` is empty in the container by default.** Reached as `localhost:8080`, the
+  `Host` header is a loopback name the write guard already accepts. It is needed as soon as the
+  host is reached under any other name. `TRUST_PROXY` is needed only when a reverse proxy goes in
+  front — without it the rate limiter would then bucket every client together.
+- **The home-server deployment makes that move, for one operator on the LAN**
+  ([deployment.md](deployment.md)). A gitignored `.env` sets `WINC_BIND=0.0.0.0` and
+  `WINC_ALLOWED_HOSTS` to the server's names; `compose.yaml` passes them on. The API stays
+  unauthenticated, so everyone on that network can read the backlog and change the worklist —
+  accepted for a home LAN with one user, and the thing slice 9b has to replace before anyone else
+  is let in. Three consequences:
+  - **No proxy, so no `TRUST_PROXY`.** Docker forwards a LAN client to a published port by
+    destination NAT, which keeps the client's source address; `req.ip` is the client and the rate
+    limiter buckets per machine. Seen so far only from the Docker host itself, whose requests to
+    its own LAN address logged that address and not the `172.x` bridge; a second machine is on
+    deployment.md's checklist, because rootless Docker and IPv6 both behave differently.
+  - **The port binding is the whole network boundary.** Docker writes its own firewall rules
+    ahead of ufw's, so a host firewall does not filter a published port.
+  - **Plain http is not a secure context**, which removes the header the write guard prefers —
+    see "What plain http takes away" below.
 - The knobs, all environment variables and never CLI arguments — arguments are world-readable
   through `ps`, which matters once tokens exist:
 
@@ -57,6 +72,10 @@ arrive later behind OAuth.
   | `DISCOVER_AREA_BUDGET_CAPACITY` | 120 | Token-bucket capacity for `GET /discover/area`. |
   | `DISCOVER_AREA_BUDGET_REFILL_PER_HOUR` | 5 | How fast that bucket refills. |
   | `SCREENSHOT_PORT` | 8099 | Only read by `tools/screenshots.mjs`, which starts its own server. |
+  | `WINC_BIND` | `127.0.0.1` | **Compose only.** Host address the port is published on. `0.0.0.0` serves the LAN. |
+  | `WINC_ALLOWED_HOSTS` | empty | **Compose only.** Becomes the container's `ALLOWED_HOSTS`. |
+  | `WINC_TAG` | `latest` | **Compose only.** Image tag; pinning one is the rollback, and stops Watchtower. |
+  | `WINC_TAXA` | `./taxa-index` | **Compose only.** Host directory holding the taxa index. |
   | `TOPUP_ENABLED` | unset | Enables the scheduled top-up (slice 5b) — also needs `DISCOVER_ENABLED`. |
   | `TOPUP_TAXON` / `TOPUP_IUCN` | unset | The scheduled top-up's one fixed scope. |
   | `TOPUP_LIMIT` | 500 | `limit` for each scheduled run. |
@@ -218,6 +237,30 @@ the server's own 30s `requestTimeout`, not for politeness. See
 spoofed `Host: evil.example` gets `403 host_not_allowed`; a same-origin request succeeds and
 correctly draws the bucket.
 
+### What plain http takes away
+
+Everything above about `Sec-Fetch-Site` holds for `http://localhost` and for https. It does not
+hold for `http://192.168.x.y:8080`. The Fetch Metadata specification has the browser attach
+those headers only to a *potentially trustworthy* URL, and a LAN address over plain http is not
+one — observed, not assumed: every request a headless Chromium made to the container on its LAN
+address arrived with no `Sec-Fetch-Site` at all.
+
+- **Writes are unaffected.** A browser sends `Origin` on every POST, same-origin or not, so the
+  guard's fallback (`Origin` must match `Host`) does the same job.
+- **`GET /discover/area` was not.** A same-origin GET carries no `Origin`, and neither does a
+  cross-site GET fired by an `<img>` or a no-cors `fetch`. Both look exactly like curl — "neither
+  header, so not a browser" — and the guard let them through. Any page open in a browser on the
+  LAN could have spent the area budget, bounded only by the bucket.
+- **Closed with a required `X-Requested-With` header on `costsBudget` GETs**
+  (`missing_request_header`). Markup and no-cors requests cannot set a custom header; a cors
+  `fetch` that sets one is preflighted, and this server answers no preflight. The app's own
+  `getJson` sends it on every read. A non-browser caller adds it by hand
+  (`curl -H 'X-Requested-With: curl'`), which costs nothing and proves nothing — it is not
+  authentication, only something a cross-site page cannot produce.
+
+The same missing secure context withholds the Clipboard API and `crypto.randomUUID`. The app has a
+fallback for each (`document.execCommand('copy')`, a `Math.random` client id), so nothing breaks.
+
 ### The scheduled top-up (slice 5b) — why it needs none of the above
 
 `server/scheduledTopup.js` calls `jobs.start()` directly, in the server process, never over HTTP.
@@ -271,8 +314,10 @@ this is a narrow, low-cost edge case rather than the expected path.
 Two things follow, and the second is a trap:
 
 - Filling the backlog for a containerised deployment is still a job for the CLI, because only the
-  CLI may build the taxa index — a run started inside the image fails in milliseconds with
-  `taxa_index_unavailable`, regardless of how it was triggered. **What changed in slice 10**: once
+  CLI may build the taxa index — a run the *server* starts without it fails in milliseconds with
+  `taxa_index_unavailable`, regardless of how it was triggered. On a host without Node the CLI is
+  the image's own `cli` compose service ([container.md](container.md)); the rule that an HTTP
+  request never sets off the 190 MB download is unchanged. **What changed in slice 10**: once
   the index *is* mounted, on-demand discovery (`POST /discover`) can now be triggered from anywhere
   the ordinary write guard admits, not only from inside the container's own network namespace — see
   the "Discovery budget" section above.

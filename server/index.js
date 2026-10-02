@@ -123,7 +123,7 @@ try {
     if (stale > 0) app.log.warn({ runs: stale }, 'marked interrupted runs from a previous process');
     app.log.info(
         {
-            discovery: discoverEnabled ? 'enabled (local only)' : 'disabled',
+            discovery: discoverEnabled ? 'enabled' : 'disabled',
             topup: topupConfig.enabled ? 'enabled' : 'disabled',
         },
         `serving web/ and /api from ${DB_FILE}`);

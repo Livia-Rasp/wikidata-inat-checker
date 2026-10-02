@@ -24,7 +24,8 @@
 // one thing that survives from that mechanism is `costsBudget` below — GET /discover/area still
 // needs *this* guard's protection even though GET is normally exempt, because unlike an ordinary
 // read it makes real outbound requests on every call. See docs/threat-model.md's "Discovery budget"
-// section.
+// section. Such a GET must also carry an `X-Requested-With` header, because over plain http the
+// fetch-metadata check has nothing to read (see the hook below).
 import fp from 'fastify-plugin';
 
 /** Hostnames a loopback deployment answers to. ALLOWED_HOSTS adds to this, it does not replace it. */
@@ -85,6 +86,18 @@ async function writeGuard(app, opts) {
             }
         }
         // Neither header: not a browser, so not a CSRF vector. Allowed on purpose.
+
+        // …except on a costsBudget GET, where "neither header" does not prove that. A browser
+        // sends Sec-Fetch-Site only to a potentially trustworthy URL, so a plain-http LAN
+        // deployment never receives it, and a GET fired by an <img> or a no-cors fetch carries no
+        // Origin either: a cross-site page would arrive here looking exactly like curl. A custom
+        // header is what such a request cannot have — markup and no-cors requests cannot set one,
+        // and a cors fetch that does is preflighted, which this server never answers. The value
+        // is irrelevant; a non-browser caller just adds the header.
+        if (SAFE_METHODS.has(req.method) && req.headers['x-requested-with'] === undefined) {
+            return reject(req, reply, 'missing_request_header',
+                'This route needs an X-Requested-With header');
+        }
 
         const type = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
         if (type && type !== 'application/json') {

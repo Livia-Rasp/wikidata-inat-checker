@@ -7,6 +7,10 @@ output/
 cache/
 # Findings database — durable state, NOT regenerable. Back it up; don't just delete it.
 data/
+# The iNat taxa index as the container sees it (compose.yaml's WINC_TAXA default) — derived,
+# ~430 MB with the download beside it. .gitkeep stays tracked, for the reason logs/.gitkeep does.
+taxa-index/*
+!taxa-index/.gitkeep
 # VACUUM INTO snapshots of data/ (tools/backup.mjs) — disposable, unlike data/ itself
 backups/
 

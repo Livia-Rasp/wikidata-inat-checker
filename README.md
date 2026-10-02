@@ -153,8 +153,9 @@ database. `docker compose up` also brings up a second, read-only container over 
 rotated logs — an MCP server exposing six log-query tools to Claude Code or any MCP client, so
 debugging a deployed instance doesn't mean reconstructing a `jq` pipeline from scratch each time.
 See [docs/logging.md](docs/logging.md) and [docs/mcp-server.md](docs/mcp-server.md). CI builds,
-starts and smoke-tests both images before publishing. Details, including what still needs the
-CLI: [docs/container.md](docs/container.md).
+starts and smoke-tests both images before publishing. Details, including the checkers run from
+the image: [docs/container.md](docs/container.md). Serving a LAN from a host with only Docker:
+[docs/deployment.md](docs/deployment.md).
 
 ## Project structure
 
@@ -179,7 +180,8 @@ Each tool has a page of its own, linked from the table above. Beyond those:
 | [threat-model.md](docs/threat-model.md) | What the server defends against and why: every header, limit and environment variable. A design record, not a disclosure policy. |
 | [logging.md](docs/logging.md) | What the server logs, and why — the dual stdout/rotated-file setup, correlation ids, `timed()` step tracing. |
 | [mcp-server.md](docs/mcp-server.md) | The standalone MCP server that reads those logs: its six tools, its own threat model. |
-| [container.md](docs/container.md) | Running the server (and the log-reading MCP server) in Docker, and what still needs the CLI. |
+| [container.md](docs/container.md) | Running the server (and the log-reading MCP server) in Docker, and the checkers from the same image. |
+| [deployment.md](docs/deployment.md) | The home-server runbook: first deployment, updates, rollback, restore, and what to check. |
 | [build-plan.md](docs/build-plan.md) · [todo.md](docs/todo.md) | The ordered slice ladder for the persistent-database restructure, and the known defects. |
 | [decisions.md](docs/decisions.md) | Repository-level decisions no other page records: the public image and its badge, what going public changed, logging, the style checks. |
 | [commons-upload.md](docs/commons-upload.md) | The upload app: what it does, how it fits together, and how to test it. |

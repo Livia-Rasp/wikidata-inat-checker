@@ -33,7 +33,12 @@ logs/
 # Not needed at runtime.
 docs/
 test/
-tools/
+# tools/ is repo maintenance, except the backup: a server with Docker and no Node runs it from
+# the image (the `cli` service in compose.yaml). `tools/*`, not `tools/` — an excluded directory
+# cannot have a file re-included from it.
+tools/*
+!tools/backup.mjs
+taxa-index/
 *.md
 .nvmrc
 jsconfig.json
