@@ -10,7 +10,7 @@ import { discoverNames } from './lib/discoverNames.js';
 import { generateNamesHTML } from './report/generateNamesHTML.js';
 import { parseArgs, parseIucnArg, parseLimit, parseSeed } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
-import { runMain } from './lib/cli.js';
+import { runMain, interruptibleRun } from './lib/cli.js';
 
 const DB_FILE = findingsDbPath();
 
@@ -55,12 +55,19 @@ async function run() {
     const taxaDb = await ensureTaxaDb();
     const store = openFindingsDb(DB_FILE);
     try {
-        await discoverNames({
-            store, taxaDb,
-            scope: { iucn: typeof args.iucn === 'string' ? args.iucn : null },
-            limit, seed, showAll,
-            onProgress: report,
-        });
+        const stop = interruptibleRun(store);
+        try {
+            await discoverNames({
+                store, taxaDb,
+                scope: { iucn: typeof args.iucn === 'string' ? args.iucn : null },
+                limit, seed, showAll,
+                onProgress: stop.track(report),
+                signal: stop.signal,
+            });
+        } finally {
+            stop.dispose();
+        }
+        if (stop.stopped) process.exitCode = 130;
 
         // Render the whole open backlog, not just this run — the point of the store.
         await renderNamesReport(store);

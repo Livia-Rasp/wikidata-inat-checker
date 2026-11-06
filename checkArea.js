@@ -11,7 +11,7 @@ import { openFindingsDb } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { parseArgs } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
-import { runMain, UsageError } from './lib/cli.js';
+import { runMain, UsageError, interruptibleRun } from './lib/cli.js';
 
 const DB_FILE = findingsDbPath();
 
@@ -71,7 +71,22 @@ async function run() {
             return;
         }
 
-        await discover({ store, taxaDb, scope: area, candidateSource: candidates, onProgress: report });
+        const stop = interruptibleRun(store);
+        try {
+            await discover({
+                store, taxaDb, scope: area, candidateSource: candidates,
+                onProgress: stop.track(report), signal: stop.signal,
+            });
+        } finally {
+            stop.dispose();
+        }
+        if (stop.stopped) {
+            // The area report is built from more iNat requests, not from the store — asked to
+            // stop, don't spend them.
+            process.exitCode = 130;
+            console.log('Stopped; the area report was not rendered. Recorded findings are kept.');
+            return;
+        }
 
         console.log('Fetching sample observations and latest dates...');
         const { obsMap, latestDateMap } = await fetchAreaEnrichment(

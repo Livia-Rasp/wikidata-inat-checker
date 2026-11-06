@@ -5,7 +5,7 @@ import { verifyOpenFindings } from './lib/verify.js';
 import { generateDraftsHTML } from './report/generateHTML.js';
 import { parseArgs, parseLimit } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
-import { runMain } from './lib/cli.js';
+import { runMain, interruptibleRun } from './lib/cli.js';
 
 const DB_FILE = findingsDbPath();
 
@@ -29,9 +29,23 @@ async function run() {
     }
 
     const runId = store.startRun('verify', { kind, limit });
+    // verifyOpenFindings() has no abort plumbing, so there is no graceful first stage: a signal
+    // marks this run interrupted and exits. The verdicts are written only after every entity has
+    // been fetched, so an interrupted verify records nothing — it is cheap to re-run.
+    const stop = interruptibleRun(store, { graceful: false });
+    stop.setRunId(runId);
     console.log(`Verifying ${limit ? Math.min(limit, openBefore) : openBefore} open ${kind} findings against Wikidata...`);
 
-    const result = await verifyOpenFindings(store, { kind, limit });
+    let result;
+    try {
+        result = await verifyOpenFindings(store, { kind, limit });
+    } catch (err) {
+        store.finishRun(runId, { scanned: 0, found: 0, state: 'failed', error: String(err?.code ?? 'run_failed') });
+        store.close();
+        throw err;
+    } finally {
+        stop.dispose();
+    }
 
     console.log(`Verified ${result.verified}: `
         + `${result.fixedUpstream.length} already fixed upstream, `

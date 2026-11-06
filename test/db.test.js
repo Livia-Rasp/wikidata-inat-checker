@@ -355,6 +355,22 @@ test('latestRunAt reports the last finished run, never an unfinished one', () =>
     assert.equal(store.latestRunAt(), finishedAt, 'an unfinished run must not look like fresh data');
 });
 
+test('interruptRun marks only its own running row, and never rewrites a finished one', () => {
+    const { store } = makeStore();
+    const mine = store.startRun('images', {});
+    const other = store.startRun('links', {}); // another process's live run in the same file
+
+    assert.equal(store.interruptRun(mine), 1);
+    assert.equal(store.latestRun('images').state, 'interrupted');
+    assert.ok(store.latestRun('images').finishedAt, 'an interrupted run is finished, not dangling');
+    assert.equal(store.latestRun('links').state, 'running', 'not a sweep: the other run is untouched');
+
+    // A second Ctrl-C landing after the graceful stop already recorded `cancelled`.
+    store.finishRun(other, { scanned: 1, found: 0, state: 'cancelled' });
+    assert.equal(store.interruptRun(other), 0);
+    assert.equal(store.latestRun('links').state, 'cancelled');
+});
+
 test('upsertTaxon does not blank existing fields with nulls', () => {
     const { store } = makeStore();
     store.upsertTaxon({ qid: 'Q1', inatId: '42', taxonName: 'Panthera onca', iucn: 'NT' });

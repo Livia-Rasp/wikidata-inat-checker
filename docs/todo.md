@@ -4,16 +4,16 @@ Known defects and small implementation work, unordered. The ordered plan is [bui
 
 ## Known: a CLI run killed outright stays `running` forever
 
-Raised 2026-08-19, by doing it. `startRun` inserts a row with `state = 'running'`, and `discover()`
+Raised 2026-08-19, by doing it. `startRun` inserts a row with `state = 'running'`, and each pipeline
 sets the terminal state from a `finally`, so an error or a cancel is recorded honestly — `failed`,
-`cancelled`, `done`. What bypasses that block is a signal: **Ctrl-C on a checker is enough**, since
-Node's default `SIGINT` terminates without unwinding pending async work, and `SIGKILL` obviously is.
-The row is then a permanent claim that a run is in progress.
+`cancelled`, `done`. What bypasses that block is a process that dies without unwinding.
 
-`store.reconcileRuns()` exists for exactly this and does the right thing — every `running` row
-becomes `interrupted`. It is called from **`server/index.js` at startup only**. So the gap is
-narrow and specific: someone who drives the CLI and never starts the server accumulates rows that
-lie about the present.
+**Ctrl-C and `SIGTERM` are handled since v1.10.1.** `interruptibleRun()` in `lib/cli.js` turns the
+first signal into a graceful `cancelled` and a second into `interrupted`, marking only the CLI's own
+row (see [dev.md](dev.md#discovery-libdiscoverjs-serverjobsjs)). **What remains is `SIGKILL`, the
+OOM killer, and power loss:** nothing runs, so the row is a permanent claim that a run is in
+progress. `store.reconcileRuns()` fixes it, but it is called only from **`server/index.js` at
+startup**, so someone who drives the CLI and never starts the server keeps those rows.
 
 **Cosmetic today, and worth knowing why**, because the reasons are what a fix must not break:
 
@@ -29,17 +29,10 @@ row alone a second process cannot tell "died" from "still going". Two processes 
 that is the whole reason `busy_timeout` and `BEGIN IMMEDIATE` are there — so any reconciliation has
 to prove the owner is gone, not assume it.
 
-What a real fix needs, roughly in order of cost:
-
-- **A cheap partial:** a `SIGINT`/`SIGTERM` handler in the CLI that marks *its own* run
-  interrupted before exiting. Covers Ctrl-C, which is the common case, and nothing else. The
-  discovery child already does the equivalent — it aborts on `SIGTERM` so the `finally` runs — so
-  this is the same pattern applied to the CLI entry points.
-- **The real fix:** record who owns a run (pid plus start time, or a heartbeat column the running
-  process touches) and reconcile only rows whose owner is provably gone. That is a schema change,
-  which is why it is not worth doing before something actually reads run history.
+**The real fix:** record who owns a run (pid plus start time, or a heartbeat column the running
+process touches) and reconcile only rows whose owner is provably gone. That is a schema change,
+which is why it is not worth doing before something actually reads run history.
 
 Related, and deliberately unfixed for the same reason: `reconcileRuns()` is a blunt sweep at
 startup, so two servers against one database would each interrupt the other's live runs. Today
 there is one server by construction.
-

@@ -235,6 +235,46 @@ test('cancelling keeps the work already done', async () => {
     assert.equal(countRows(store), 200, 'the completed batch survives a cancel');
 });
 
+/** Yields `rows`, aborting `controller` once the first row has been handed over. */
+async function* abortAfterFirst(rows, controller) {
+    for (const row of rows) {
+        yield row;
+        controller.abort();
+    }
+}
+
+test('cancelling during candidate collection records `cancelled` and spends no iNat budget', async () => {
+    const { store } = makeStore();
+    const controller = new AbortController();
+    const ids = ['41970', '42048', '999'];
+    let inatCalls = 0;
+    const result = await run(store, makeTaxaDb(), {
+        ids,
+        candidateSource: abortAfterFirst(candidates(ids), controller),
+        signal: controller.signal,
+        inatOptions: { fetchPage: async (ids) => { inatCalls++; return fakePage(new Set())(ids); }, rateLimit: noWait },
+    });
+    assert.equal(inatCalls, 0, 'a partial candidate list is not worth iNat requests');
+    assert.equal(result.cancelled, true);
+    assert.equal(store.latestRun('images').state, 'cancelled', 'not `done` with a partial candidate list');
+    assert.equal(countRows(store), 0);
+});
+
+test('cancelling is noticed even while every candidate is already known', async () => {
+    const { store } = makeStore();
+    for (const qid of ['Q41970', 'Q42048', 'Q999']) {
+        store.upsertTaxon({ qid });
+        store.recordFinding({ qid, kind: 'image', status: 'no_photos' });
+    }
+    const controller = new AbortController();
+    const ids = ['41970', '42048', '999'];
+    const result = await run(store, makeTaxaDb(), {
+        ids, candidateSource: abortAfterFirst(candidates(ids), controller), signal: controller.signal,
+    });
+    assert.equal(result.alreadyKnown, 1, 'stopped after the first row, not after the whole stream');
+    assert.equal(store.latestRun('images').state, 'cancelled');
+});
+
 test('the top-up trap: a taxon in any status is never re-offered', async () => {
     const { store } = makeStore();
     // Not just `open` — skipping only those would resurface everything deliberately passed over.

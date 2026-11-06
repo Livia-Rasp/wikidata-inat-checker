@@ -80,6 +80,23 @@ const FELID_CHAIN = [
     { qid: 'Qfamily', name: 'Felidae', rankQid: 'Q35409' },
 ];
 
+test('cancelling during candidate collection records `cancelled`, not `done`', async () => {
+    const { store } = makeStore();
+    const controller = new AbortController();
+    async function* source() {
+        yield* candidates([{ qid: 'Q1', taxonName: 'Panthera onca' }]);
+        controller.abort();
+        yield* candidates([{ qid: 'Q2', taxonName: 'Ambigua' }]);
+    }
+    const result = await discoverLinks({
+        store, taxaDb: makeTaxaDb(), candidateSource: source(), signal: controller.signal,
+        sparqlFn: async () => { throw new Error('Wikidata must not be asked'); },
+    });
+    assert.equal(result.cancelled, true);
+    assert.equal(result.scanned, 1);
+    assert.equal(store.latestRun('links').state, 'cancelled');
+});
+
 test('a name absent from the local index is recorded as no_match', async () => {
     const { store } = makeStore();
     const taxaDb = makeTaxaDb();
