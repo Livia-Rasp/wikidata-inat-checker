@@ -8,7 +8,7 @@ import { openFindingsDb, DEFAULT_RECHECK_DAYS } from './lib/db.js';
 import { ensureTaxaDb } from './lib/getInatTaxaDb.js';
 import { parseArgs, parseLimit, parseSeed } from './lib/utils.js';
 import { findingsDbPath } from './lib/paths.js';
-import { runMain } from './lib/cli.js';
+import { runMain, interruptibleRun } from './lib/cli.js';
 
 const DB_FILE = findingsDbPath();
 
@@ -58,18 +58,25 @@ async function run() {
     const taxaDb = await ensureTaxaDb();
     const store = openFindingsDb(DB_FILE);
     try {
-        await discover({
-            store,
-            taxaDb,
-            scope: {
-                taxon: typeof args.taxon === 'string' ? args.taxon : null,
-                iucn: typeof args.iucn === 'string' ? args.iucn : null,
-            },
-            limit,
-            recheckAfter: parseRecheckAfter(args),
-            seed,
-            onProgress: report,
-        });
+        const stop = interruptibleRun(store);
+        try {
+            await discover({
+                store,
+                taxaDb,
+                scope: {
+                    taxon: typeof args.taxon === 'string' ? args.taxon : null,
+                    iucn: typeof args.iucn === 'string' ? args.iucn : null,
+                },
+                limit,
+                recheckAfter: parseRecheckAfter(args),
+                seed,
+                onProgress: stop.track(report),
+                signal: stop.signal,
+            });
+        } finally {
+            stop.dispose();
+        }
+        if (stop.stopped) process.exitCode = 130;
 
         // Render the whole open backlog, not just this run — that is the point of the store.
         // Deliberately here and not in discover(): a server-triggered run has no business writing

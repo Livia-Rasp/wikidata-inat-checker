@@ -357,6 +357,17 @@ only thing that stops it outliving a parent that was killed outright — verifie
 `SIGKILL` is never reported as a cancel: the OOM killer sends the same signal, and a 650 MB child is
 a plausible target for it.
 
+**Ctrl-C on a CLI checker** goes through `interruptibleRun()` in `lib/cli.js`, in two stages like
+cancel-then-kill. The first `SIGINT`/`SIGTERM` aborts the pipeline's `signal`, so it stops at its
+next check and its own `finally` records `cancelled`. The checker still renders its report and exits
+130. A second signal marks the run `interrupted` (`store.interruptRun`, which touches only that one
+still-`running` row) and exits at once. The first stage can take a while, because an in-flight
+Wikidata POST or iNat batch finishes before the next check. Every pipeline checks the signal at the
+top of its candidate loop, so a stretch of already-known rows can't hide it. A stop during
+collection records `cancelled` and skips the iNat/Wikidata phase. `verifyFindings.js` has no abort
+plumbing, so its first signal goes straight to `interrupted`. A `SIGKILL` still leaves a `running`
+row — see [todo.md](todo.md).
+
 **One runner, dispatched by `config.tool`.** Slice 7 added `lib/discoverLinks.js` (a sibling to
 `lib/discover.js`, not a generalisation — see the links-checker section above) without adding a
 second job runner, and slice 8 added `lib/discoverNames.js` the same way: `server/discoverChild.js`

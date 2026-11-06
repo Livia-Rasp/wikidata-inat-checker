@@ -172,8 +172,8 @@ Rank/status QIDs and the `{{IUCN}}` logic: [dev.md](docs/dev.md#wikidata-qid-ref
   (beta-tester access) remains, and OAuth is deliberately outside the plan. The deployment that
   precedes it — one operator, LAN, plain http — is [`docs/deployment.md`](docs/deployment.md). **Read the roadmap
   before changing anything about caching, persistence, or the web app.**
-- [`docs/todo.md`](docs/todo.md) — known defects: a **CLI run killed outright stays `running`**
-  (only the server reconciles). The other known gap, the **scheduled top-up retrying every
+- [`docs/todo.md`](docs/todo.md) — known defects: a **CLI run `SIGKILL`ed stays `running`**
+  (Ctrl-C is handled; only the server reconciles the rest). The other known gap, the **scheduled top-up retrying every
   interval** when the taxa index is missing, is accepted and written up in `threat-model.md`.
 - The vault's *Commons Integration* — app-agnostic Commons/iNat/Wikidata recipes, the reference
   for building further Commons-upload tools.

@@ -16,7 +16,7 @@ import { generateLinksHTML } from './report/generateLinksHTML.js';
 import { generateAmbiguousHTML } from './report/generateAmbiguousHTML.js';
 import { sparql, qidFromUri, chunk, fetchWdAncestorChains, parseArgs, parseLimit, parseSeed } from './lib/utils.js';
 import { outputPath, ensureParentDir, findingsDbPath } from './lib/paths.js';
-import { runMain } from './lib/cli.js';
+import { runMain, interruptibleRun } from './lib/cli.js';
 
 const DB_FILE = findingsDbPath();
 
@@ -112,12 +112,19 @@ async function run() {
     const taxaDb = await ensureTaxaDb();
     const store = openFindingsDb(DB_FILE);
     try {
-        await discoverLinks({
-            store, taxaDb,
-            scope: { iucn: typeof args.iucn === 'string' ? args.iucn : null },
-            limit, seed, ambiguousOnly,
-            onProgress: report,
-        });
+        const stop = interruptibleRun(store);
+        try {
+            await discoverLinks({
+                store, taxaDb,
+                scope: { iucn: typeof args.iucn === 'string' ? args.iucn : null },
+                limit, seed, ambiguousOnly,
+                onProgress: stop.track(report),
+                signal: stop.signal,
+            });
+        } finally {
+            stop.dispose();
+        }
+        if (stop.stopped) process.exitCode = 130;
 
         if (autoMode && !ambiguousOnly) {
             const open = store.listFindings({ kind: 'link', status: 'open' });

@@ -54,6 +54,23 @@ function makeInatNamesStub(fixtures) {
     return async (inatIds) => new Map(inatIds.map((id) => [id, fixtures[id] ?? []]));
 }
 
+test('cancelling during candidate collection records `cancelled`, not `done`', async () => {
+    const { store } = makeStore();
+    const controller = new AbortController();
+    async function* source() {
+        yield* candidates([{ qid: 'Q1', inatId: '41970' }]);
+        controller.abort();
+        yield* candidates([{ qid: 'Q2', inatId: '999' }]);
+    }
+    const fail = async () => { throw new Error('must not be asked'); };
+    const result = await discoverNames({
+        store, taxaDb: makeTaxaDb(), candidateSource: source(), signal: controller.signal,
+        fetchEntitiesFn: fail, fetchInatNamesFn: fail,
+    });
+    assert.equal(result.cancelled, true);
+    assert.equal(store.latestRun('names').state, 'cancelled');
+});
+
 test('a taxon with zero P1843 gets every iNat vernacular name recorded as missing', async () => {
     const { store } = makeStore();
     const taxaDb = makeTaxaDb();
